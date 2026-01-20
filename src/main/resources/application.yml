@@ -1,0 +1,47 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: payment-sim
+
+  datasource:
+    url: jdbc:sqlite:./data/payment-sim.db
+    driver-class-name: org.sqlite.JDBC
+
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:db/schema.sql
+
+mybatis:
+  mapper-locations: classpath:mybatis/mapper/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+    # MyBatis 로그를 SLF4J로 흘려서 콘솔/파일 둘 다 남기기
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+
+# ===== Logging (콘솔 + 파일 동시, 개발용 상세) =====
+logging:
+  file:
+    name: ./logs/payment-sim.log   # 프로젝트 루트 기준 logs 폴더에 저장
+  level:
+    root: INFO
+
+    # 코드 로그(패키지명에 맞춰 조정)
+    com.chaeyoungmin.payment_sim: DEBUG
+
+    # MyBatis / SQL 로그
+    org.mybatis: DEBUG
+    org.apache.ibatis: DEBUG
+    java.sql: DEBUG
+    org.springframework.jdbc.core: DEBUG
+    org.springframework.jdbc.datasource: DEBUG
+
+    # (선택) 스키마 초기화 로그 보고 싶으면
+    org.springframework.jdbc.datasource.init: DEBUG
+
+  # 로그 포맷(콘솔/파일 동일하게)
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
