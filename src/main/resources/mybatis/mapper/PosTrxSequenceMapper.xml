@@ -4,5 +4,20 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
 <mapper namespace="com.chaeyeongmin.payment_sim.infra.mybatis.mapper.PosTrxSequenceMapper">
-    <!-- TODO: SQL 매핑 작성 -->
+    <!-- SQL 매핑 작성
+    [역할]
+    (store_cd, biz_date, pos_no) 복합키 기준으로 POS_TRX_SEQUENCE를 UPSERT 한다.
+    1) 해당 키가 없으면: seq=1로 INSERT
+    2) 해당 키가 있으면: seq = seq + 1 로 UPDATE
+    -> "증가된 seq"를 RETURNING으로 즉시 반환한다.
+    -->
+    <insert id="nextSeq">
+        INSERT INTO POS_TRX_SEQUENCE(store_cd, biz_date, pos_no, seq, updated_at)
+        VALUES (#{storeCd}, #{bizDate}, #{posNo}, 1, CURRENT_TIMESTAMP)
+        ON CONFLICT (store_cd, biz_date, pos_no)
+            DO UPDATE SET SEQ        = SEQ + 1,
+                          updated_at = CURRENT_TIMESTAMP
+        RETURNING SEQ;
+    </insert>
+
 </mapper>

@@ -4,7 +4,7 @@ public class PosTrxEotResponse {
     private String store_cd;
     private String biz_date;
     private String pos_no;
-    private String next_pos_trx;
+    private String next_pos_trx; // 전체 거래 번호 : 2301-20260122-9999-0012
 
     public PosTrxEotResponse() {
     }
