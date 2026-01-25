@@ -12,7 +12,7 @@ import jakarta.validation.constraints.Pattern;
 public class PosTrxEotRequest {
 
     @NotBlank(message = "storeCd는 필수입니다.")
-    @Pattern(regexp = "^\\d{4}$", message = "storeCd는 4자리 숫자여야 입니다.")
+    @Pattern(regexp = "^\\d{4}$", message = "storeCd는 4자리 숫자여야 합니다.")
     private String storeCd;
 
     @NotBlank(message = "bizDate는 필수입니다.")

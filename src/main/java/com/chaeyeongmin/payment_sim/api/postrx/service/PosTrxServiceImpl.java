@@ -77,7 +77,7 @@ public class PosTrxServiceImpl implements PosTrxService {
     }
 
     private boolean isNullOrBlank(String str) {
-        return str == null || str.isBlank() || str.isEmpty();
+        return str == null || str.isBlank();
     }
 
 }
