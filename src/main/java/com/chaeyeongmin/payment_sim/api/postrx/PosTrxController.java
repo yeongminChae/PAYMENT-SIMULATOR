@@ -6,6 +6,7 @@ import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxIssueRequest;
 import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxIssueResponse;
 import com.chaeyeongmin.payment_sim.api.postrx.service.PosTrxService;
 import com.chaeyeongmin.payment_sim.common.api.ApiResponse;
+import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -49,7 +50,7 @@ public class PosTrxController {
      * - EOT(End Of Transaction) 시점에 "다음 포스TR(거래번호)"를 발급하는 API.
      */
     @PostMapping("/eot")
-    public ApiResponse<PosTrxEotResponse> eot(@RequestBody PosTrxEotRequest request) {
+    public ApiResponse<PosTrxEotResponse> eot(@Valid @RequestBody PosTrxEotRequest request) {
 
         // 요청 로깅
         log.info("[EOT] req storeCd={} bizDate={} posNo={}",
