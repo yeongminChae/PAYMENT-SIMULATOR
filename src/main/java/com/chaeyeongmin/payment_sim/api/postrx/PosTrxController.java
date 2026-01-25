@@ -60,6 +60,6 @@ public class PosTrxController {
         // 응답 로깅
         log.info("[EOT] res nextPosTrx={}", res.getNextPosTrx());
 
-        return ApiResponse.ok(posTrxService.eot(request));
+        return ApiResponse.ok(res);
     }
 }
