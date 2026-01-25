@@ -11,13 +11,13 @@
     2) 해당 키가 있으면: seq = seq + 1 로 UPDATE
     -> "증가된 seq"를 RETURNING으로 즉시 반환한다.
     -->
-    <insert id="nextSeq">
+    <select id="nextSeq">
         INSERT INTO POS_TRX_SEQUENCE(store_cd, biz_date, pos_no, seq, updated_at)
         VALUES (#{storeCd}, #{bizDate}, #{posNo}, 1, CURRENT_TIMESTAMP)
         ON CONFLICT (store_cd, biz_date, pos_no)
             DO UPDATE SET SEQ        = SEQ + 1,
                           updated_at = CURRENT_TIMESTAMP
         RETURNING SEQ;
-    </insert>
+    </select>
 
 </mapper>

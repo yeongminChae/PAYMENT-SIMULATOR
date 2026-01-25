@@ -13,16 +13,17 @@ PRAGMA foreign_keys = ON;
 
 -- ---------------------------------------------------------------------
 -- 1) POS_TRX_SEQUENCE
--- 목적: 점포/영업일/포스번호 단위로 "거래일련(LAST_SEQ)"을 관리하여
+-- 목적: 점포/영업일/포스번호 단위로 "거래일련(SEQ)"을 관리하여
 --       포스TR(pos_trx) 발번에 사용한다.
 -- 핵심: UNIQUE(STORE_CD, BIZ_DATE, POS_NO)
+-- 수정 이력 : 20260123 Last-Seq -> SEQ로 칼럼명 변경
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS POS_TRX_SEQUENCE (
     SEQ_ID      INTEGER PRIMARY KEY AUTOINCREMENT,
     STORE_CD    TEXT    NOT NULL,              -- 점포코드(4자리 권장)
     BIZ_DATE    TEXT    NOT NULL,              -- 영업일자(YYYYMMDD)
     POS_NO      TEXT    NOT NULL,              -- 포스번호(4자리 권장)
-    LAST_SEQ    INTEGER NOT NULL,              -- 마지막 발번된 거래일련
+    SEQ    INTEGER NOT NULL,                   -- 마지막 발번된 거래일련
     UPDATED_AT  TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ','now')),
 
     UNIQUE (STORE_CD, BIZ_DATE, POS_NO)
