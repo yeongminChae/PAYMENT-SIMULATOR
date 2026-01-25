@@ -5,6 +5,7 @@ import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxEotResponse;
 import com.chaeyeongmin.payment_sim.api.postrx.service.PosTrxService;
 import com.chaeyeongmin.payment_sim.api.postrx.service.PosTrxServiceImpl;
 import com.chaeyeongmin.payment_sim.infra.repository.PosTrxSequenceRepository;
+
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
