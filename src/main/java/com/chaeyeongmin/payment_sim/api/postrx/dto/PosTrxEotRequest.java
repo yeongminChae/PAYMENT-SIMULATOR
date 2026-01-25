@@ -1,5 +1,8 @@
 package com.chaeyeongmin.payment_sim.api.postrx.dto;
 
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+
 /**
  * [DTO]
  * EOT 요청 DTO
@@ -8,8 +11,16 @@ package com.chaeyeongmin.payment_sim.api.postrx.dto;
  */
 public class PosTrxEotRequest {
 
+    @NotBlank(message = "storeCd는 필수입니다.")
+    @Pattern(regexp = "^\\d{4}$", message = "storeCd는 4자리 숫자여야 입니다.")
     private String storeCd;
+
+    @NotBlank(message = "bizDate는 필수입니다.")
+    @Pattern(regexp = "^\\d{8}$", message = "bizDate는 yyyymmdd 8자리여야 합니다.")
     private String bizDate;
+
+    @NotBlank(message = "posNo는 필수입니다.")
+    @Pattern(regexp = "^\\d{4}$", message = "posNo는 4자리 숫자여야 합니다.")
     private String posNo;
     private String posTrx;   // optional, 전체 거래 번호 : 2301-20260122-9999-0012
 
