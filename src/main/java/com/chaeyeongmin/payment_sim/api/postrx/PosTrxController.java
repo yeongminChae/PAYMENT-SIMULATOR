@@ -6,6 +6,7 @@ import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxIssueRequest;
 import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxIssueResponse;
 import com.chaeyeongmin.payment_sim.api.postrx.service.PosTrxService;
 import com.chaeyeongmin.payment_sim.common.api.ApiResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/v1/pos-trx")
+@Slf4j
 public class PosTrxController {
 
     private final PosTrxService posTrxService;
@@ -48,6 +50,16 @@ public class PosTrxController {
      */
     @PostMapping("/eot")
     public ApiResponse<PosTrxEotResponse> eot(@RequestBody PosTrxEotRequest request) {
+
+        // 요청 로깅
+        log.info("[EOT] req storeCd={} bizDate={} posNo={}",
+                request.getStoreCd(), request.getBizDate(), request.getPosNo());
+
+        PosTrxEotResponse res = posTrxService.eot(request);
+
+        // 응답 로깅
+        log.info("[EOT] res nextPosTrx={}", res.getNextPosTrx());
+
         return ApiResponse.ok(posTrxService.eot(request));
     }
 }
