@@ -5,6 +5,7 @@ import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxEotResponse;
 import com.chaeyeongmin.payment_sim.api.postrx.service.PosTrxService;
 import com.chaeyeongmin.payment_sim.api.postrx.service.PosTrxServiceImpl;
 import com.chaeyeongmin.payment_sim.infra.repository.PosTrxSequenceRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,6 +20,8 @@ import static org.mockito.Mockito.*;
  * - 대상: PosTrxServiceImpl.eot()
  * - 범위: Mockito로 Repository를 Mock 처리하여 서비스 로직만 검증한다.
  */
+
+@Slf4j
 class PosTrxServiceImplTest {
 
     // UT-도메인-기능-일련번호
@@ -59,7 +62,7 @@ class PosTrxServiceImplTest {
         PosTrxEotResponse res = service.eot(req);
 
         // then
-        assertEquals("2301-20260121-9999-0022", res.getNext_pos_trx());
+        assertEquals("2301-20260121-9999-0022", res.getNextPosTrx());
         verify(repo, times(1)).nextSeq("2301", "20260121", "9999");
     }
 

@@ -42,15 +42,15 @@ public class PosTrxServiceImpl implements PosTrxService {
     public PosTrxEotResponse eot(PosTrxEotRequest request) {
         // TODO: 다음 pos_trx 발급(EOT)
         long nextSeq = posTrxSequenceRepository.nextSeq(
-                request.getStore_cd(),
-                request.getBiz_date(),
-                request.getPos_no()
+                request.getStoreCd(),
+                request.getBizDate(),
+                request.getPosNo()
         );
 
         return new PosTrxEotResponse(
-                request.getStore_cd(),
-                request.getBiz_date(),
-                request.getPos_no(),
+                request.getStoreCd(),
+                request.getBizDate(),
+                request.getPosNo(),
                 getNextTran(request, nextSeq)
         );
     }
@@ -58,9 +58,9 @@ public class PosTrxServiceImpl implements PosTrxService {
     // 최종 포스 TR 제작 메소드
     private String getNextTran(PosTrxEotRequest request, Long nextSeq) {
         return String.format("%s-%s-%s-%04d",
-                request.getStore_cd(),
-                request.getBiz_date(),
-                request.getPos_no(),
+                request.getStoreCd(),
+                request.getBizDate(),
+                request.getPosNo(),
                 nextSeq);
     }
 

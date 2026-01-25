@@ -8,59 +8,59 @@ package com.chaeyeongmin.payment_sim.api.postrx.dto;
  */
 public class PosTrxEotRequest {
 
-    private String pos_trx;   // optional
-    private String store_cd;
-    private String biz_date;
-    private String pos_no;
+    private String storeCd;
+    private String bizDate;
+    private String posNo;
+    private String posTrx;   // optional, 전체 거래 번호 : 2301-20260122-9999-0012
 
     // JSON 역직렬화(Jackson) 용 기본 생성자
     public PosTrxEotRequest() {
     }
 
     // 테스트/내부 코드 편의용 생성자 (pos_trx 없이)
-    public PosTrxEotRequest(String store_cd, String biz_date, String pos_no) {
-        this.store_cd = store_cd;
-        this.biz_date = biz_date;
-        this.pos_no = pos_no;
+    public PosTrxEotRequest(String storeCd, String bizDate, String posNo) {
+        this.storeCd = storeCd;
+        this.bizDate = bizDate;
+        this.posNo = posNo;
     }
 
     // (선택) pos_trx까지 포함한 생성자 - 필요할 때만 쓰기
-    public PosTrxEotRequest(String pos_trx, String store_cd, String biz_date, String pos_no) {
-        this.pos_trx = pos_trx;
-        this.store_cd = store_cd;
-        this.biz_date = biz_date;
-        this.pos_no = pos_no;
+    public PosTrxEotRequest(String posTrx, String storeCd, String bizDate, String posNo) {
+        this.posTrx = posTrx;
+        this.storeCd = storeCd;
+        this.bizDate = bizDate;
+        this.posNo = posNo;
     }
 
-    public String getPos_trx() {
-        return pos_trx;
+    public String getPosTrx() {
+        return posTrx;
     }
 
-    public void setPos_trx(String pos_trx) {
-        this.pos_trx = pos_trx;
+    public void setPosTrx(String posTrx) {
+        this.posTrx = posTrx;
     }
 
-    public String getStore_cd() {
-        return store_cd;
+    public String getStoreCd() {
+        return storeCd;
     }
 
-    public void setStore_cd(String store_cd) {
-        this.store_cd = store_cd;
+    public void setStoreCd(String storeCd) {
+        this.storeCd = storeCd;
     }
 
-    public String getBiz_date() {
-        return biz_date;
+    public String getBizDate() {
+        return bizDate;
     }
 
-    public void setBiz_date(String biz_date) {
-        this.biz_date = biz_date;
+    public void setBizDate(String bizDate) {
+        this.bizDate = bizDate;
     }
 
-    public String getPos_no() {
-        return pos_no;
+    public String getPosNo() {
+        return posNo;
     }
 
-    public void setPos_no(String pos_no) {
-        this.pos_no = pos_no;
+    public void setPosNo(String posNo) {
+        this.posNo = posNo;
     }
 }
