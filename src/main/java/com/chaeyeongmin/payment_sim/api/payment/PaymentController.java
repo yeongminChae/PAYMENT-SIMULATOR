@@ -5,6 +5,7 @@ import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentInquiryService;
 import com.chaeyeongmin.payment_sim.common.api.ApiResponse;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -27,20 +28,13 @@ import org.springframework.web.bind.annotation.RestController;
  */
 
 @RestController
+@RequiredArgsConstructor
 @RequestMapping("/api/v1/payments")
 public class PaymentController {
 
     private final PaymentApprovalService approvalService;
     private final PaymentInquiryService inquiryService;
     private final PaymentCancelService cancelService;
-
-    public PaymentController(PaymentApprovalService approvalService,
-                             PaymentInquiryService inquiryService,
-                             PaymentCancelService cancelService) {
-        this.approvalService = approvalService;
-        this.inquiryService = inquiryService;
-        this.cancelService = cancelService;
-    }
 
     @PostMapping("/approve")
     public ApiResponse<ApproveResponse> approve(@RequestBody ApproveRequest request) {
