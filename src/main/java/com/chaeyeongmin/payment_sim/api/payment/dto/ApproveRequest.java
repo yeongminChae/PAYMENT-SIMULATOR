@@ -1,6 +1,11 @@
 package com.chaeyeongmin.payment_sim.api.payment.dto;
 
 import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Positive;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -27,14 +32,32 @@ import lombok.Setter;
 
 /*
   // Jackson (@RequestBody / JSON 바인딩)
-  // 요청 DTO는 setter 있는 게 제일 안 꼬임
+  // 요청 DTO는 setter 있어야 편집 하기에 쉬우므로 추가
 */
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 public class ApproveRequest {
+
+    /**
+     * [DTO] 승인 요청
+     * - posTrx : 대상 거래번호(포스TR). 예) 2376-20260118-9991-0023
+     * - amount : 승인 금액(0 초과)
+     * - card   : 카드 입력(검증 목적). PAN 원문 저장/로그 금지
+     */
+    @NotBlank(message = "posTrx는 필수입니다.")
+    @Pattern(
+            regexp = "^\\d{4}-\\d{8}-\\d{4}-\\d{4}$",
+            message = "posTrx 형식이 올바르지 않습니다. (예: 2376-20260118-9991-0023)"
+    )
     private String posTrx;
+
+    @Positive(message = "amount는 0보다 커야 합니다.")
     private int amount;
+
+    @NotNull(message = "card는 필수입니다.")
+    @Valid // 중첩 객체(CardInput) 검증 활성화
     private CardInput card;
+
 }

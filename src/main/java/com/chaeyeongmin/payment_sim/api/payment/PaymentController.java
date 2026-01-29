@@ -5,7 +5,9 @@ import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentInquiryService;
 import com.chaeyeongmin.payment_sim.common.api.ApiResponse;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -29,6 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequiredArgsConstructor
+@Slf4j
 @RequestMapping("/api/v1/payments")
 public class PaymentController {
 
@@ -37,8 +40,19 @@ public class PaymentController {
     private final PaymentCancelService cancelService;
 
     @PostMapping("/approve")
-    public ApiResponse<ApproveResponse> approve(@RequestBody ApproveRequest request) {
-        return approvalService.approve(request);
+    public ApiResponse<ApproveResponse> approve(@Valid @RequestBody ApproveRequest request) {
+
+        // 요청 로깅
+        log.info("[APPROVE] req PosTrX={} Card={} Amount={}",
+                request.getPosTrx(), request.getCard(), request.getAmount());
+
+        ApproveResponse res = approvalService.approve(request);
+
+        // 응답 로깅
+        log.info("[APPROVE] res posTrx={}, attemptSeq={}, approvalNo={}, declineCode={}, cardSummary={}"
+                , res.getPosTrx(), res.getAttemptSeq(), res.getApprovalNo(), res.getDeclineCode(), res.getCardSummary());
+
+        return ApiResponse.ok(res);
     }
 
     @PostMapping("/inquiry")

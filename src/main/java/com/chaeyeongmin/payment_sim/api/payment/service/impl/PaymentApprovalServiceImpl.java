@@ -2,8 +2,10 @@ package com.chaeyeongmin.payment_sim.api.payment.service.impl;
 
 import com.chaeyeongmin.payment_sim.api.payment.dto.ApproveRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.ApproveResponse;
-import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
+import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveRequestValidator;
+import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 /**
@@ -20,59 +22,20 @@ import org.springframework.stereotype.Service;
  * - INVALID는 “DB/VAN을 타지 않고” 즉시 종료되어야 하므로 validate()에서 예외로 끊는 방식을 권장한다.
  */
 @Service
+@RequiredArgsConstructor
 public class PaymentApprovalServiceImpl implements PaymentApprovalService {
 
-    /**
-     * [Use Case Entry]
-     * 승인 요청을 처리하는 메인 엔트리 포인트.
-     * attempt_seq는 클라이언트가 보내지 않으며, 서버가 발급/관리한다.
-     * 특정 posTrx에 대해 “다음 attempt_seq”를 발급받고, attempt row를 DB에 저장한다.
-     */
+    private final PaymentAttemptRepository paymentAttemptRepository;
+    private final ApproveRequestValidator validator;
+
     @Override
     public ApproveResponse approve(ApproveRequest request) {
 
-        // 승인 요청 유효성 검증 묶음
-        validate(request);
+        // A2: 요청 유효성 검증 (실패 시 예외)
+        validator.validate(request);
 
+        // TODO A3: attempt 확보/저장
         return new ApproveResponse();
-    }
-
-    /*
-    - **검증**(MVP 최소)
-    - 거래번호/attempt_seq/금액/결제수단 필수값 존재
-    - 금액 > 0
-    - 카드 기본 유효성(길이/숫자/Luhn 등) 및 BIN 매핑 존재 여부
-    - 실패 시 **A2-F → INVALID 응답**(외부 호출/DB 확정 저장 없이 종료)
-     */
-    private String validate(ApproveRequest request) {
-        return isValidate(request) ? "VALID" : "INVALID"; // 값 추후 공통 상수로 처리
-    }
-
-    // 승인 인풋 유효성 검사, 전부 참이어야 참을 리턴함
-    private boolean isValidate(ApproveRequest request) {
-        return request != null
-                && isNotNullOrBlank(request.getPosTrx())
-                && isNotNullOrZero(request.getAmount())
-                && isValidCard(request);
-    }
-
-    // 카드 유효성 검사
-    private boolean isValidCard(ApproveRequest request) {
-        if (request.getCard() == null) return false;
-
-        CardInput card = request.getCard();
-        String pan = card.getPan();
-        String expiryYyMm = card.getExpiryYyMm();
-
-        return card.validate(pan, expiryYyMm);
-    }
-
-    private boolean isNotNullOrBlank(String str) {
-        return str != null && str.isBlank() == false;
-    }
-
-    private boolean isNotNullOrZero(Integer amt) {
-        return amt != null && amt > 0;
     }
 
 }
