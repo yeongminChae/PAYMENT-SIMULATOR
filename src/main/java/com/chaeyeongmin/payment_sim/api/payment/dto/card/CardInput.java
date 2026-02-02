@@ -28,11 +28,11 @@ import lombok.Setter;
 public class CardInput {
 
     @NotBlank(message = "pan은 필수입니다.")
-    @Pattern(regexp = "^\\d{13,19}$", message = "pan은 13~19자리 숫자여야 합니다.")
+    @Pattern(regexp = "^\\d{16}$", message = "pan은 16자리 숫자여야 합니다.")
     private String pan;
 
     @NotBlank(message = "expiryYyMm은 필수입니다.")
     @Pattern(regexp = "^\\d{4}$", message = "expiryYyMm은 YYMM 4자리 숫자여야 합니다.")
     private String expiryYyMm;
-    
+
 }

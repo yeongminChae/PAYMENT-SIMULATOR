@@ -10,15 +10,29 @@ import java.time.LocalDate;
 public class ApproveRequestValidator {
 
     public void validate(ApproveRequest request) {
-        if (isValid(request) == false)
-            throw new IllegalArgumentException("INVALID"); // 나중에 BusinessException으로 교체
+        ApproveValidationError error = validateAndGetError(request);
+
+        if (error != null) {
+            // 나중에 BusinessException(error.code()) 같은 형태로 교체하기 좋음
+            throw new IllegalArgumentException(error.code());
+        }
+
     }
 
-    private boolean isValid(ApproveRequest request) {
-        return request != null
-                && isNotNullOrBlank(request.getPosTrx())
-                && request.getAmount() > 0
-                && isValidCard(request.getCard());
+    private ApproveValidationError validateAndGetError(ApproveRequest request) {
+
+        if (request == null) return ApproveValidationError.INVALID_REQUEST;
+
+        if (isNotNullOrBlank(request.getPosTrx()) == false)
+            return ApproveValidationError.INVALID_POS_TRX;
+
+        if (request.getAmount() <= 0)
+            return ApproveValidationError.INVALID_AMOUNT;
+
+        if (isValidCard(request.getCard()) == false)
+            return ApproveValidationError.INVALID_CARD;
+
+        return null; // OK
     }
 
     private boolean isNotNullOrBlank(String str) {
