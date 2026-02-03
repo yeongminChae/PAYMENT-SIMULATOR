@@ -14,7 +14,7 @@ import lombok.Setter;
  * - 승인 요청에서 카드 유효성 검증 및 VAN 시뮬레이터 룰 판단을 위해 사용
  * <p>
  * 필드:
- * - pan        : 13~19자리 숫자 + Luhn 체크 대상 (민감정보)
+ * - pan        : pan은 16자리 숫자 + Luhn 체크 대상 (민감정보)
  * - expiryYyMm : YYMM (예: 2601)
  * <p>
  * 보안:
