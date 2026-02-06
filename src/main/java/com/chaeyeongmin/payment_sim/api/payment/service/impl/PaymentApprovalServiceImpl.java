@@ -35,6 +35,9 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         validator.validate(request);
 
         // TODO A3: attempt 확보/저장
+        String trx = request.getPosTrx();
+        int attempt = paymentAttemptRepository.insertAttemptSeq(trx);
+
         return new ApproveResponse();
     }
 
