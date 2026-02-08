@@ -30,27 +30,44 @@
       - UNIQUE(POS_TRX, ATTEMPT_SEQ) 위반 시 예외로 "중복 시도"를 감지한다.
     -->
     <insert id="insertAttempt">
-        INSERT INTO PAYMENT_ATTEMPT (
-            POS_TRX,
-            ATTEMPT_SEQ,
-            AMOUNT,
-            CARD_BIN,
-            CARD_LAST4,
-            CARD_BRAND,
-            CREATED_AT,
-            UPDATED_AT
-        )
-        VALUES (
-                   #{attempt.posTrx},
-                   #{attempt.attemptSeq},
-                   #{attempt.amount},
-                   #{attempt.cardBin},
-                   #{attempt.cardLast4},
-                   #{attempt.cardBrand},
-                   #{attempt.createdAt},
-                   CURRENT_TIMESTAMP
-               );
+        INSERT INTO PAYMENT_ATTEMPT (POS_TRX,
+                                     ATTEMPT_SEQ,
+                                     AMOUNT,
+                                     CARD_BIN,
+                                     CARD_LAST4,
+                                     CARD_BRAND,
+                                     CREATED_AT,
+                                     UPDATED_AT)
+        VALUES (#{attempt.posTrx},
+                #{attempt.attemptSeq},
+                #{attempt.amount},
+                #{attempt.cardBin},
+                #{attempt.cardLast4},
+                #{attempt.cardBrand},
+                #{attempt.createdAt},
+                CURRENT_TIMESTAMP);
     </insert>
+
+    <!--
+        [findLatestByPosTrx]
+        - 특정 posTrx(거래번호/포스TR)에 대한 "현재 저장된 최신 처리 상태"를 조회한다.
+        → 동일 posTrx로 attempt가 여러 건 쌓일 수 있으니
+        "최신 1건"이 보장되지 않으므로 반드시 정렬 + 1건 제한을 추가해야 한다.
+    -->
+    <select id="findLatestByPosTrx" resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt">
+        SELECT A.FINAL_STATUS,
+               A.APPROVAL_NO,
+               A.DECLINE_CODE,
+               A.CARD_BIN,
+               A.CARD_LAST4,
+               A.ATTEMPT_SEQ,
+               A.amount
+        from PAYMENT_ATTEMPT A
+        WHERE 1 = 1
+          AND A.POS_TRX = #{posTrx}
+        ORDER BY A.ATTEMPT_SEQ DESC
+        LIMIT 1
+    </select>
 
 
 </mapper>

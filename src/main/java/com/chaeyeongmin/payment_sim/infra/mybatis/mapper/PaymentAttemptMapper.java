@@ -1,8 +1,11 @@
 package com.chaeyeongmin.payment_sim.infra.mybatis.mapper;
 
+import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptInsertParam;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+
+import java.util.Optional;
 
 /**
  * [MyBatis Mapper]
@@ -33,5 +36,18 @@ public interface PaymentAttemptMapper {
      * - (POS_TRX, ATTEMPT_SEQ) UNIQUE 위반 시 예외로 중복 시도를 감지한다.
      */
     void insertAttempt(@Param("attempt") AttemptInsertParam attempt);
+
+    /**
+     * 특정 posTrx(거래번호/포스TR)에 대한 결제 시도 상태를 조회한다. (A4 분기용)
+     * <p>
+     * 반환:
+     * - Optional.empty() : 해당 posTrx로 저장된 attempt row가 아직 없음 (첫 승인 시도 전)
+     * - Optional.of(...) : attempt row가 존재함
+     * - finalStatus == null : 처리중 → A10(RETRY_LATER)
+     * - finalStatus != null : 확정 → A9(결과 재응답)
+     *
+     * @return PaymentAttempt
+     */
+    Optional<PaymentAttempt> findLatestByPosTrx(@Param("posTrx") String posTrx);
 
 }

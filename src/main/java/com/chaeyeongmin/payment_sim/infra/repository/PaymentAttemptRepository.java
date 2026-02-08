@@ -1,6 +1,9 @@
 package com.chaeyeongmin.payment_sim.infra.repository;
 
+import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptInsertParam;
+
+import java.util.Optional;
 
 /**
  * [Repository 역할]
@@ -24,5 +27,14 @@ public interface PaymentAttemptRepository {
      * - (POS_TRX, ATTEMPT_SEQ) UNIQUE 위반 시 예외로 중복 시도를 감지한다.
      */
     void insertAttempt(AttemptInsertParam attempt);
+
+    /**
+     * 결제 시도(PAYMENT_ATTEMPT) 조회 메소드. (A4 분기용)
+     * - Service는 MyBatis/SQL 세부 구현을 몰라도 "posTrx 기준 상태 조회"만 호출하면 된다.
+     * 반환 :
+     * - Optional.empty() : 해당 posTrx에 대한 attempt 레코드가 없음 → A3 신규 생성 대상
+     * - Optional.of(...) : 해당 posTrx에 대한 attempt 레코드가 있음 → A4 분기 대상
+     */
+    Optional<PaymentAttempt> findLatestByPosTrx(String posTrx);
 
 }
