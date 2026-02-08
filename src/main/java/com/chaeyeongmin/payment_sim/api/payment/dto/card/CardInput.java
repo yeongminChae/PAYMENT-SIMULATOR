@@ -35,4 +35,14 @@ public class CardInput {
     @Pattern(regexp = "^\\d{4}$", message = "expiryYyMm은 YYMM 4자리 숫자여야 합니다.")
     private String expiryYyMm;
 
+    /** BIN(앞 8자리). PAN은 @Pattern으로 16자리 숫자 보장된 상태에서 사용 */
+    public String bin8() {
+        return pan.substring(0, 8);
+    }
+
+    /** 마지막 4자리 */
+    public String last4() {
+        return pan.substring(pan.length() - 4);
+    }
+
 }

@@ -2,11 +2,15 @@ package com.chaeyeongmin.payment_sim.api.payment.service.impl;
 
 import com.chaeyeongmin.payment_sim.api.payment.dto.ApproveRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.ApproveResponse;
+import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveRequestValidator;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptInsertParam;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
 
 /**
  * [Service]
@@ -34,9 +38,22 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         // A2: 요청 유효성 검증 (실패 시 예외)
         validator.validate(request);
 
-        // TODO A3: attempt 확보/저장
+        // A3: attempt 확보
         String trx = request.getPosTrx();
-        int attempt = paymentAttemptRepository.insertAttemptSeq(trx);
+        int attemptSeq = paymentAttemptRepository.insertAttemptSeq(trx);
+
+        // A3: attempt 저장
+        CardInput card = request.getCard();
+
+        paymentAttemptRepository.insertAttempt(new AttemptInsertParam(
+                trx,
+                attemptSeq,
+                request.getAmount(),
+                card.bin8(),
+                card.last4(),
+                null, // TODO : [20260206] 카드브랜드 우선은 null로
+                LocalDateTime.now()
+        ));
 
         return new ApproveResponse();
     }

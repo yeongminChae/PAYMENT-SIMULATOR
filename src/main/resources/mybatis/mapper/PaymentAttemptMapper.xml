@@ -29,25 +29,27 @@
       - 승인 시도 정본(PAYMENT_ATTEMPT) 저장
       - UNIQUE(POS_TRX, ATTEMPT_SEQ) 위반 시 예외로 "중복 시도"를 감지한다.
     -->
-    <insert id="insertAttempt" parameterType="com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptInsertParam">
-        INSERT INTO PAYMENT_ATTEMPT (POS_TRX,
-                                     ATTEMPT_SEQ,
-                                     AMOUNT,
-                                     CARD_BIN,
-                                     CARD_LAST4,
-                                     CARD_BRAND,
-                                     REQUEST_ID,
-                                     CREATED_AT,
-                                     UPDATED_AT)
-        VALUES (#{attempt.posTrx},
-                #{attempt.attemptSeq},
-                #{attempt.amount},
-                #{attempt.cardBin},
-                #{attempt.cardLast4},
-                #{attempt.cardBrand},
-                #{attempt.requestId},
-                #{attempt.createdAt},
-                #{attempt.createdAt});
+    <insert id="insertAttempt">
+        INSERT INTO PAYMENT_ATTEMPT (
+            POS_TRX,
+            ATTEMPT_SEQ,
+            AMOUNT,
+            CARD_BIN,
+            CARD_LAST4,
+            CARD_BRAND,
+            CREATED_AT,
+            UPDATED_AT
+        )
+        VALUES (
+                   #{attempt.posTrx},
+                   #{attempt.attemptSeq},
+                   #{attempt.amount},
+                   #{attempt.cardBin},
+                   #{attempt.cardLast4},
+                   #{attempt.cardBrand},
+                   #{attempt.createdAt},
+                   CURRENT_TIMESTAMP
+               );
     </insert>
 
 
