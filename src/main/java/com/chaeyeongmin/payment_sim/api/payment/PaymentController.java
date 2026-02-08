@@ -50,7 +50,7 @@ public class PaymentController {
 
         // 응답 로깅
         log.info("[APPROVE] res posTrx={}, attemptSeq={}, approvalNo={}, declineCode={}, cardSummary={}"
-                , res.getPosTrx(), res.getAttemptSeq(), res.getApprovalNo(), res.getDeclineCode(), res.getCardSummary());
+                , res.posTrx(), res.attemptSeq(), res.approvalNo(), res.declineCode(), res.cardSummary());
 
         return ApiResponse.ok(res);
     }

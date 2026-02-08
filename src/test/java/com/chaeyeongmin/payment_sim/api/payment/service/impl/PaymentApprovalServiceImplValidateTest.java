@@ -51,7 +51,7 @@ class PaymentApprovalServiceImplValidateTest {
      * - And  : validate 단계에서 차단되므로 Repo 호출이 없어야 한다
      */
     @Test
-    @DisplayName("[" + UT_ID_A_VAL_001 + "] BIN 형식 실패 → INVALID")
+    @DisplayName("[" + UT_ID_A_VAL_001 + "] PAN 형식 실패 → INVALID")
     void approve_validate_panNotNumeric_shouldThrowInvalid() {
         // given
         baseReq.setCard(new CardInput("abcdef1111111111", "2812"));

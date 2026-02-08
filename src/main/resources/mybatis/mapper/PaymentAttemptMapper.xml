@@ -4,5 +4,70 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
 <mapper namespace="com.chaeyeongmin.payment_sim.infra.mybatis.mapper.PaymentAttemptMapper">
-    <!-- TODO: SQL 매핑 작성 -->
+    <!--
+      [insertAttemptSeq]
+      - PAYMENT_ATTEMPT_SEQ 에서 posTrx 기준 attempt_seq를 원자 발급한다.
+      - 최초: (POS_TRX, LAST_SEQ=1)
+      - 이후: LAST_SEQ = LAST_SEQ + 1
+      - 반환: 발급된 LAST_SEQ
+    -->
+    <select id="insertAttemptSeq" resultType="int">
+        INSERT INTO PAYMENT_ATTEMPT_SEQ(POS_TRX,
+                                        LAST_SEQ,
+                                        UPDATED_AT)
+        VALUES (#{posTrx},
+                1,
+                CURRENT_TIMESTAMP) ON CONFLICT (POS_TRX)
+            DO
+        UPDATE SET LAST_SEQ = LAST_SEQ + 1,
+            UPDATED_AT = CURRENT_TIMESTAMP
+            RETURNING LAST_SEQ;
+    </select>
+
+    <!--
+      [insertAttempt]
+      - 승인 시도 정본(PAYMENT_ATTEMPT) 저장
+      - UNIQUE(POS_TRX, ATTEMPT_SEQ) 위반 시 예외로 "중복 시도"를 감지한다.
+    -->
+    <insert id="insertAttempt">
+        INSERT INTO PAYMENT_ATTEMPT (POS_TRX,
+                                     ATTEMPT_SEQ,
+                                     AMOUNT,
+                                     CARD_BIN,
+                                     CARD_LAST4,
+                                     CARD_BRAND,
+                                     CREATED_AT,
+                                     UPDATED_AT)
+        VALUES (#{attempt.posTrx},
+                #{attempt.attemptSeq},
+                #{attempt.amount},
+                #{attempt.cardBin},
+                #{attempt.cardLast4},
+                #{attempt.cardBrand},
+                #{attempt.createdAt},
+                CURRENT_TIMESTAMP);
+    </insert>
+
+    <!--
+        [findLatestByPosTrx]
+        - 특정 posTrx(거래번호/포스TR)에 대한 "현재 저장된 최신 처리 상태"를 조회한다.
+        → 동일 posTrx로 attempt가 여러 건 쌓일 수 있으니
+        "최신 1건"이 보장되지 않으므로 반드시 정렬 + 1건 제한을 추가해야 한다.
+    -->
+    <select id="findLatestByPosTrx" resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt">
+        SELECT A.FINAL_STATUS,
+               A.APPROVAL_NO,
+               A.DECLINE_CODE,
+               A.CARD_BIN,
+               A.CARD_LAST4,
+               A.ATTEMPT_SEQ,
+               A.amount
+        from PAYMENT_ATTEMPT A
+        WHERE 1 = 1
+          AND A.POS_TRX = #{posTrx}
+        ORDER BY A.ATTEMPT_SEQ DESC
+        LIMIT 1
+    </select>
+
+
 </mapper>
