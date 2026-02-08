@@ -29,7 +29,8 @@ public record PaymentAttempt(
         String declineCode,
         String cardBin,
         String cardLast4,
-        int attempt,
+        // [20260208] MyBatis 결과 매핑: ATTEMPT_SEQ -> attempt 매핑 불일치 가능성 있어 변수명 수정
+        int attemptSeq,
         int amount
 ) {
 

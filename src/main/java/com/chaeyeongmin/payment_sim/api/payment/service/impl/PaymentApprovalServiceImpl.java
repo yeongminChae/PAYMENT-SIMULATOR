@@ -4,6 +4,7 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.ApproveRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.ApproveResponse;
 import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
 import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardSummary;
+import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveRequestValidator;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
@@ -11,6 +12,7 @@ import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptInsertParam;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -35,6 +37,13 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
     private final PaymentAttemptRepository repository;
     private final ApproveRequestValidator validator;
 
+    /*
+     * A3의 “attemptSeq 발급 + insertAttempt” 트랜잭션 경계
+     * 현재 A3에서 insertAttemptSeq()로 시퀀스 증가 후 insertAttempt() 저장이 이어지는데,
+     * 두 쿼리가 같은 트랜잭션이 아니면 중간 실패 시
+     * “시퀀스만 증가하고 attempt row는 없는 상태”가 생길 수 있어 @Transactional 추가
+     */
+    @Transactional
     @Override
     public ApproveResponse approve(ApproveRequest request) {
 
@@ -50,24 +59,30 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         if (latestOpt.isPresent()) {
             PaymentAttempt latestPaymentAttempt = latestOpt.get();
 
-            int attempt = latestPaymentAttempt.attempt();
-            String cardBin = latestPaymentAttempt.cardBin();
-            String cardLast4 = latestPaymentAttempt.cardLast4();
-            CardSummary cardSummary = getCardSummary(cardBin,cardLast4);
+            int attemptSeq = latestPaymentAttempt.attemptSeq();
+            CardSummary cardSummary = getCardSummary(
+                    latestPaymentAttempt.cardBin(),
+                    latestPaymentAttempt.cardLast4()
+            );
 
-            return latestPaymentAttempt.finalStatus() != null
-                    // 1. **이미 확정 결과가 저장되어 있음**
-                    // - (APPROVED / DECLINED / UNKNOWN_TIMEOUT 중 하나가 DB에 존재)
-                    ? getApproveResponse(latestPaymentAttempt, trx, attempt, cardSummary)
-                    // 2. **처리 중(확정 결과가 아직 없음)**
-                    // - DB에 attempt는 있으나 결과 컬럼이 아직 확정되지 않음
-                    : ApproveResponse.processing(trx, attempt, cardSummary);
+            PaymentFinalStatus status = latestPaymentAttempt.getFinalStatusEnum();
 
-            // 그 외 -> A5로 이동
+            return switch (status) {
+                case APPROVED ->
+                        ApproveResponse.approved(trx, attemptSeq, latestPaymentAttempt.approvalNo(), cardSummary);
+
+                case DECLINED ->
+                        ApproveResponse.declined(trx, attemptSeq, latestPaymentAttempt.declineCode(), cardSummary);
+
+                case UNKNOWN_TIMEOUT ->
+                        ApproveResponse.unknownTimeout(trx, attemptSeq, latestPaymentAttempt.declineCode(), cardSummary);
+
+                case PROCESSING ->
+                    // A10: 처리중 → retryLater(=processing)로 응답
+                        ApproveResponse.retryLater(trx, attemptSeq, cardSummary);
+            };
         }
 
-        // A3. 결제 시도(attempt) 레코드 확보(DB 1차 방어)
-        // A3: attempt 확보
         int attemptSeq = repository.insertAttemptSeq(trx);
 
         // A3: attempt 저장
@@ -92,21 +107,6 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
          * - 후속 PR에서 A5~A7이 붙으면, 여기서 VAN 호출 후 결과 확정 응답으로 확장된다.
          */
         return ApproveResponse.retryLater(trx, attemptSeq, summaryFromReq);
-    }
-
-    private static ApproveResponse getApproveResponse(PaymentAttempt latestPaymentAttempt, String trx, int attempt, CardSummary cardSummary) {
-        String approvalNo = latestPaymentAttempt.approvalNo();
-        String declineCode = latestPaymentAttempt.declineCode();
-
-        return switch (latestPaymentAttempt.getFinalStatusEnum()) {
-            case APPROVED -> ApproveResponse.approved(trx, attempt, approvalNo, cardSummary);
-            case DECLINED ->
-                // TODO 20260208 declineCode 구현X
-                    ApproveResponse.declined(trx, attempt, declineCode, cardSummary);
-            case UNKNOWN_TIMEOUT ->
-                    ApproveResponse.unknownTimeout(trx, attempt, declineCode, cardSummary);
-            case PROCESSING -> ApproveResponse.retryLater(trx, attempt, cardSummary);
-        };
     }
 
     private CardSummary getCardSummary(String cardBin, String cardLast4) {
