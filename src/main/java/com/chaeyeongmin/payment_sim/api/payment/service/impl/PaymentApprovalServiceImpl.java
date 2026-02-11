@@ -10,6 +10,9 @@ import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveRequestValidator
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptInsertParam;
+import com.chaeyeongmin.payment_sim.van.client.assembler.VanApproveAssembler;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveRequest;
+import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,7 +38,9 @@ import java.util.Optional;
 public class PaymentApprovalServiceImpl implements PaymentApprovalService {
 
     private final PaymentAttemptRepository repository;
+    private final VanGateway vanGateway;
     private final ApproveRequestValidator validator;
+    private final VanApproveAssembler vanApproveAssembler;
 
     /*
      * A3의 “attemptSeq 발급 + insertAttempt” 트랜잭션 경계
@@ -98,6 +103,9 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         ));
 
         CardSummary summaryFromReq = getCardSummary(card.bin8(), card.last4());
+
+        // A5 : VAN 요청 구성
+        VanApproveRequest vanReq = vanApproveAssembler.getVanApproveRequest(trx, attemptSeq, request);
 
         /*
          * [2026-02-08] A3 이후 즉시 RETRY_LATER를 반환하는 이유
