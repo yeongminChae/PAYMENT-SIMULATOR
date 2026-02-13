@@ -4,6 +4,8 @@ import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.infra.mybatis.mapper.PaymentAttemptMapper;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptInsertParam;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdateParam;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentAttemptUpdatedRow;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
@@ -28,6 +30,16 @@ public class PaymentAttemptRepositoryMyBatis implements PaymentAttemptRepository
     @Override
     public Optional<PaymentAttempt> findLatestByPosTrx(String posTrx) {
         return mapper.findLatestByPosTrx(posTrx);
+    }
+
+    @Override
+    public Optional<PaymentAttempt> findLatestByPosTrxAndAttemptSeq(String posTrx, int attemptSeq) {
+        return mapper.findLatestByPosTrxAndAttemptSeq(posTrx, attemptSeq);
+    }
+
+    @Override
+    public Optional<PaymentAttemptUpdatedRow> updateAttemptResult(AttemptResultUpdateParam attempt) {
+        return mapper.updateAttemptResult(attempt);
     }
 
 
