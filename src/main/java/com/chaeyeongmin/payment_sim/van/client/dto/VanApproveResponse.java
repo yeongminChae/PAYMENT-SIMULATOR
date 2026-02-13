@@ -1,6 +1,7 @@
 package com.chaeyeongmin.payment_sim.van.client.dto;
 
 import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
+import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanResult;
 import lombok.Builder;
 
@@ -19,16 +20,15 @@ import java.time.LocalDateTime;
 public record VanApproveResponse(
         String posTrx,
         int attemptSeq,
+        String cardBin,
+        String cardLast4,
         VanResult vanResult,      // APPROVED/DECLINED/TIMEOUT/ERROR
-
         PaymentFinalStatus finalStatus, // 승인 결과
         String approvalNo,        // 승인 성공 시
-        String declineCode,       // 거절/타임아웃/에러 코드 (예: "05", "TIMEOUT")
-
+        VanDeclineCode declineCode,       // 거절/타임아웃/에러 코드 (예: "05", "TIMEOUT")
         String vanTrxId,          // VAN 내부 거래키(있으면 좋음)
         // String requestId,         // TODO request_id 정책 도입 시 사용
         String message,           // 디버깅용 요약 메시지
-
         LocalDateTime respondedAt
 ) {
 }

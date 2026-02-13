@@ -61,7 +61,8 @@ public class VanApproveResponseFactory {
         return baseBuilder(posTrx, attemptSeq, vanTrxId, respondedAt)
                 .finalStatus(PaymentFinalStatus.DECLINED)
                 .approvalNo(null)
-                .declineCode(declineCode.code())
+                // TODO declineCode 고도화 예정
+                .declineCode(VanDeclineCode.DO_NOT_HONOR)
                 .build();
     }
 
@@ -75,7 +76,7 @@ public class VanApproveResponseFactory {
         return baseBuilder(posTrx, attemptSeq, vanTrxId, respondedAt)
                 .finalStatus(PaymentFinalStatus.UNKNOWN_TIMEOUT)
                 .approvalNo(null)
-                .declineCode(declineCode.code())
+                .declineCode(VanDeclineCode.valueOf(declineCode.code()))
                 .build();
     }
 }
