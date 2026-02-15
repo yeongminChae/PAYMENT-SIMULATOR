@@ -1,6 +1,7 @@
 package com.chaeyeongmin.payment_sim.api.payment;
 
 import com.chaeyeongmin.payment_sim.api.payment.dto.*;
+import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentInquiryService;
@@ -43,8 +44,9 @@ public class PaymentController {
     public ApiResponse<ApproveResponse> approve(@Valid @RequestBody ApproveRequest request) {
 
         // 요청 로깅
-        log.info("[APPROVE] req PosTrX={} Card={} Amount={}",
-                request.getPosTrx(), request.getCard(), request.getAmount());
+        CardInput card = request.getCard();
+        log.info("[APPROVE] req PosTrX={} CardBin={} CardLast4={} Amount={}",
+                request.getPosTrx(), card.bin8(), card.last4(), request.getAmount());
 
         ApproveResponse res = approvalService.approve(request);
 

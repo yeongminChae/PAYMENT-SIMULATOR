@@ -37,7 +37,7 @@ public class VanApproveRequestValidator {
             return VanValidationError.INVALID_AMOUNT;
 
         // 카드 입력은 별도 함수에서 상세 검증(형식/만료/Luhn)
-        CardInput card = new CardInput(request.cardBin(), request.cardLast4());
+        CardInput card = new CardInput(request.pan(), request.expiryYyMm());
         if (cardValidationPolicy.isValidCard(card) == false)
             return VanValidationError.INVALID_CARD;
 
