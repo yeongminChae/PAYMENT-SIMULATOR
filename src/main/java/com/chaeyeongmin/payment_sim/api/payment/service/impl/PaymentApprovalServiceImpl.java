@@ -10,7 +10,15 @@ import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveRequestValidator
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptInsertParam;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdateParam;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentAttemptUpdatedRow;
+import com.chaeyeongmin.payment_sim.van.client.assembler.VanApproveAssembler;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveRequest;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveResponse;
+import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
+import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,62 +38,55 @@ import java.util.Optional;
  * - MVP 단계에서는 validate() 통과 시 attempt 발급/저장까지 먼저 완성한다.
  * - INVALID는 “DB/VAN을 타지 않고” 즉시 종료되어야 하므로 validate()에서 예외로 끊는 방식을 권장한다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class PaymentApprovalServiceImpl implements PaymentApprovalService {
 
     private final PaymentAttemptRepository repository;
+    private final VanGateway vanGateway;
     private final ApproveRequestValidator validator;
+    private final VanApproveAssembler vanApproveAssembler;
 
-    /*
-     * A3의 “attemptSeq 발급 + insertAttempt” 트랜잭션 경계
-     * 현재 A3에서 insertAttemptSeq()로 시퀀스 증가 후 insertAttempt() 저장이 이어지는데,
-     * 두 쿼리가 같은 트랜잭션이 아니면 중간 실패 시
-     * “시퀀스만 증가하고 attempt row는 없는 상태”가 생길 수 있어 @Transactional 추가
-     */
     @Transactional
     @Override
     public ApproveResponse approve(ApproveRequest request) {
 
-        // A2: 요청 유효성 검증 (실패 시 예외)
+        // A2: 입력 검증(형식/필수/카드 기본 정책)
         validator.validate(request);
 
         String trx = request.getPosTrx();
 
-        // 현재 저장된 결과 존재 여부 확보
+        // A4: 중복/처리중/재시도 정책 분기
         Optional<PaymentAttempt> latestOpt = repository.findLatestByPosTrx(trx);
 
         // A4 : 중복/처리중 분기
         if (latestOpt.isPresent()) {
-            PaymentAttempt latestPaymentAttempt = latestOpt.get();
+            PaymentAttempt latest = latestOpt.get();
+            PaymentFinalStatus status = latest.getFinalStatusEnum();
 
-            int attemptSeq = latestPaymentAttempt.attemptSeq();
-            CardSummary cardSummary = getCardSummary(
-                    latestPaymentAttempt.cardBin(),
-                    latestPaymentAttempt.cardLast4()
-            );
+            // DECLINED 이면 정책상 "새 attempt 허용" → 아래 A3로 진행
+            if (status != PaymentFinalStatus.DECLINED) {
+                // LOG#1: 중복/처리중으로 DB결과를 그대로 응답 (VAN 재호출 금지)
+                log.info("[approve][A4] reuse db result. posTrx={}, attemptSeq={}, status={}",
+                        trx, latest.attemptSeq(), status);
 
-            PaymentFinalStatus status = latestPaymentAttempt.getFinalStatusEnum();
+                // DECLINED 제외, 저장된 결과/처리중 상태를 그대로 응답한다.
+                return getApproveResponse(
+                        status,
+                        trx,
+                        latest.attemptSeq(),
+                        latest.approvalNo(),
+                        latest.declineCode(),
+                        getCardSummary(latest.cardBin(), latest.cardLast4())
+                );
+            }
 
-            return switch (status) {
-                case APPROVED ->
-                        ApproveResponse.approved(trx, attemptSeq, latestPaymentAttempt.approvalNo(), cardSummary);
-
-                case DECLINED ->
-                        ApproveResponse.declined(trx, attemptSeq, latestPaymentAttempt.declineCode(), cardSummary);
-
-                case UNKNOWN_TIMEOUT ->
-                        ApproveResponse.unknownTimeout(trx, attemptSeq, latestPaymentAttempt.declineCode(), cardSummary);
-
-                case PROCESSING ->
-                    // A10: 처리중 → retryLater(=processing)로 응답
-                        ApproveResponse.retryLater(trx, attemptSeq, cardSummary);
-            };
         }
 
+        // A3: attemptSeq 발급 + attempt row INSERT (처리중 상태 생성)
         int attemptSeq = repository.insertAttemptSeq(trx);
 
-        // A3: attempt 저장
         CardInput card = request.getCard();
         repository.insertAttempt(new AttemptInsertParam(
                 trx,
@@ -93,24 +94,116 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
                 request.getAmount(),
                 card.bin8(),
                 card.last4(),
-                null, // TODO : [20260206] 카드브랜드 우선은 null로
+                null,
                 LocalDateTime.now()
         ));
 
         CardSummary summaryFromReq = getCardSummary(card.bin8(), card.last4());
 
-        /*
-         * [2026-02-08] A3 이후 즉시 RETRY_LATER를 반환하는 이유
-         * - 현재 단계(MVP)에서는 A5(VAN 호출) ~ A7(최종결과 저장)가 아직 구현되지 않았다.
-         * - 따라서 신규 attempt는 FINAL_STATUS=NULL(처리중) 상태로 저장만 하고,
-         *   클라이언트에는 "처리중이니 재시도하라(RETRY_LATER)"를 명확히 응답한다.
-         * - 후속 PR에서 A5~A7이 붙으면, 여기서 VAN 호출 후 결과 확정 응답으로 확장된다.
-         */
+        // A5: VAN 전송용 요청 DTO 구성
+        VanApproveRequest vanApproveReq = vanApproveAssembler.getVanApproveRequest(trx, attemptSeq, request);
+
+        // A6: VAN 승인 호출(외부 승인 1회)
+        VanApproveResponse vanApproveRes = vanGateway.approve(vanApproveReq);
+
+        // A7: VAN 결과 DB 확정 저장(멱등: FINAL_STATUS IS NULL)
+        // - 이번 요청이 최초 확정 저장에 성공하면 RETURNING row로 결과를 받는다.
+        Optional<PaymentAttemptUpdatedRow> attemptUpdatedRowOpt = repository.updateAttemptResult(
+                getAttemptResultUpdateParam(vanApproveRes, trx, attemptSeq)
+        );
+
+        // A8: 이번 호출이 확정 저장 “승자”면 RETURNING row 기반 응답 생성
+        // - VAN 응답을 그대로 쓰기보다, DB에 "실제로 저장된 값"을 응답 소스로 사용한다.
+        if (attemptUpdatedRowOpt.isPresent()) {
+            PaymentAttemptUpdatedRow row = attemptUpdatedRowOpt.get();
+
+            // LOG#2: 확정 저장 성공(승자)
+            log.info("[approve][A7] finalized. posTrx={}, attemptSeq={}, finalStatus={}, vanTrxId={}",
+                    trx, attemptSeq, row.finalStatus(), row.vanTrxId());
+
+            return getApproveResponse(
+                    row.finalStatus(),
+                    trx,
+                    attemptSeq,
+                    row.approvalNo(),
+                    row.declineCode(),
+                    getCardSummary(row.cardBin(), row.cardLast4())
+            );
+        }
+
+        // A7 저장 실패(0 rows): 누군가 먼저 확정했거나(경합), 아직 처리중일 수 있음
+        // → 같은 attemptSeq 기준으로 재조회해서 A9/A10 분기
+        Optional<PaymentAttempt> latestAttemptFromDb =
+                repository.findLatestByPosTrxAndAttemptSeq(trx, attemptSeq);
+
+        if (latestAttemptFromDb.isPresent()) {
+            PaymentAttempt row = latestAttemptFromDb.get();
+
+            if (row.finalStatus() != null) {
+                // LOG#3: 경합으로 업데이트는 못했지만, DB에 확정값이 존재 → A9 재응답
+                log.warn("[approve][A7-0rows] update miss; return finalized from db(A9). posTrx={}, attemptSeq={}, finalStatus={}",
+                        trx, attemptSeq, row.finalStatus());
+
+                // A9: 이미 확정된 결과가 있으면 DB값 그대로 재응답
+                return getApproveResponse(
+                        PaymentFinalStatus.valueOf(row.finalStatus()),
+                        trx,
+                        attemptSeq,
+                        row.approvalNo(),
+                        row.declineCode(),
+                        getCardSummary(row.cardBin(), row.cardLast4())
+                );
+            }
+
+            // A10: 처리중이면 retryLater(처리중) 응답
+            log.warn("[approve][A7-0rows] update miss; still processing(A10). posTrx={}, attemptSeq={}",
+                    trx, attemptSeq);
+
+            return ApproveResponse.retryLater(trx, attemptSeq, summaryFromReq);
+        }
+
+        // row 자체가 없음(정상적으로는 거의 없어야 함)
+        log.error("[approve][A7-0rows] update miss; attempt row not found. posTrx={}, attemptSeq={}",
+                trx, attemptSeq);
+
+        // 정상 흐름이면 발생하면 안 되는 케이스(방어)
+        // A10: 처리중이면 retryLater(처리중) 응답
         return ApproveResponse.retryLater(trx, attemptSeq, summaryFromReq);
+    }
+
+    private AttemptResultUpdateParam getAttemptResultUpdateParam(
+            VanApproveResponse vanApproveRes,
+            String trx,
+            int attemptSeq
+    ) {
+        String approvalNo = vanApproveRes.approvalNo();
+        String vanTrxId = vanApproveRes.vanTrxId();
+        VanDeclineCode declineCode = vanApproveRes.declineCode();
+
+        return switch (vanApproveRes.finalStatus()) {
+            case APPROVED -> AttemptResultUpdateParam.approved(trx, attemptSeq, approvalNo, vanTrxId);
+            case DECLINED -> AttemptResultUpdateParam.declined(trx, attemptSeq, declineCode, vanTrxId);
+            case UNKNOWN_TIMEOUT, PROCESSING -> AttemptResultUpdateParam.unknownTimeout(trx, attemptSeq, vanTrxId);
+        };
+    }
+
+    private ApproveResponse getApproveResponse(
+            PaymentFinalStatus status,
+            String trx,
+            int attemptSeq,
+            String approvalNo,
+            String declineCode,
+            CardSummary cardSummary
+    ) {
+        return switch (status) {
+            case APPROVED -> ApproveResponse.approved(trx, attemptSeq, approvalNo, cardSummary);
+            case DECLINED -> ApproveResponse.declined(trx, attemptSeq, declineCode, cardSummary);
+            case UNKNOWN_TIMEOUT -> ApproveResponse.unknownTimeout(trx, attemptSeq, declineCode, cardSummary);
+            case PROCESSING -> ApproveResponse.retryLater(trx, attemptSeq, cardSummary);
+        };
     }
 
     private CardSummary getCardSummary(String cardBin, String cardLast4) {
         return new CardSummary(cardBin, cardLast4, null);
     }
-
 }

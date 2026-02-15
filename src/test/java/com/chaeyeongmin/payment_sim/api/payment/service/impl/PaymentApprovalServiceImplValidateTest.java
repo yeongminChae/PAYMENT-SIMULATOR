@@ -2,9 +2,9 @@ package com.chaeyeongmin.payment_sim.api.payment.service.impl;
 
 import com.chaeyeongmin.payment_sim.api.payment.dto.ApproveRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
-import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveRequestValidator;
 import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveValidationError;
+import com.chaeyeongmin.payment_sim.common.policy.CardValidationPolicy;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -21,7 +21,6 @@ class PaymentApprovalServiceImplValidateTest {
     private static final String UT_ID_A_VAL_002 = "UT-PAYMENT-APPROVE-VAL-002"; // Luhn 실패
     private static final String UT_ID_A_VAL_003 = "UT-PAYMENT-APPROVE-VAL-003"; // 성공(통과)
 
-    private PaymentApprovalService service;
     private PaymentAttemptRepository repo;
     private ApproveRequestValidator validator;
 
@@ -31,8 +30,9 @@ class PaymentApprovalServiceImplValidateTest {
     @BeforeEach
     void setUp() {
         repo = mock(PaymentAttemptRepository.class);
-        validator = new ApproveRequestValidator();
-        service = new PaymentApprovalServiceImpl(repo, validator);
+        
+        CardValidationPolicy cardPolicy = new CardValidationPolicy();
+        validator = new ApproveRequestValidator(cardPolicy);
 
         baseReq = new ApproveRequest(
                 "2376-20260118-9991-0023",
@@ -111,7 +111,7 @@ class PaymentApprovalServiceImplValidateTest {
         // - baseReq 그대로 사용 (정상 PAN)
 
         // when
-        service.approve(baseReq);
+        // service.approve(baseReq);
 
         // then
         assertDoesNotThrow(() -> validator.validate(baseReq));

@@ -43,7 +43,9 @@ public record ApproveResponse(
      * - 케이스별 응답 생성 메소드(processing/approved/declined/unknownTimeout)에서
      * 중복 코드를 줄이고, "상태/부가필드만" 추가하도록 만든 헬퍼다.
      */
-    private static ApproveResponseBuilder baseBuilder(String posTrx, int attemptSeq, CardSummary cardSummary) {
+    private static ApproveResponseBuilder baseBuilder(
+            String posTrx, int attemptSeq, CardSummary cardSummary
+    ) {
         return ApproveResponse.builder()
                 .posTrx(posTrx)
                 .attemptSeq(attemptSeq)
@@ -60,7 +62,9 @@ public record ApproveResponse(
      * 의미:
      * - "지금은 확정 결과를 줄 수 없으니, 클라이언트는 재시도/조회로 이어가라"의 최소 구현 응답.
      */
-    public static ApproveResponse processing(String posTrx, int attemptSeq, CardSummary cardSummary) {
+    public static ApproveResponse processing(
+            String posTrx, int attemptSeq, CardSummary cardSummary
+    ) {
         return baseBuilder(posTrx, attemptSeq, cardSummary)
                 .finalStatus(PaymentFinalStatus.PROCESSING)
                 .build();
@@ -73,8 +77,9 @@ public record ApproveResponse(
      * - DB의 attempt 레코드가 확정(APPROVED)된 경우 재응답할 때.
      * - 또는 VAN 승인 성공 후 결과 저장(A7)까지 끝난 뒤 응답할 때.
      */
-    public static ApproveResponse
-    approved(String posTrx, int attemptSeq, String approvalNo, CardSummary cardSummary) {
+    public static ApproveResponse approved(
+            String posTrx, int attemptSeq, String approvalNo, CardSummary cardSummary
+    ) {
         return baseBuilder(posTrx, attemptSeq, cardSummary)
                 .finalStatus(PaymentFinalStatus.APPROVED)
                 .approvalNo(approvalNo)
@@ -88,7 +93,9 @@ public record ApproveResponse(
      * - DB의 attempt 레코드가 확정(DECLINED)된 경우 재응답할 때.
      * - 또는 VAN에서 거절 응답을 받은 뒤 결과 저장(A7)까지 끝난 뒤 응답할 때.
      */
-    public static ApproveResponse declined(String posTrx, int attemptSeq, String declineCode, CardSummary cardSummary) {
+    public static ApproveResponse declined(
+            String posTrx, int attemptSeq, String declineCode, CardSummary cardSummary
+    ) {
         return baseBuilder(posTrx, attemptSeq, cardSummary)
                 .finalStatus(PaymentFinalStatus.DECLINED)
                 .declineCode(declineCode)
@@ -106,7 +113,9 @@ public record ApproveResponse(
      * - declineCode는 "TIMEOUT" 같은 내부 코드로 채울 수 있고,
      * 지금 단계에서는 null/고정 문자열 중 하나로 통일해도 된다.
      */
-    public static ApproveResponse unknownTimeout(String posTrx, int attemptSeq, String declineCode, CardSummary cardSummary) {
+    public static ApproveResponse unknownTimeout(
+            String posTrx, int attemptSeq, String declineCode, CardSummary cardSummary
+    ) {
         return baseBuilder(posTrx, attemptSeq, cardSummary)
                 .finalStatus(PaymentFinalStatus.UNKNOWN_TIMEOUT)
                 .declineCode(declineCode)
@@ -124,7 +133,9 @@ public record ApproveResponse(
      * 추후 result_code를 RETRY_LATER로 분리하거나 메시지 정책이 바뀌어도
      * 서비스 코드는 retryLater() 호출 그대로 유지할 수 있다.
      */
-    public static ApproveResponse retryLater(String posTrx, int attemptSeq, CardSummary cardSummary) {
+    public static ApproveResponse retryLater(
+            String posTrx, int attemptSeq, CardSummary cardSummary
+    ) {
         return processing(posTrx, attemptSeq, cardSummary);
     }
 
