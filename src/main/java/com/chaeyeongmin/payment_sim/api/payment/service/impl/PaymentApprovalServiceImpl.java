@@ -65,6 +65,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
             PaymentAttempt latest = latestOpt.get();
             PaymentFinalStatus status = latest.getFinalStatusEnum();
 
+            // DECLINED 이면 정책상 "새 attempt 허용" → 아래 A3로 진행
             if (status != PaymentFinalStatus.DECLINED) {
                 // LOG#1: 중복/처리중으로 DB결과를 그대로 응답 (VAN 재호출 금지)
                 log.info("[approve][A4] reuse db result. posTrx={}, attemptSeq={}, status={}",
@@ -80,7 +81,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
                         getCardSummary(latest.cardBin(), latest.cardLast4())
                 );
             }
-            // DECLINED 이면 정책상 "새 attempt 허용" → 아래 A3로 진행
+
         }
 
         // A3: attemptSeq 발급 + attempt row INSERT (처리중 상태 생성)
