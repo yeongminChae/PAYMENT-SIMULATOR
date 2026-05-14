@@ -108,9 +108,8 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
 
         // A7: VAN 결과 DB 확정 저장(멱등: FINAL_STATUS IS NULL)
         // - 이번 요청이 최초 확정 저장에 성공하면 RETURNING row로 결과를 받는다.
-        Optional<PaymentAttemptUpdatedRow> attemptUpdatedRowOpt = repository.updateAttemptResult(
-                getAttemptResultUpdateParam(vanApproveRes, trx, attemptSeq)
-        );
+        AttemptResultUpdateParam updateParam = getAttemptResultUpdateParam(vanApproveRes, trx, attemptSeq);
+        Optional<PaymentAttemptUpdatedRow> attemptUpdatedRowOpt = repository.updateAttemptResult(updateParam);
 
         // A8: 이번 호출이 확정 저장 “승자”면 RETURNING row 기반 응답 생성
         // - VAN 응답을 그대로 쓰기보다, DB에 "실제로 저장된 값"을 응답 소스로 사용한다.
@@ -140,13 +139,19 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
             PaymentAttempt row = latestAttemptFromDb.get();
 
             if (row.finalStatus() != null) {
+
+                PaymentFinalStatus dbStatus = PaymentFinalStatus.valueOf(row.finalStatus());
+                PaymentFinalStatus vanStatus = updateParam.finalStatus();
+
                 // LOG#3: 경합으로 업데이트는 못했지만, DB에 확정값이 존재 → A9 재응답
-                log.warn("[approve][A7-0rows] update miss; return finalized from db(A9). posTrx={}, attemptSeq={}, finalStatus={}",
-                        trx, attemptSeq, row.finalStatus());
+                if (dbStatus.equals(vanStatus) == false) {
+                    log.error("[approve][A7-0rows][MISMATCH] db finalStatus != van finalStatus. posTrx={}, attemptSeq={}, dbStatus={}, vanStatus={}, vanTrxId={}",
+                            trx, attemptSeq, dbStatus, vanStatus, vanApproveRes.vanTrxId());
+                }
 
                 // A9: 이미 확정된 결과가 있으면 DB값 그대로 재응답
                 return getApproveResponse(
-                        PaymentFinalStatus.valueOf(row.finalStatus()),
+                        dbStatus,
                         trx,
                         attemptSeq,
                         row.approvalNo(),
@@ -155,20 +160,26 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
                 );
             }
 
-            // A10: 처리중이면 retryLater(처리중) 응답
-            log.warn("[approve][A7-0rows] update miss; still processing(A10). posTrx={}, attemptSeq={}",
-                    trx, attemptSeq);
+            // A10: 정합성 이상/경합/DB 반영 실패 의심이면 retryLater(처리중) 응답
+            log.error("[approve][A7-0rows][PROCESSING_AFTER_VAN] update miss; attempt still processing after VAN response. posTrx={}, attemptSeq={}, vanStatus={}, vanTrxId={}",
+                    trx, attemptSeq, vanApproveRes.finalStatus(), vanApproveRes.vanTrxId());
 
             return ApproveResponse.retryLater(trx, attemptSeq, summaryFromReq);
         }
 
         // row 자체가 없음(정상적으로는 거의 없어야 함)
-        log.error("[approve][A7-0rows] update miss; attempt row not found. posTrx={}, attemptSeq={}",
-                trx, attemptSeq);
+        log.error("[approve][A7-0rows][CRITICAL_ATTEMPT_NOT_FOUND] update miss; attempt row not found after VAN response. posTrx={}, attemptSeq={}, vanStatus={}, vanTrxId={}",
+                trx, attemptSeq, vanApproveRes.finalStatus(), vanApproveRes.vanTrxId());
 
         // 정상 흐름이면 발생하면 안 되는 케이스(방어)
         // A10: 처리중이면 retryLater(처리중) 응답
-        return ApproveResponse.retryLater(trx, attemptSeq, summaryFromReq);
+        return ApproveResponse.unknownTimeout(
+                trx,
+                attemptSeq,
+                "UNKNOWN_AFTER_UPDATE_MISS",
+                summaryFromReq
+        );
+
     }
 
     private AttemptResultUpdateParam getAttemptResultUpdateParam(
