@@ -9,15 +9,15 @@ import java.time.LocalDateTime;
 
 /**
  * [VAN 응답 생성 Factory/Assembler]
- *
+ * <p>
  * 책임:
  * - VAN 승인 결과(approved/declined/timeout)에 대한 응답 DTO를 생성한다.
  * - 응답 생성 시 공통 필드(posTrx/attemptSeq/vanTrxId/respondedAt)를 일관되게 채운다.
- *
+ * <p>
  * 의도:
  * - DTO(VanApproveResponse)는 순수 데이터 컨테이너로 유지하고,
  * - 응답 생성 규칙은 Factory에서만 관리한다.
- *
+ * <p>
  * 주의:
  * - PAN/expiry 등 민감정보는 응답에 포함하지 않는다.
  */
@@ -62,7 +62,7 @@ public class VanApproveResponseFactory {
                 .finalStatus(PaymentFinalStatus.DECLINED)
                 .approvalNo(null)
                 // TODO declineCode 고도화 예정
-                .declineCode(VanDeclineCode.DO_NOT_HONOR)
+                .declineCode(declineCode)
                 .build();
     }
 
@@ -76,7 +76,7 @@ public class VanApproveResponseFactory {
         return baseBuilder(posTrx, attemptSeq, vanTrxId, respondedAt)
                 .finalStatus(PaymentFinalStatus.UNKNOWN_TIMEOUT)
                 .approvalNo(null)
-                .declineCode(VanDeclineCode.valueOf(declineCode.code()))
+                .declineCode(declineCode)
                 .build();
     }
 }

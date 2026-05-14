@@ -61,6 +61,10 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         Optional<PaymentAttempt> latestOpt = repository.findLatestByPosTrx(trx);
 
         // A4 : 중복/처리중 분기
+        // - DB에 동일 posTrx의 “최신 attempt”가 이미 존재하면, 정책에 따라 VAN 재호출 여부를 결정한다.
+        // - 정책: DECLINED 상태만 “신규 승인 재시도(새 attempt)“를 허용한다.
+        // - 그 외 상태(처리중/승인/거절 외 확정 등)는 VAN 재호출 금지 → DB 결과를 그대로 응답한다.
+        // - 참고: FINAL_STATUS == null 은 “처리중(PROCESSING)“으로 간주한다.
         if (latestOpt.isPresent()) {
             PaymentAttempt latest = latestOpt.get();
             PaymentFinalStatus status = latest.getFinalStatusEnum();
