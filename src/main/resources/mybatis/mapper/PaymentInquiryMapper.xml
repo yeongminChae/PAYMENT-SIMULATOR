@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.chaeyeongmin.payment_sim.infra.mybatis.mapper.PaymentInquiryMapper">
+
+    <select id="findByPosTrxAndAttemptSeq"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt">
+        SELECT
+               A.FINAL_STATUS,
+               A.APPROVAL_NO,
+               A.DECLINE_CODE,
+               A.CARD_BIN,
+               A.CARD_LAST4,
+               A.ATTEMPT_SEQ,
+               A.AMOUNT
+           FROM PAYMENT_ATTEMPT A
+           WHERE A.POS_TRX = #{posTrx}
+             AND A.ATTEMPT_SEQ = #{attemptSeq}
+           LIMIT 1;
+    </select>
+
+</mapper>
