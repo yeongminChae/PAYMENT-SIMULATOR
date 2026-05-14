@@ -1,12 +1,10 @@
 package com.chaeyeongmin.payment_sim.api.payment.validate;
 
-import com.chaeyeongmin.payment_sim.api.payment.dto.ApproveRequest;
-import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
+import com.chaeyeongmin.payment_sim.api.payment.dto.request.ApproveRequest;
+import com.chaeyeongmin.payment_sim.api.payment.validate.enums.ApproveValidationError;
 import com.chaeyeongmin.payment_sim.common.policy.CardValidationPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-
-import java.time.LocalDate;
 
 @Component
 @RequiredArgsConstructor
@@ -30,11 +28,11 @@ public class ApproveRequestValidator {
     /**
      * 승인 요청에서 "가장 기본적인 유효성"을 검사하고,
      * 실패 원인을 ApproveValidationError로 반환한다.
-     *
+     * <p>
      * 반환 규칙:
      * - null  : OK (검증 통과)
      * - error : 해당 error.code()를 예외 메시지로 사용할 수 있음
-     *
+     * <p>
      * 주의:
      * - 여기서는 "첫 번째로 발견된 오류"만 반환한다. (에러 누적/리스트 반환 안 함)
      */

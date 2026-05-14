@@ -1,4 +1,4 @@
-package com.chaeyeongmin.payment_sim.api.payment.dto;
+package com.chaeyeongmin.payment_sim.api.payment.dto.response;
 
 import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardSummary;
 import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
@@ -6,7 +6,7 @@ import lombok.Builder;
 
 /**
  * [API Response] 결제 조회 응답
- *
+ * <p>
  * 응답 상태:
  * - APPROVED        : 조회 결과 승인 확정
  * - DECLINED        : 조회 결과 거절 확정
@@ -84,10 +84,10 @@ public record InquiryResponse(
 
     /**
      * Q10: 아직 승인 처리중이므로 잠시 후 재조회 필요
-     *
+     * <p>
      * 주의:
      * - DB에 PROCESSING을 저장하는 것이 아니라,
-     *   DB의 FINAL_STATUS == null 을 응답에서 PROCESSING으로 표현하는 용도다.
+     * DB의 FINAL_STATUS == null 을 응답에서 PROCESSING으로 표현하는 용도다.
      */
     public static InquiryResponse retryLater(
             String posTrx,
