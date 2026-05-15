@@ -1,5 +1,12 @@
 package com.chaeyeongmin.payment_sim.van.client.dto;
 
-public class VanInquiryRequest {
-    // TODO: VAN 호출 DTO (입력값 그대로 전달 원칙 기반)
+import lombok.Builder;
+
+@Builder
+public record VanInquiryRequest(
+        String posTrx,
+        int attemptSeq,
+        String vanTrxId,
+        String cardLast4
+) {
 }

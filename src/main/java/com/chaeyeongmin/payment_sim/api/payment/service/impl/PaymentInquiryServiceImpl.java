@@ -10,7 +10,10 @@ import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentInquiryRepository;
-import com.chaeyeongmin.payment_sim.van.client.assembler.VanApproveAssembler;
+ import com.chaeyeongmin.payment_sim.van.client.assembler.VanInquiryAssembler;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryRequest;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResponse;
+import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,7 +29,7 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
     private final PaymentInquiryRepository repository;
     private final VanGateway vanGateway;
     private final InquiryRequestValidator validator;
-    private final VanApproveAssembler vanApproveAssembler;
+    private final VanInquiryAssembler vanInquiryAssembler;
 
     @Override
     public InquiryResponse inquiry(InquiryRequest request) {
@@ -82,14 +85,67 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
         return switch (finalStatus) {
             case APPROVED -> InquiryResponse.approved(posTrx, attemptSeq, approvalNo, cardSummary);
             case DECLINED -> InquiryResponse.declined(posTrx, attemptSeq, declineCode, cardSummary);
-            case UNKNOWN_TIMEOUT -> InquiryResponse.unknownTimeout(posTrx, attemptSeq, declineCode, cardSummary);
             case PROCESSING -> InquiryResponse.retryLater(posTrx, attemptSeq, cardSummary);
+            // UNKNOWN_TIMEOUT -> Q5
+            case UNKNOWN_TIMEOUT -> resolveUnknownTimeout(posTrx, attemptSeq, cardSummary);
         };
+
+    }
+
+    private InquiryResponse resolveUnknownTimeout(
+            String posTrx,
+            int attemptSeq,
+            CardSummary cardSummary
+    ) {
+        // Q5: VAN 조회 요청 구성
+        VanInquiryRequest vanInquiryReq = vanInquiryAssembler.getVanInquiryRequest(
+                posTrx,
+                attemptSeq,
+                cardSummary.cardLast4()
+        );
+
+        // Q5: VAN 조회 호출
+        VanInquiryResponse vanInquiryRes = vanGateway.inquiry(vanInquiryReq);
+        PaymentFinalStatus vanStatus = vanInquiryRes.finalStatus();
+        String declineCode = toDeclineCode(vanInquiryRes.declineCode());
+
+        // Q5a: VAN 조회 결과 승인 확정
+        if (vanStatus.equals(PaymentFinalStatus.APPROVED)) {
+            return InquiryResponse.approved(
+                    posTrx,
+                    attemptSeq,
+                    vanInquiryRes.approvalNo(),
+                    cardSummary
+            );
+        }
+
+        // Q5b: VAN 조회 결과 거절 확정
+        if (vanStatus.equals(PaymentFinalStatus.DECLINED)) {
+            return InquiryResponse.declined(
+                    posTrx,
+                    attemptSeq,
+                    declineCode,
+                    cardSummary
+            );
+        }
+
+        // Q5c/Q8: VAN 조회 결과도 여전히 미확정
+        return InquiryResponse.unknownTimeout(
+                posTrx,
+                attemptSeq,
+                declineCode,
+                cardSummary
+        );
 
     }
 
     private CardSummary getCardSummary(String cardBin, String cardLast4) {
         return new CardSummary(cardBin, cardLast4, null);
+    }
+
+    private String toDeclineCode(VanDeclineCode declineCode) {
+        if (declineCode == null) return null;
+        return declineCode.code();
     }
 
 }

@@ -101,15 +101,19 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         CardSummary summaryFromReq = getCardSummary(card.bin8(), card.last4());
 
         // A5: VAN 전송용 요청 DTO 구성
-        VanApproveRequest vanApproveReq = vanApproveAssembler.getVanApproveRequest(trx, attemptSeq, request);
+        VanApproveRequest vanApproveReq =
+                vanApproveAssembler.getVanApproveRequest(trx, attemptSeq, request);
 
         // A6: VAN 승인 호출(외부 승인 1회)
         VanApproveResponse vanApproveRes = vanGateway.approve(vanApproveReq);
 
         // A7: VAN 결과 DB 확정 저장(멱등: FINAL_STATUS IS NULL)
         // - 이번 요청이 최초 확정 저장에 성공하면 RETURNING row로 결과를 받는다.
-        AttemptResultUpdateParam updateParam = getAttemptResultUpdateParam(vanApproveRes, trx, attemptSeq);
-        Optional<PaymentAttemptUpdatedRow> attemptUpdatedRowOpt = repository.updateAttemptResult(updateParam);
+        AttemptResultUpdateParam updateParam =
+                getAttemptResultUpdateParam(vanApproveRes, trx, attemptSeq);
+
+        Optional<PaymentAttemptUpdatedRow> attemptUpdatedRowOpt =
+                repository.updateAttemptResult(updateParam);
 
         // A8: 이번 호출이 확정 저장 “승자”면 RETURNING row 기반 응답 생성
         // - VAN 응답을 그대로 쓰기보다, DB에 "실제로 저장된 값"을 응답 소스로 사용한다.
@@ -189,12 +193,31 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
     ) {
         String approvalNo = vanApproveRes.approvalNo();
         String vanTrxId = vanApproveRes.vanTrxId();
-        VanDeclineCode declineCode = vanApproveRes.declineCode();
+        String declineCode = toDeclineCode(vanApproveRes.declineCode());
 
         return switch (vanApproveRes.finalStatus()) {
-            case APPROVED -> AttemptResultUpdateParam.approved(trx, attemptSeq, approvalNo, vanTrxId);
-            case DECLINED -> AttemptResultUpdateParam.declined(trx, attemptSeq, declineCode, vanTrxId);
-            case UNKNOWN_TIMEOUT, PROCESSING -> AttemptResultUpdateParam.unknownTimeout(trx, attemptSeq, vanTrxId);
+            case APPROVED -> AttemptResultUpdateParam.approved(
+                    trx,
+                    attemptSeq,
+                    approvalNo,
+                    vanTrxId
+            );
+
+            case DECLINED -> AttemptResultUpdateParam.declined(
+                    trx,
+                    attemptSeq,
+                    declineCode,
+                    vanTrxId
+            );
+
+            case UNKNOWN_TIMEOUT,
+                 PROCESSING -> AttemptResultUpdateParam.unknownTimeout(
+                    trx,
+                    attemptSeq,
+                    declineCode,
+                    vanTrxId
+            );
+
         };
     }
 
@@ -217,4 +240,10 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
     private CardSummary getCardSummary(String cardBin, String cardLast4) {
         return new CardSummary(cardBin, cardLast4, null);
     }
+
+    private String toDeclineCode(VanDeclineCode declineCode) {
+        if (declineCode == null) return null;
+        return declineCode.code();
+    }
+
 }
