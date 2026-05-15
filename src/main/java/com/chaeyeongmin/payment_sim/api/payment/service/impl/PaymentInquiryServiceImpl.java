@@ -10,7 +10,7 @@ import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentInquiryRepository;
- import com.chaeyeongmin.payment_sim.van.client.assembler.VanInquiryAssembler;
+import com.chaeyeongmin.payment_sim.van.client.assembler.VanInquiryAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResponse;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
@@ -73,20 +73,19 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
             String posTrx,
             int attemptSeq
     ) {
-        PaymentFinalStatus finalStatus = attempt.getFinalStatusEnum();
+        PaymentFinalStatus attemptFinalStatus = attempt.getFinalStatusEnum();
         String approvalNo = attempt.approvalNo();
-        String declineCode = attempt.declineCode();
+        String storedDeclineCode = attempt.declineCode();
         CardSummary cardSummary = getCardSummary(attempt.cardBin(), attempt.cardLast4());
 
-        // * APPROVED → 이미 확정됨 → Q9 DB 재응답
-        // * DECLINED → 이미 확정됨 → Q9 DB 재응답
-        // * UNKNOWN_TIMEOUT → 조회로 확정 시도 필요 → Q5로 진행
-        // * finalStatus == null 또는 PROCESSING → 아직 처리중 → Q10 retryLater
-        return switch (finalStatus) {
+        // Inquiry 상태 분기 정책:
+        // - APPROVED / DECLINED: 이미 확정된 상태이므로 Q9 DB 재응답
+        // - PROCESSING: 아직 처리 중이므로 Q10 retryLater
+        // - UNKNOWN_TIMEOUT: VAN 조회로 확정 여부를 확인해야 하므로 Q5 호출 대상
+        return switch (attemptFinalStatus) {
             case APPROVED -> InquiryResponse.approved(posTrx, attemptSeq, approvalNo, cardSummary);
-            case DECLINED -> InquiryResponse.declined(posTrx, attemptSeq, declineCode, cardSummary);
+            case DECLINED -> InquiryResponse.declined(posTrx, attemptSeq, storedDeclineCode, cardSummary);
             case PROCESSING -> InquiryResponse.retryLater(posTrx, attemptSeq, cardSummary);
-            // UNKNOWN_TIMEOUT -> Q5
             case UNKNOWN_TIMEOUT -> resolveUnknownTimeout(posTrx, attemptSeq, cardSummary);
         };
 
@@ -97,43 +96,44 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
             int attemptSeq,
             CardSummary cardSummary
     ) {
-        // Q5: VAN 조회 요청 구성
-        VanInquiryRequest vanInquiryReq = vanInquiryAssembler.getVanInquiryRequest(
+        // Q5: VAN 조회 요청 DTO 구성
+        VanInquiryRequest vanInquiryRequest = vanInquiryAssembler.getVanInquiryRequest(
                 posTrx,
                 attemptSeq,
                 cardSummary.cardLast4()
         );
 
         // Q5: VAN 조회 호출
-        VanInquiryResponse vanInquiryRes = vanGateway.inquiry(vanInquiryReq);
-        PaymentFinalStatus vanStatus = vanInquiryRes.finalStatus();
-        String declineCode = toDeclineCode(vanInquiryRes.declineCode());
+        VanInquiryResponse vanInquiryResponse = vanGateway.inquiry(vanInquiryRequest);
+        PaymentFinalStatus vanFinalStatus = vanInquiryResponse.finalStatus();
+        String responseDeclineCode = toDeclineCode(vanInquiryResponse.declineCode());
 
         // Q5a: VAN 조회 결과 승인 확정
-        if (vanStatus.equals(PaymentFinalStatus.APPROVED)) {
+        if (vanFinalStatus.equals(PaymentFinalStatus.APPROVED)) {
             return InquiryResponse.approved(
                     posTrx,
                     attemptSeq,
-                    vanInquiryRes.approvalNo(),
+                    vanInquiryResponse.approvalNo(),
                     cardSummary
             );
         }
 
         // Q5b: VAN 조회 결과 거절 확정
-        if (vanStatus.equals(PaymentFinalStatus.DECLINED)) {
+        if (vanFinalStatus.equals(PaymentFinalStatus.DECLINED)) {
             return InquiryResponse.declined(
                     posTrx,
                     attemptSeq,
-                    declineCode,
+                    responseDeclineCode,
                     cardSummary
             );
         }
 
         // Q5c/Q8: VAN 조회 결과도 여전히 미확정
+        // TODO: Q6 DB 저장 후 Q7/Q8 응답 확정 흐름은 후속 단계에서 구현 예정
         return InquiryResponse.unknownTimeout(
                 posTrx,
                 attemptSeq,
-                declineCode,
+                responseDeclineCode,
                 cardSummary
         );
 

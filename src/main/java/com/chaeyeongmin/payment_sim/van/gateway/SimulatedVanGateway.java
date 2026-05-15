@@ -1,7 +1,6 @@
 package com.chaeyeongmin.payment_sim.van.gateway;
 
 
-import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.van.client.dto.*;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
 import com.chaeyeongmin.payment_sim.van.factory.VanApproveResponseFactory;
@@ -75,6 +74,12 @@ public class SimulatedVanGateway implements VanGateway {
 
     @Override
     public VanInquiryResponse inquiry(VanInquiryRequest request) {
+        // [Q5] VAN 조회 호출(시뮬레이터)
+        // - 실제 VAN이라면 vanTrxId 또는 원거래키로 기존 승인 결과를 조회한다.
+        // - MVP 시뮬레이터는 별도 VAN 저장소 없이 cardLast4 기반 결정 규칙으로 결과를 생성한다.
+        // - cardLast4 == "0000"은 조회해도 여전히 미확정인 케이스를 재현하기 위한 테스트용 규칙이다.
+        // - 마지막 자리 짝수는 APPROVED, 홀수는 DECLINED로 판단한다.
+
         // - posTrx/attemptSeq는 상위(포스서버)에서 생성/관리하는 추적 키
         // - vanTrxId는 VAN 내부 추적용 ID라고 가정(로그/조회/취소 연계에 필요)
         // - respondedAt은 VAN이 응답을 생성한 시각(관측 포인트)
