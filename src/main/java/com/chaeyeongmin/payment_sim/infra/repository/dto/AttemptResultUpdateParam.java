@@ -25,7 +25,7 @@ public record AttemptResultUpdateParam(
         int attemptSeq,
         PaymentFinalStatus finalStatus,
         String approvalNo,
-         String declineCode,
+        String declineCode,
         String vanTrxId
 ) {
 
