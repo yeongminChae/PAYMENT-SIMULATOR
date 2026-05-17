@@ -458,7 +458,7 @@ class PaymentApprovalServiceImplTest {
                 .cardBin("411111")
                 .cardLast4("1111")
                 .vanResult(VanResult.TIMEOUT)
-                .finalStatus(PaymentFinalStatus.UNKNOWN_TIMEOUT) // 너 정책 enum에 맞춰 수정
+                .finalStatus(PaymentFinalStatus.UNKNOWN_TIMEOUT) // 정책 enum에 맞춰 수정
                 .approvalNo(null)
                 .declineCode(VanDeclineCode.TIMEOUT)             // 예시: TIMEOUT (없으면 수정)
                 .vanTrxId(null)
@@ -502,7 +502,7 @@ class PaymentApprovalServiceImplTest {
         return new PaymentAttemptUpdatedRow(
                 posTrx,
                 attemptSeq,
-                PaymentFinalStatus.UNKNOWN_TIMEOUT, // 너 enum에 맞춰 수정
+                PaymentFinalStatus.UNKNOWN_TIMEOUT, // enum에 맞춰 수정
                 null,
                 "TIMEOUT",
                 "411111",

@@ -67,7 +67,6 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
         // Q4 : 조회 가능한 상태인지 분기
         return getInquiryResponse(attempt, posTrx, attemptSeq);
 
-
     }
 
     private InquiryResponse getInquiryResponse(
@@ -152,9 +151,11 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
         AttemptResultUpdateParam param =
                 getAttemptResultUpdateParam(vanInquiryResponse, posTrx, attemptSeq);
 
-        Optional<PaymentAttemptUpdatedRow> finalizedRowOpt  =
+        Optional<PaymentAttemptUpdatedRow> finalizedRowOpt =
                 repository.updateUnknownToFinal(param);
 
+        // Q7: Q6 저장 성공 시 DB RETURNING row 기준으로 응답 생성
+        // - VAN 응답을 바로 쓰지 않고, 실제 DB에 확정 저장된 값을 응답 소스로 사용한다.
         if (finalizedRowOpt.isPresent()) {
             PaymentAttemptUpdatedRow finalizedRow = finalizedRowOpt.get();
 
@@ -169,7 +170,6 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
 
         }
 
-        // 임시 방어: DB 저장에 성공하지 못했으므로 기존 UNKNOWN_TIMEOUT 응답
         return handleUpdateUnknownToFinalMiss(
                 posTrx,
                 attemptSeq,
@@ -265,6 +265,10 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
 
     }
 
+    // Inquiry 상태 분기 정책:
+    // - APPROVED / DECLINED: 이미 확정된 상태이므로 Q9 DB 재응답(VAN 재조회 금지)
+    // - PROCESSING: 아직 처리 중이므로 Q10 retryLater
+    // - UNKNOWN_TIMEOUT: VAN 조회로 확정 여부를 확인해야 하므로 Q5 호출 대상
     private InquiryResponse getInquiryResponse(
             PaymentFinalStatus status,
             String trx,
@@ -274,6 +278,7 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
             CardSummary cardSummary
     ) {
         return switch (status) {
+            // Q9: 이미 확정된 건 DB 재응답
             case APPROVED -> InquiryResponse.approved(
                     trx,
                     attemptSeq,
@@ -281,6 +286,7 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
                     cardSummary
             );
 
+            // Q9: 이미 확정된 건 DB 재응답
             case DECLINED -> InquiryResponse.declined(
                     trx,
                     attemptSeq,
@@ -295,6 +301,7 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
                     cardSummary
             );
 
+            // Q10: 처리중 응답
             case PROCESSING -> InquiryResponse.retryLater(
                     trx,
                     attemptSeq,
