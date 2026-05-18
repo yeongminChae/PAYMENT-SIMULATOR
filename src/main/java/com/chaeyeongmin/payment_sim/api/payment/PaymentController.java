@@ -79,7 +79,24 @@ public class PaymentController {
     }
 
     @PostMapping("/cancel")
-    public ApiResponse<CancelResponse> cancel(@RequestBody CancelRequest request) {
-        return cancelService.cancel(request);
+    public ApiResponse<CancelResponse> cancel(
+            @Valid @RequestBody CancelRequest request
+    ) {
+        log.info("[cancel][C1] request received. posTrx={}, originalPosTrx={}, originalAttemptSeq={}",
+                request.posTrx(),
+                request.originalPosTrx(),
+                request.originalAttemptSeq()
+        );
+
+        CancelResponse response = cancelService.cancel(request);
+
+        log.info("[cancel][C1] response. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, cancelStatus={}",
+                response.posTrx(),
+                response.originalPosTrx(),
+                response.originalAttemptSeq(),
+                response.cancelStatus()
+        );
+
+        return ApiResponse.ok(response);
     }
 }
