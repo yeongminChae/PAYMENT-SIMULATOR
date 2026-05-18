@@ -1,8 +1,45 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
-        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
 <mapper namespace="com.chaeyeongmin.payment_sim.infra.mybatis.mapper.PaymentCancelMapper">
-    <!-- TODO: SQL 매핑 작성 -->
+
+    <!--
+       [C3] 취소 대상 원거래 attempt 조회
+       - originalPosTrx + originalAttemptSeq 기준으로 원승인 attempt를 조회한다.
+       - 원거래가 없으면 Service에서 NOT_FOUND로 처리한다.
+       - 원거래가 있으면 C4에서 APPROVED 여부를 검증한다.
+   -->
+    <select id="findOriginalAttempt"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt">
+        SELECT
+        A.FINAL_STATUS,
+        A.APPROVAL_NO,
+        A.DECLINE_CODE,
+        A.CARD_BIN,
+        A.CARD_LAST4,
+        A.ATTEMPT_SEQ,
+        A.AMOUNT
+        FROM PAYMENT_ATTEMPT A
+        WHERE A.POS_TRX = #{posTrx}
+        AND A.ATTEMPT_SEQ = #{attemptSeq}
+        LIMIT 1
+    </select>
+
+    <select id="findByOriginalPosTrxAndOriginalAttemptSeq"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentCancel">
+        SELECT
+        C.POS_TRX,
+        C.ORIGINAL_POS_TRX,
+        C.ORIGINAL_ATTEMPT_SEQ,
+        C.CANCEL_STATUS,
+        C.CANCEL_APPROVAL_NO,
+        C.DECLINE_CODE
+        FROM PAYMENT_CANCEL C
+        WHERE C.ORIGINAL_POS_TRX = #{originalPosTrx}
+        AND C.ORIGINAL_ATTEMPT_SEQ = #{originalAttemptSeq}
+        LIMIT 1
+    </select>
+
 </mapper>

@@ -1,31 +1,30 @@
 package com.chaeyeongmin.payment_sim.api.payment.dto.request;
 
-public class CancelRequest {
-    private String current_trx_no;
-    private String original_trx_no;
-    private int original_attempt_seq;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Positive;
 
-    public String getCurrent_trx_no() {
-        return current_trx_no;
-    }
+/**
+ * [DTO] 취소 요청
+ *
+ * <p>
+ * - posTrx             : 이번 취소 거래번호(현거래번호/포스TR)
+ * - originalPosTrx     : 취소 대상 원승인 거래번호
+ * - originalAttemptSeq : 취소 대상 원승인 attemptSeq
+ *
+ * <p>
+ * 정책:
+ * - 취소 API는 거래번호를 새로 발급하지 않는다.
+ * - posTrx는 POS가 전달한 취소 거래번호를 그대로 사용한다.
+ * - originalPosTrx + originalAttemptSeq로 원승인 attempt를 식별한다.
+ */
+public record CancelRequest(
+        @NotBlank
+        String posTrx,
 
-    public void setCurrent_trx_no(String current_trx_no) {
-        this.current_trx_no = current_trx_no;
-    }
+        @NotBlank
+        String originalPosTrx,
 
-    public String getOriginal_trx_no() {
-        return original_trx_no;
-    }
-
-    public void setOriginal_trx_no(String original_trx_no) {
-        this.original_trx_no = original_trx_no;
-    }
-
-    public int getOriginal_attempt_seq() {
-        return original_attempt_seq;
-    }
-
-    public void setOriginal_attempt_seq(int original_attempt_seq) {
-        this.original_attempt_seq = original_attempt_seq;
-    }
+        @Positive
+        int originalAttemptSeq
+) {
 }

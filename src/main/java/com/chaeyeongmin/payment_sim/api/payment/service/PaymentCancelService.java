@@ -5,5 +5,5 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
 import com.chaeyeongmin.payment_sim.common.api.ApiResponse;
 
 public interface PaymentCancelService {
-    ApiResponse<CancelResponse> cancel(CancelRequest request);
+    CancelResponse cancel(CancelRequest request);
 }
