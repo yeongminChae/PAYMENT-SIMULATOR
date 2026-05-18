@@ -71,25 +71,27 @@ CREATE INDEX IF NOT EXISTS IDX_PAYMENT_ATTEMPT_FINAL_STATUS
 --   - CANCELLED / CANCEL_DECLINED = 확정 상태
 -- FK(물리): 원거래 attempt를 참조(정상 흐름에서는 존재해야 함)
 -- ---------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS PAYMENT_CANCEL (
-    CANCEL_ID            INTEGER PRIMARY KEY AUTOINCREMENT,
-    CURRENT_TRX_NO        TEXT    NOT NULL,    -- 현거래번호(취소 요청 단위)
-    ORIGINAL_TRX_NO       TEXT    NOT NULL,    -- 원거래 포스TR
-    ORIGINAL_ATTEMPT_SEQ  INTEGER NOT NULL,    -- 원거래 attempt_seq
-    CANCEL_STATUS         TEXT    NOT NULL,    -- PENDING/CANCELLED/CANCEL_DECLINED
-    CANCEL_APPROVAL_NO    TEXT    NULL,        -- 취소 승인번호(성공 시)
-    DECLINE_CODE          TEXT    NULL,        -- 취소 거절코드(거절 시)
-    CREATED_AT            TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ','now')),
-    UPDATED_AT            TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ','now')),
+create table main.PAYMENT_CANCEL
+(
+    CANCEL_ID            INTEGER
+        primary key autoincrement,
+    CURRENT_TRX_NO       TEXT                                                 not null,
+    ORIGINAL_TRX_NO      TEXT                                                 not null,
+    ORIGINAL_ATTEMPT_SEQ INTEGER                                              not null,
+    CANCEL_STATUS        TEXT                                                 not null,
+    CANCEL_APPROVAL_NO   TEXT,
+    DECLINE_CODE         TEXT,
+    CREATED_AT           TEXT default (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')) not null,
+    UPDATED_AT           TEXT default (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')) not null,
 
-    UNIQUE (ORIGINAL_TRX_NO, ORIGINAL_ATTEMPT_SEQ),
+    unique (CURRENT_TRX_NO),
+    unique (ORIGINAL_TRX_NO, ORIGINAL_ATTEMPT_SEQ),
 
-    -- 원거래 존재를 보장(정책: APPROVED인 원거래만 취소 가능)
-    FOREIGN KEY (ORIGINAL_TRX_NO, ORIGINAL_ATTEMPT_SEQ)
-    REFERENCES PAYMENT_ATTEMPT (POS_TRX, ATTEMPT_SEQ)
-    ON UPDATE RESTRICT
-    ON DELETE RESTRICT
-    );
+    foreign key (ORIGINAL_TRX_NO, ORIGINAL_ATTEMPT_SEQ)
+        references main.PAYMENT_ATTEMPT (POS_TRX, ATTEMPT_SEQ)
+        on update restrict
+        on delete restrict
+);
 
 CREATE INDEX IF NOT EXISTS IDX_PAYMENT_CANCEL_STATUS
     ON PAYMENT_CANCEL (CANCEL_STATUS);

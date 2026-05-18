@@ -1,19 +1,18 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.impl;
 
-import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardSummary;
 import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
-import com.chaeyeongmin.payment_sim.api.payment.dto.response.InquiryResponse;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.CancelRequestValidator;
-import com.chaeyeongmin.payment_sim.common.api.ApiResponse;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
+import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -26,6 +25,7 @@ import java.util.Optional;
 public class PaymentCancelServiceImpl implements PaymentCancelService {
 
     private final PaymentCancelRepository repository;
+    private final VanGateway vanGateway;
     private final CancelRequestValidator validator;
 
     @Override
@@ -41,7 +41,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         int originalAttemptSeq = request.originalAttemptSeq();
 
         Optional<PaymentAttempt> originalAttemptOpt =
-                repository.findOriginalAttempt(originalPosTrx, originalAttemptSeq);;
+                repository.findOriginalAttempt(originalPosTrx, originalAttemptSeq);
 
         // C3-1: 원거래 없음
         if (originalAttemptOpt.isEmpty()) {
@@ -118,6 +118,34 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // - 원거래는 APPROVED이고, 기존 취소 row도 없으므로 신규 취소 진행 가능 상태다.
         // - 여기까지 통과하면 다음 단계인 C5(PENDING cancel row 생성)로 넘어간다.
         // - 아직 C5~C8을 구현하지 않았다면 임시로 retryLater 응답을 내린다.
+
+        CancelInsertParam insertParam = CancelInsertParam.pending(
+                posTrx,
+                originalPosTrx,
+                originalAttemptSeq
+        );
+
+        Optional<PaymentCancel> insertedCancelOpt = repository.insertPendingCancel(insertParam);
+
+        if (insertedCancelOpt.isPresent()) {
+            PaymentCancel insertedCancel = insertedCancelOpt.get();
+
+            log.info("[cancel][C5] pending cancel row created. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, cancelStatus={}",
+                    posTrx,
+                    originalPosTrx,
+                    originalAttemptSeq,
+                    insertedCancel.cancelStatus()
+            );
+
+            // C5 성공: PENDING row 생성 완료
+            // C6~C8은 후속 구현 예정이므로 현재는 retryLater 응답
+            return CancelResponse.retryLater(
+                    posTrx,
+                    originalPosTrx,
+                    originalAttemptSeq
+            );
+        }
+
         return CancelResponse.retryLater(
                 posTrx,
                 originalPosTrx,

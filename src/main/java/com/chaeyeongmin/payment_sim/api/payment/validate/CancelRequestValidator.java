@@ -2,7 +2,11 @@ package com.chaeyeongmin.payment_sim.api.payment.validate;
 
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.validate.enums.CancelValidationError;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
 
+@Component
+@RequiredArgsConstructor
 public class CancelRequestValidator {
 
     public void validate(CancelRequest request) {

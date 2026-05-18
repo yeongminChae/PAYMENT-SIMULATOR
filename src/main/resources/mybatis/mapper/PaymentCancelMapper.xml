@@ -6,6 +6,37 @@
 <mapper namespace="com.chaeyeongmin.payment_sim.infra.mybatis.mapper.PaymentCancelMapper">
 
     <!--
+        [C5] 취소 거래 row 생성
+        - 원거래가 APPROVED이고 기존 cancel row가 없을 때 호출한다.
+        - 최초 cancel row는 PENDING 상태로 생성한다.
+        - UNIQUE(CURRENT_TRX_NO), UNIQUE(ORIGINAL_TRX_NO, ORIGINAL_ATTEMPT_SEQ)로
+          중복 취소/중복 거래번호를 DB에서 방어한다.
+        - INSERT 성공 시 생성된 cancel row를 RETURNING으로 반환한다.
+    -->
+    <insert id="insertPendingCancel"
+            parameterType="com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam">
+        INSERT INTO PAYMENT_CANCEL (
+        CURRENT_TRX_NO,
+        ORIGINAL_TRX_NO,
+        ORIGINAL_ATTEMPT_SEQ,
+        CANCEL_STATUS
+        )
+        VALUES (
+        #{cancel.posTrx},
+        #{cancel.originalPosTrx},
+        #{cancel.originalAttemptSeq},
+        #{cancel.cancelStatus}
+        )
+        RETURNING
+        CURRENT_TRX_NO AS posTrx,
+        ORIGINAL_TRX_NO AS originalPosTrx,
+        ORIGINAL_ATTEMPT_SEQ AS originalAttemptSeq,
+        CANCEL_STATUS AS cancelStatus,
+        CANCEL_APPROVAL_NO AS cancelApprovalNo,
+        DECLINE_CODE AS declineCode;
+    </insert>
+
+    <!--
        [C3] 취소 대상 원거래 attempt 조회
        - originalPosTrx + originalAttemptSeq 기준으로 원승인 attempt를 조회한다.
        - 원거래가 없으면 Service에서 NOT_FOUND로 처리한다.
