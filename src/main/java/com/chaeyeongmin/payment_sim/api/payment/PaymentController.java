@@ -1,7 +1,12 @@
 package com.chaeyeongmin.payment_sim.api.payment;
 
-import com.chaeyeongmin.payment_sim.api.payment.dto.*;
 import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
+import com.chaeyeongmin.payment_sim.api.payment.dto.request.ApproveRequest;
+import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
+import com.chaeyeongmin.payment_sim.api.payment.dto.request.InquiryRequest;
+import com.chaeyeongmin.payment_sim.api.payment.dto.response.ApproveResponse;
+import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
+import com.chaeyeongmin.payment_sim.api.payment.dto.response.InquiryResponse;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentInquiryService;
@@ -41,7 +46,9 @@ public class PaymentController {
     private final PaymentCancelService cancelService;
 
     @PostMapping("/approve")
-    public ApiResponse<ApproveResponse> approve(@Valid @RequestBody ApproveRequest request) {
+    public ApiResponse<ApproveResponse> approve(
+            @Valid @RequestBody ApproveRequest request
+    ) {
 
         // 요청 로깅
         CardInput card = request.getCard();
@@ -58,8 +65,17 @@ public class PaymentController {
     }
 
     @PostMapping("/inquiry")
-    public ApiResponse<InquiryResponse> inquiry(@RequestBody InquiryRequest request) {
-        return inquiryService.inquiry(request);
+    public ApiResponse<InquiryResponse> inquiry(
+            @Valid @RequestBody InquiryRequest request
+    ) {
+        log.info("[INQUIRY] req posTrx={}, attemptSeq={}", request.posTrx(), request.attemptSeq());
+
+        InquiryResponse res = inquiryService.inquiry(request);
+
+        log.info("[INQUIRY] res posTrx={}, attemptSeq={}, finalStatus={}, approvalNo={}, declineCode={}",
+                res.posTrx(), res.attemptSeq(), res.finalStatus(), res.approvalNo(), res.declineCode());
+
+        return ApiResponse.ok(res);
     }
 
     @PostMapping("/cancel")

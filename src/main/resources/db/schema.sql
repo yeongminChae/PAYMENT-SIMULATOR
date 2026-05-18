@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS PAYMENT_ATTEMPT (
     FINAL_STATUS  TEXT    NULL,                -- NULL/APPROVED/DECLINED/UNKNOWN_TIMEOUT
     APPROVAL_NO   TEXT    NULL,                -- 승인번호(승인 시)
     DECLINE_CODE  TEXT    NULL,                -- 거절코드(거절 시)
+    VAN_TRX_ID    TEXT    NULL,                -- VAN 쪽에서 해당 승인/조회 건을 추적하기 위한 내부 거래키
     CREATED_AT    TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ','now')),
     UPDATED_AT    TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ','now')),
 

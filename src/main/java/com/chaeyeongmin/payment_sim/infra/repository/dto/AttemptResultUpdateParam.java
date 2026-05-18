@@ -25,20 +25,60 @@ public record AttemptResultUpdateParam(
         int attemptSeq,
         PaymentFinalStatus finalStatus,
         String approvalNo,
-        VanDeclineCode declineCode,
+        String declineCode,
         String vanTrxId
 ) {
 
-    public static AttemptResultUpdateParam approved(String posTrx, int attemptSeq, String approvalNo, String vanTrxId) {
-        return new AttemptResultUpdateParam(posTrx, attemptSeq, PaymentFinalStatus.APPROVED, approvalNo, null, vanTrxId);
+    public static AttemptResultUpdateParam approved(
+            String posTrx,
+            int attemptSeq,
+            String approvalNo,
+            String vanTrxId
+    ) {
+        return new AttemptResultUpdateParam(
+                posTrx,
+                attemptSeq,
+                PaymentFinalStatus.APPROVED,
+                approvalNo,
+                null,
+                vanTrxId
+        );
     }
 
-    public static AttemptResultUpdateParam declined(String posTrx, int attemptSeq, VanDeclineCode declineCode, String vanTrxId) {
-        return new AttemptResultUpdateParam(posTrx, attemptSeq, PaymentFinalStatus.DECLINED, null, declineCode, vanTrxId);
+    public static AttemptResultUpdateParam declined(
+            String posTrx,
+            int attemptSeq,
+            String declineCode,
+            String vanTrxId
+    ) {
+        return new AttemptResultUpdateParam(
+                posTrx,
+                attemptSeq,
+                PaymentFinalStatus.DECLINED,
+                null,
+                declineCode,
+                vanTrxId
+        );
     }
 
-    public static AttemptResultUpdateParam unknownTimeout(String posTrx, int attemptSeq, String vanTrxId) {
-        return new AttemptResultUpdateParam(posTrx, attemptSeq, PaymentFinalStatus.UNKNOWN_TIMEOUT, null, VanDeclineCode.TIMEOUT, vanTrxId);
+    public static AttemptResultUpdateParam unknownTimeout(
+            String posTrx,
+            int attemptSeq,
+            String declineCode,
+            String vanTrxId
+    ) {
+        String safeDeclineCode = declineCode != null
+                ? declineCode
+                : VanDeclineCode.TIMEOUT.code();
+
+        return new AttemptResultUpdateParam(
+                posTrx,
+                attemptSeq,
+                PaymentFinalStatus.UNKNOWN_TIMEOUT,
+                null,
+                safeDeclineCode,
+                vanTrxId
+        );
     }
 
 }

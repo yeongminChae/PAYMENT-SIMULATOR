@@ -66,4 +66,5 @@ public interface VanGateway {
      * - VanInquiryResponse: 조회 결과(승인/거절/미확정)
      */
     VanInquiryResponse inquiry(VanInquiryRequest request);
+
 }

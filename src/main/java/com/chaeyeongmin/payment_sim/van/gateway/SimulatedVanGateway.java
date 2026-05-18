@@ -4,6 +4,7 @@ package com.chaeyeongmin.payment_sim.van.gateway;
 import com.chaeyeongmin.payment_sim.van.client.dto.*;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
 import com.chaeyeongmin.payment_sim.van.factory.VanApproveResponseFactory;
+import com.chaeyeongmin.payment_sim.van.factory.VanInquiryResponseFactory;
 import com.chaeyeongmin.payment_sim.van.validate.VanApproveRequestValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -15,7 +16,8 @@ import java.time.LocalDateTime;
 public class SimulatedVanGateway implements VanGateway {
 
     private final VanApproveRequestValidator approveValidator;
-    private final VanApproveResponseFactory responseFactory;
+    private final VanApproveResponseFactory approveRespFactory;
+    private final VanInquiryResponseFactory inquiryRespFactory;
 
     @Override
     public VanApproveResponse approve(VanApproveRequest request) {
@@ -47,17 +49,17 @@ public class SimulatedVanGateway implements VanGateway {
         // - 실제로는 네트워크 장애/응답 지연/서버 과부하 등으로 발생할 수 있는 케이스를 흉내.
         // - declineCode는 TIMEOUT 같은 내부 코드를 사용(후속 A7 저장 & A4 재조회 분기 테스트용)
         if (attemptSeq % 7 == 0) {
-            return responseFactory.unknownTimeout(
+            return approveRespFactory.unknownTimeout(
                     posTrx, attemptSeq, VanDeclineCode.TIMEOUT, vanTrxId, now
             );
         }
 
         // 5) 승인/거절 규칙(시뮬레이터 전용)
         // - 예: last4의 마지막 자리(0~9)가 짝수면 APPROVED, 홀수면 DECLINED
-        if (isApprovedRule(request)) {
+        if (isApprovedRule(request.cardLast4())) {
             // 승인인 경우 승인번호(approvalNo) 생성
             // - 실제 VAN 승인번호는 고유값이며, 승인 성공 응답에 포함된다.
-            return responseFactory.approved(
+            return approveRespFactory.approved(
                     posTrx, attemptSeq, makeApprovalNo(), vanTrxId, now
             );
         }
@@ -65,21 +67,48 @@ public class SimulatedVanGateway implements VanGateway {
         // 6) 거절 응답
         // - 여기서는 대표적인 거절코드 DO_NOT_HONOR(05)로 통일
         // - 실제 VAN/카드사에서는 거절 사유가 다양하며 코드도 훨씬 많다.
-        return responseFactory.declined(
+        return approveRespFactory.declined(
                 posTrx, attemptSeq, VanDeclineCode.DO_NOT_HONOR, vanTrxId, now
         );
     }
 
     @Override
     public VanInquiryResponse inquiry(VanInquiryRequest request) {
-        // [A6-확장] VAN 조회(후속조회) 시뮬레이터
-        // - 실제 흐름: 승인 요청이 타임아웃/미확정이면 K회 조회를 통해 최종 확정을 시도한다.
-        // - 구현 포인트:
-        //   1) request의 추적키(vanTrxId or posTrx/attemptSeq)로 "기존 승인 시도"를 조회
-        //   2) 아직 처리중이면 PROCESSING(또는 PENDING) 응답
-        //   3) 확정되었으면 APPROVED/DECLINED로 확정 응답
-        // - 지금은 TODO: 시뮬레이터 규칙/저장소(메모리/DB) 설계가 필요
-        return new VanInquiryResponse();
+        // [Q5] VAN 조회 호출(시뮬레이터)
+        // - 실제 VAN이라면 vanTrxId 또는 원거래키로 기존 승인 결과를 조회한다.
+        // - MVP 시뮬레이터는 별도 VAN 저장소 없이 cardLast4 기반 결정 규칙으로 결과를 생성한다.
+        // - cardLast4 == "0000"은 조회해도 여전히 미확정인 케이스를 재현하기 위한 테스트용 규칙이다.
+        // - 마지막 자리 짝수는 APPROVED, 홀수는 DECLINED로 판단한다.
+
+        // - posTrx/attemptSeq는 상위(포스서버)에서 생성/관리하는 추적 키
+        // - vanTrxId는 VAN 내부 추적용 ID라고 가정(로그/조회/취소 연계에 필요)
+        // - respondedAt은 VAN이 응답을 생성한 시각(관측 포인트)
+        String posTrx = request.posTrx();
+        int attemptSeq = request.attemptSeq();
+        String vanTrxId = makeVanTrxId(posTrx, attemptSeq);
+        String cardLast4 = request.cardLast4();
+        LocalDateTime now = LocalDateTime.now();
+
+        if ("0000".equals(cardLast4)) {
+            return inquiryRespFactory.unknownTimeout(
+                    posTrx, attemptSeq, VanDeclineCode.TIMEOUT, vanTrxId, now
+            );
+        }
+
+        // PaymentFinalStatus.APPROVED
+        if (isApprovedRule(cardLast4)) {
+            // 승인인 경우 승인번호(approvalNo) 생성
+            // - 실제 VAN 승인번호는 고유값이며, 승인 성공 응답에 포함된다.
+            return inquiryRespFactory.approved(
+                    posTrx, attemptSeq, makeApprovalNo(), vanTrxId, now
+            );
+        }
+
+        // PaymentFinalStatus.DECLINED
+        return inquiryRespFactory.declined(
+                posTrx, attemptSeq, VanDeclineCode.DO_NOT_HONOR, vanTrxId, now
+        );
+
     }
 
     @Override
@@ -125,14 +154,13 @@ public class SimulatedVanGateway implements VanGateway {
         return String.format("A%09d", t);
     }
 
-    private static boolean isApprovedRule(VanApproveRequest request) {
+    private static boolean isApprovedRule(String last4) {
         // 시뮬레이터 승인 규칙
         // - cardLast4의 마지막 숫자가 짝수면 승인, 홀수면 거절
         // - 예: last4=1112(짝수) -> APPROVED, last4=1111(홀수) -> DECLINED
         //
         // 전제:
         // - approveValidator에서 cardLast4가 숫자 문자열임이 보장되어야 한다.
-        String last4 = request.cardLast4();
         char lastDigit = last4.charAt(last4.length() - 1);
 
         return ((lastDigit - '0') % 2) == 0;

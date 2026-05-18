@@ -1,4 +1,4 @@
-package com.chaeyeongmin.payment_sim.api.payment.dto;
+package com.chaeyeongmin.payment_sim.api.payment.dto.request;
 
 import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
 import jakarta.validation.Valid;

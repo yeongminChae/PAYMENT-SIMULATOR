@@ -1,4 +1,4 @@
-package com.chaeyeongmin.payment_sim.api.payment.validate;
+package com.chaeyeongmin.payment_sim.api.payment.validate.enums;
 
 import lombok.RequiredArgsConstructor;
 
@@ -13,6 +13,11 @@ public enum ApproveValidationError {
     private final String code;
     private final String message;
 
-    public String code() { return code; }
-    public String message() { return message; }
+    public String code() {
+        return code;
+    }
+
+    public String message() {
+        return message;
+    }
 }

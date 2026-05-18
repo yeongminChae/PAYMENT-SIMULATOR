@@ -1,4 +1,4 @@
-package com.chaeyeongmin.payment_sim.api.payment.dto;
+package com.chaeyeongmin.payment_sim.api.payment.dto.response;
 
 import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardSummary;
 import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;

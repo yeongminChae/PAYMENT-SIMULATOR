@@ -1,4 +1,4 @@
-package com.chaeyeongmin.payment_sim.api.payment.dto;
+package com.chaeyeongmin.payment_sim.api.payment.dto.request;
 
 public class CancelRequest {
     private String current_trx_no;

@@ -1,9 +1,9 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.impl;
 
-import com.chaeyeongmin.payment_sim.api.payment.dto.ApproveRequest;
+import com.chaeyeongmin.payment_sim.api.payment.dto.request.ApproveRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
 import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveRequestValidator;
-import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveValidationError;
+import com.chaeyeongmin.payment_sim.api.payment.validate.enums.ApproveValidationError;
 import com.chaeyeongmin.payment_sim.common.policy.CardValidationPolicy;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import org.junit.jupiter.api.BeforeEach;
