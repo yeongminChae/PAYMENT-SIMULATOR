@@ -3,6 +3,7 @@ package com.chaeyeongmin.payment_sim.infra.mybatis.mapper;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -21,6 +22,12 @@ public interface PaymentCancelMapper {
             @Param("originalAttemptSeq") int originalAttemptSeq
     );
 
-    Optional<PaymentCancel> insertPendingCancel(CancelInsertParam param);
+    Optional<PaymentCancel> insertPendingCancel(
+            @Param("cancel") CancelInsertParam cancel
+    );
+
+    Optional<PaymentCancel> updateCancelResult(
+            @Param("cancel") CancelResultUpdateParam param
+    );
 
 }

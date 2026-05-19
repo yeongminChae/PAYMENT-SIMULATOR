@@ -5,6 +5,7 @@ import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.infra.mybatis.mapper.PaymentCancelMapper;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
@@ -36,6 +37,11 @@ public class PaymentCancelRepositoryImpl implements PaymentCancelRepository {
     @Override
     public Optional<PaymentCancel> insertPendingCancel(CancelInsertParam param) {
         return mapper.insertPendingCancel(param);
+    }
+
+    @Override
+    public Optional<PaymentCancel> updateCancelResult(CancelResultUpdateParam param) {
+        return mapper.updateCancelResult(param);
     }
 
 }

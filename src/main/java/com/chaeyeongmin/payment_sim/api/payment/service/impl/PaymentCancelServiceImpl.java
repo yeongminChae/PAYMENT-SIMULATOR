@@ -12,6 +12,7 @@ import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanCancelAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelResponse;
@@ -142,12 +143,10 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
             return resolveVanCancelResponse(request, originalAttempt);
         }
 
-        // TODO: C5 insert 실패 시 기존 cancel row 재조회 후 상태별 응답 필요
-        // - PENDING -> RETRY_LATER
-        // - CANCELLED -> ALREADY_CANCELLED
-        // - CANCEL_DECLINED -> DECLINED
-
-        return CancelResponse.retryLater(
+        // C5 insert 실패 시 기존 cancel row 재조회 후 상태별 응답 필요
+        // 그 외 예외 케이스 처리
+        return handleInsertPendingMiss(
+                request,
                 posTrx,
                 originalPosTrx,
                 originalAttemptSeq
@@ -211,10 +210,6 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         CancelStatus vanFinalStatus = vanCancelResponse.cancelStatus();
         String responseDeclineCode = toDeclineCode(vanCancelResponse.declineCode());
 
-        // TODO: C7 구현 필요
-        // - CANCELLED 응답이면 PAYMENT_CANCEL 상태를 CANCELLED로 update 후 DB row 기준 응답
-        // - CANCEL_DECLINED 응답이면 PAYMENT_CANCEL 상태를 CANCEL_DECLINED로 update 후 DB row 기준 응답
-        // - 현재는 C6 VAN 호출 연결 확인용 임시 응답
         switch (vanFinalStatus) {
             // PENDING -> DB 저장 없이 메서드 즉시 리턴
             case PENDING -> {
@@ -228,35 +223,88 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
             // CANCELLED -> DB 업데이트 후 메서드 리턴
             case CANCELLED -> {
                 // DB 업데이트 처리 로직
-
-                return CancelResponse.cancelled(
+                CancelResultUpdateParam updateParam = CancelResultUpdateParam.cancelled(
                         posTrx,
                         originalPosTrx,
                         originalAttemptSeq,
                         vanCancelResponse.cancelApprovalNo()
                 );
+                Optional<PaymentCancel> updateCancelResult =
+                        repository.updateCancelResult(updateParam);
+
+                if (updateCancelResult.isPresent()) {
+                    PaymentCancel updatedCancel = updateCancelResult.get();
+
+                    return CancelResponse.cancelled(
+                            updatedCancel.posTrx(),
+                            updatedCancel.originalPosTrx(),
+                            updatedCancel.originalAttemptSeq(),
+                            updatedCancel.cancelApprovalNo()
+                    );
+                }
+
             }
 
             // - CANCEL_DECLINED -> 이전 취소 요청이 VAN에서 거절된 상태이므로 DECLINED 재응답
             case CANCEL_DECLINED -> {
                 // DB 업데이트 처리 로직
-
-                return CancelResponse.declined(
+                CancelResultUpdateParam updateParam = CancelResultUpdateParam.declined(
                         posTrx,
                         originalPosTrx,
                         originalAttemptSeq,
                         responseDeclineCode
                 );
+                Optional<PaymentCancel> updateCancelResult =
+                        repository.updateCancelResult(updateParam);
+
+                if (updateCancelResult.isPresent()) {
+                    PaymentCancel updatedCancel = updateCancelResult.get();
+
+                    return CancelResponse.declined(
+                            updatedCancel.posTrx(),
+                            updatedCancel.originalPosTrx(),
+                            updatedCancel.originalAttemptSeq(),
+                            updatedCancel.declineCode()
+                    );
+                }
+
             }
 
-        };
+        }
 
+        log.error("[cancel][C7-0rows] update cancel result failed. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, intendedStatus={}",
+                posTrx, originalPosTrx, originalAttemptSeq, vanFinalStatus);
         return CancelResponse.retryLater(
                 posTrx,
                 originalPosTrx,
                 originalAttemptSeq
         );
 
+    }
+
+    private CancelResponse handleInsertPendingMiss(
+            CancelRequest request,
+            String posTrx,
+            String originalPosTrx,
+            int originalAttemptSeq
+    ) {
+        Optional<PaymentCancel> reCancelOpt =
+                repository.findByOriginalPosTrxAndOriginalAttemptSeq(
+                        originalPosTrx,
+                        originalAttemptSeq
+                );
+
+        if (reCancelOpt.isPresent())
+            return getCancelResponseFromExistingCancel(request, reCancelOpt.get());
+
+        log.error("[cancel][C5-insert-miss][CRITICAL_CANCEL_ROW_NOT_FOUND] pending insert failed but cancel row not found. posTrx={}, originalPosTrx={}, originalAttemptSeq={}",
+                posTrx, originalPosTrx, originalAttemptSeq);
+
+        return CancelResponse.retryLater(
+                posTrx,
+                originalPosTrx,
+                originalAttemptSeq
+        );
     }
 
     private String toDeclineCode(VanDeclineCode declineCode) {
