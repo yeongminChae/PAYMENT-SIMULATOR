@@ -113,14 +113,15 @@ public class SimulatedVanGateway implements VanGateway {
 
     @Override
     public VanCancelResponse cancel(VanCancelRequest request) {
-        // [A6-확장] VAN 취소 시뮬레이터
+        // [C6-확장] VAN 취소 시뮬레이터
         // - 실제 흐름: 원승인(vanTrxId/approvalNo 등)을 기반으로 취소 승인 요청을 보낸다.
         // - 구현 포인트:
         //   1) 원거래 존재 여부 확인(없으면 INVALID_ORIGINAL 같은 에러)
         //   2) 이미 취소되었는지(중복취소) 확인
         //   3) 취소 승인번호/취소 결과 생성
         // - 지금은 TODO: 원승인 상태를 저장/조회할 구조(메모리/DB)가 필요
-        return new VanCancelResponse();
+
+        return null;
     }
 
     private static void sleepSilently(long ms) {

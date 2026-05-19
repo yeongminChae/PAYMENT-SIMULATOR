@@ -14,7 +14,8 @@
                A.CARD_BIN,
                A.CARD_LAST4,
                A.ATTEMPT_SEQ,
-               A.AMOUNT
+               A.AMOUNT,
+               A.VAN_TRX_ID AS vanTrxId
            FROM PAYMENT_ATTEMPT A
            WHERE A.POS_TRX = #{posTrx}
              AND A.ATTEMPT_SEQ = #{attemptSeq}

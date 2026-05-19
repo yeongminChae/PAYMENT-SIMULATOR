@@ -109,7 +109,8 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
             case UNKNOWN_TIMEOUT -> resolveUnknownTimeout(
                     posTrx,
                     attemptSeq,
-                    cardSummary
+                    cardSummary,
+                    attempt.vanTrxId()
             );
 
         };
@@ -119,13 +120,15 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
     private InquiryResponse resolveUnknownTimeout(
             String posTrx,
             int attemptSeq,
-            CardSummary cardSummary
+            CardSummary cardSummary,
+            String vanTrxId
     ) {
         // Q5: VAN 조회 요청 DTO 구성
         VanInquiryRequest vanInquiryRequest = vanInquiryAssembler.getVanInquiryRequest(
                 posTrx,
                 attemptSeq,
-                cardSummary.cardLast4()
+                cardSummary.cardLast4(),
+                vanTrxId
         );
 
         // Q5: VAN 조회 호출

@@ -110,7 +110,12 @@ class PaymentApprovalServiceImplTest {
 
         // 서비스가 DB 매핑용 DTO를 직접 new로 만들면 안됨
         // 테스트나 변환 계층(assembler/mapper)에서만 new로 객체 생성
-        PaymentAttempt latest = latestAttempt("APPROVED", "A123456789", null, attemptSeq);
+        PaymentAttempt latest = latestAttempt(
+                "APPROVED",
+                "A123456789",
+                null,
+                attemptSeq
+        );
 
         when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.of(latest));
 
@@ -148,7 +153,12 @@ class PaymentApprovalServiceImplTest {
         String trx = baseReq.getPosTrx();
         int attemptSeq = 1;
 
-        PaymentAttempt latest = latestAttempt("PROCESSING", null, null, attemptSeq);
+        PaymentAttempt latest = latestAttempt(
+                "PROCESSING",
+                null,
+                null,
+                attemptSeq
+        );
 
         when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.of(latest));
 
@@ -187,7 +197,12 @@ class PaymentApprovalServiceImplTest {
         int attemptSeq = 1;
         int newAttemptSeq = 2;
 
-        PaymentAttempt latest = latestAttempt("DECLINED", null, "05", attemptSeq);
+        PaymentAttempt latest = latestAttempt(
+                "DECLINED",
+                null,
+                "05",
+                attemptSeq
+        );
         VanApproveRequest vanReq = vanApproveReq(trx, newAttemptSeq, 10000);
 
         when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.of(latest));
@@ -315,7 +330,12 @@ class PaymentApprovalServiceImplTest {
         String trx = baseReq.getPosTrx();
         int attemptSeq = 1;
 
-        PaymentAttempt latest = latestAttempt("APPROVED", "A123456789", null, attemptSeq);
+        PaymentAttempt latest = latestAttempt(
+                "APPROVED",
+                "A123456789",
+                null,
+                attemptSeq
+        );
         VanApproveRequest vanReq = vanApproveReq(trx, attemptSeq, 10000);
 
         when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.empty());
@@ -361,7 +381,12 @@ class PaymentApprovalServiceImplTest {
         String trx = baseReq.getPosTrx();
         int attemptSeq = 1;
 
-        PaymentAttempt latest = latestAttempt("PROCESSING", null, null, attemptSeq);
+        PaymentAttempt latest = latestAttempt(
+                "PROCESSING",
+                null,
+                null,
+                attemptSeq
+        );
         VanApproveRequest vanReq = vanApproveReq(trx, attemptSeq, 10000);
 
         when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.empty());
@@ -392,7 +417,12 @@ class PaymentApprovalServiceImplTest {
     // 테스트용 객체 생성 메소드
 
     // status만 바꿔서 새 record를 생성
-    private PaymentAttempt latestAttempt(String finalStatus, String approveNo, String declineCode, int attemptSeq) {
+    private PaymentAttempt latestAttempt(
+            String finalStatus,
+            String approveNo,
+            String declineCode,
+            int attemptSeq
+    ) {
         return new PaymentAttempt(
                 finalStatus,
                 approveNo, // approvalNo (필요 없으면 null로 바꿔도 됨)
@@ -400,7 +430,8 @@ class PaymentApprovalServiceImplTest {
                 "411111",      // cardBin
                 "1111",        // cardLast4
                 attemptSeq,
-                10000
+                10000,
+                "VAN-TRX-0001"
         );
     }
 

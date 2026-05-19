@@ -45,31 +45,34 @@
     <select id="findOriginalAttempt"
             resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt">
         SELECT
-        A.FINAL_STATUS,
-        A.APPROVAL_NO,
-        A.DECLINE_CODE,
-        A.CARD_BIN,
-        A.CARD_LAST4,
-        A.ATTEMPT_SEQ,
-        A.AMOUNT
+            A.FINAL_STATUS AS finalStatus,
+            A.APPROVAL_NO AS approvalNo,
+            A.DECLINE_CODE AS declineCode,
+            A.CARD_BIN AS cardBin,
+            A.CARD_LAST4 AS cardLast4,
+            A.ATTEMPT_SEQ AS attemptSeq,
+            A.AMOUNT AS amount,
+            A.VAN_TRX_ID AS vanTrxId
         FROM PAYMENT_ATTEMPT A
-        WHERE A.POS_TRX = #{posTrx}
-        AND A.ATTEMPT_SEQ = #{attemptSeq}
+        WHERE 1 = 1
+            and A.POS_TRX = #{posTrx}
+            AND A.ATTEMPT_SEQ = #{attemptSeq}
         LIMIT 1
     </select>
 
     <select id="findByOriginalPosTrxAndOriginalAttemptSeq"
             resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentCancel">
         SELECT
-        C.POS_TRX,
-        C.ORIGINAL_POS_TRX,
-        C.ORIGINAL_ATTEMPT_SEQ,
-        C.CANCEL_STATUS,
-        C.CANCEL_APPROVAL_NO,
-        C.DECLINE_CODE
+            C.CURRENT_TRX_NO AS posTrx,
+            C.ORIGINAL_TRX_NO AS originalPosTrx,
+            C.ORIGINAL_ATTEMPT_SEQ AS originalAttemptSeq,
+            C.CANCEL_STATUS AS cancelStatus,
+            C.CANCEL_APPROVAL_NO AS cancelApprovalNo,
+            C.DECLINE_CODE AS declineCode
         FROM PAYMENT_CANCEL C
-        WHERE C.ORIGINAL_POS_TRX = #{originalPosTrx}
-        AND C.ORIGINAL_ATTEMPT_SEQ = #{originalAttemptSeq}
+        WHERE 1 = 1
+            and C.ORIGINAL_TRX_NO = #{originalPosTrx}
+            AND C.ORIGINAL_ATTEMPT_SEQ = #{originalAttemptSeq}
         LIMIT 1
     </select>
 
