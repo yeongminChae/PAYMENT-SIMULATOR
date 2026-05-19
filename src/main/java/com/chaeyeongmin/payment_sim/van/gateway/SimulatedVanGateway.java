@@ -4,6 +4,7 @@ package com.chaeyeongmin.payment_sim.van.gateway;
 import com.chaeyeongmin.payment_sim.van.client.dto.*;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
 import com.chaeyeongmin.payment_sim.van.factory.VanApproveResponseFactory;
+import com.chaeyeongmin.payment_sim.van.factory.VanCancelResponseFactory;
 import com.chaeyeongmin.payment_sim.van.factory.VanInquiryResponseFactory;
 import com.chaeyeongmin.payment_sim.van.validate.VanApproveRequestValidator;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +19,7 @@ public class SimulatedVanGateway implements VanGateway {
     private final VanApproveRequestValidator approveValidator;
     private final VanApproveResponseFactory approveRespFactory;
     private final VanInquiryResponseFactory inquiryRespFactory;
+    private final VanCancelResponseFactory cancelRespFactory;
 
     @Override
     public VanApproveResponse approve(VanApproveRequest request) {
@@ -115,13 +117,51 @@ public class SimulatedVanGateway implements VanGateway {
     public VanCancelResponse cancel(VanCancelRequest request) {
         // [C6-확장] VAN 취소 시뮬레이터
         // - 실제 흐름: 원승인(vanTrxId/approvalNo 등)을 기반으로 취소 승인 요청을 보낸다.
-        // - 구현 포인트:
-        //   1) 원거래 존재 여부 확인(없으면 INVALID_ORIGINAL 같은 에러)
-        //   2) 이미 취소되었는지(중복취소) 확인
-        //   3) 취소 승인번호/취소 결과 생성
-        // - 지금은 TODO: 원승인 상태를 저장/조회할 구조(메모리/DB)가 필요
+        String originalPosTrx = request.originalPosTrx();
+        String posTrx = request.posTrx();
+        int originalAttemptSeq = request.originalAttemptSeq();
+        String cardLast4 = request.cardLast4();
+        String vanTrxId = request.vanTrxId();
+        LocalDateTime now = LocalDateTime.now();
 
-        return null;
+        if (vanTrxId == null || vanTrxId.isBlank()) {
+            vanTrxId = makeVanTrxId(originalPosTrx, originalAttemptSeq);
+        }
+
+        // 타임아웃/미확정 규칙
+        if (originalAttemptSeq % 7 == 0 || "0000".equals(cardLast4)) {
+            return cancelRespFactory.unknownTimeout(
+                    posTrx,
+                    originalPosTrx,
+                    originalAttemptSeq,
+                    vanTrxId,
+                    VanDeclineCode.TIMEOUT,
+                    now
+            );
+        }
+
+        // 취소 성공 규칙: last4 마지막 숫자 짝수
+        if (isApprovedRule(cardLast4)) {
+            return cancelRespFactory.cancelled(
+                    posTrx,
+                    originalPosTrx,
+                    originalAttemptSeq,
+                    vanTrxId,
+                    makeApprovalNo(),
+                    now
+            );
+        }
+
+        // 취소 거절 규칙
+        return cancelRespFactory.declined(
+                posTrx,
+                originalPosTrx,
+                originalAttemptSeq,
+                vanTrxId,
+                VanDeclineCode.DO_NOT_HONOR,
+                now
+        );
+
     }
 
     private static void sleepSilently(long ms) {
