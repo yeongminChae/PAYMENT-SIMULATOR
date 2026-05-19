@@ -71,7 +71,7 @@ CREATE INDEX IF NOT EXISTS IDX_PAYMENT_ATTEMPT_FINAL_STATUS
 --   - CANCELLED / CANCEL_DECLINED = 확정 상태
 -- FK(물리): 원거래 attempt를 참조(정상 흐름에서는 존재해야 함)
 -- ---------------------------------------------------------------------
-create table main.PAYMENT_CANCEL
+CREATE TABLE IF NOT EXISTS PAYMENT_CANCEL
 (
     CANCEL_ID            INTEGER
         primary key autoincrement,
@@ -88,7 +88,7 @@ create table main.PAYMENT_CANCEL
     unique (ORIGINAL_TRX_NO, ORIGINAL_ATTEMPT_SEQ),
 
     foreign key (ORIGINAL_TRX_NO, ORIGINAL_ATTEMPT_SEQ)
-        references main.PAYMENT_ATTEMPT (POS_TRX, ATTEMPT_SEQ)
+        references PAYMENT_ATTEMPT (POS_TRX, ATTEMPT_SEQ)
         on update restrict
         on delete restrict
 );
