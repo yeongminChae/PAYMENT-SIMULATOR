@@ -11,6 +11,7 @@ import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanCancelAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelRequest;
@@ -162,7 +163,7 @@ class PaymentCancelServiceImplTest {
         CancelResponse res = service.cancel(baseReq);
 
         // then
-        assertEquals(CancelStatus.CANCEL_DECLINED.name(), res.cancelStatus());
+        assertEquals("CANCEL_NOT_ALLOWED", res.cancelStatus());
         assertEquals("ORIGINAL_NOT_APPROVED", res.declineCode());
 
         verify(validator).validate(baseReq);
@@ -356,23 +357,51 @@ class PaymentCancelServiceImplTest {
         String originalPosTrx = baseReq.originalPosTrx();
         int originalAttemptSeq = baseReq.originalAttemptSeq();
 
-        // 원거래 APPROVED
-        when(repository.findOriginalAttempt(originalPosTrx, originalAttemptSeq))
-                .thenReturn(Optional.of(originalApprovedAttempt()));
-        // 기존 cancel row 없음
         PaymentAttempt originalAttempt = originalApprovedAttempt();
         PaymentCancel pendingCancel = pendingCancel();
         VanCancelRequest vanReq = vanCancelRequest();
-        VanCancelResponse vanRes = vanCancelResCancelled();
-        PaymentCancel updatedCancel = cancelledCancel();
+        VanCancelResponse vanRes = vanCancelResDeclined();
+        PaymentCancel updatedCancel = cancelDeclinedCancel();
+
+        // 원거래 APPROVED
+        when(repository.findOriginalAttempt(originalPosTrx, originalAttemptSeq))
+                .thenReturn(Optional.of(originalApprovedAttempt()));
+
+        // 기존 cancel row 없음
+        when(repository
+                .findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))
+                .thenReturn(Optional.empty());
+
+        // C5 PENDING row insert 성공
+        when(repository.insertPendingCancel(any(CancelInsertParam.class)))
+                .thenReturn(Optional.of(pendingCancel));
+
+        // C6 VAN cancel request 조립
+        when(vanCancelAssembler.getVanCancelRequest(baseReq, originalAttempt))
+                .thenReturn(vanReq);
+
+        // C6 VAN cancel 결과 CANCEL_DECLINED
+        when(vanGateway.cancel(vanReq))
+                .thenReturn(vanRes);
+
+        // C7 updateCancelResult returning 성공
+        when(repository.updateCancelResult(any(CancelResultUpdateParam.class)))
+                .thenReturn(Optional.of(updatedCancel));
 
         // when
         CancelResponse res = service.cancel(baseReq);
 
         // then
-        assertEquals(CancelStatus.CANCEL_DECLINED, res.cancelStatus());
+        assertEquals(CancelStatus.CANCEL_DECLINED.name(), res.cancelStatus());
         assertEquals(updatedCancel.declineCode(), res.declineCode());
-        verify(repository).updateCancelResult(any());
+
+        verify(repository).findOriginalAttempt(originalPosTrx, originalAttemptSeq);
+        verify(repository).findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq);
+        verify(repository).insertPendingCancel(any(CancelInsertParam.class));
+        verify(vanCancelAssembler).getVanCancelRequest(baseReq, originalAttempt);
+        verify(vanGateway).cancel(vanReq);
+        verify(repository).updateCancelResult(any(CancelResultUpdateParam.class));
+
     }
 
     /**
@@ -394,17 +423,41 @@ class PaymentCancelServiceImplTest {
     @Test
     void cancel_newRequest_vanPending_shouldReturnRetryLater_withoutUpdate_C8() {
         // given
+        String originalPosTrx = baseReq.originalPosTrx();
+        int originalAttemptSeq = baseReq.originalAttemptSeq();
+
         // 원거래 APPROVED
+        when(repository.findOriginalAttempt(originalPosTrx, originalAttemptSeq))
+                .thenReturn(Optional.of(originalApprovedAttempt()));
         // 기존 cancel row 없음
-        // insertPendingCancel = Optional.of(PENDING)
-        // vanGateway.cancel = PENDING
+        PaymentAttempt originalAttempt = originalApprovedAttempt();
+        PaymentCancel pendingCancel = pendingCancel();
+        VanCancelRequest vanReq = vanCancelRequest();
+        VanCancelResponse vanRes = vanCancelResPending();
+
+        when(repository.findOriginalAttempt(originalPosTrx, originalAttemptSeq))
+                .thenReturn(Optional.of(originalAttempt));
+
+        when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))
+                .thenReturn(Optional.empty());
+
+        when(repository.insertPendingCancel(any(CancelInsertParam.class)))
+                .thenReturn(Optional.of(pendingCancel));
+
+        when(vanCancelAssembler.getVanCancelRequest(baseReq, originalAttempt))
+                .thenReturn(vanReq);
+
+        when(vanGateway.cancel(vanReq))
+                .thenReturn(vanRes);
 
         // when
-        // CancelResponse res = service.cancel(baseReq);
+        CancelResponse res = service.cancel(baseReq);
 
         // then
-        // assertEquals(CancelStatus.PENDING or retryLater, res.cancelStatus());
-        // verify(repository, never()).updateCancelResult(any());
+        assertEquals(CancelStatus.PENDING.name(), res.cancelStatus());
+        assertEquals(pendingCancel.declineCode(), res.declineCode());
+        verify(repository, never()).updateCancelResult(any());
+
     }
 
     /**
@@ -426,18 +479,34 @@ class PaymentCancelServiceImplTest {
     @Test
     void cancel_C5_insertMiss_thenRereadExistingCancel_shouldReturnDbResponse_withoutVanCall() {
         // given
-        // 원거래 APPROVED
-        // 첫 findByOriginal... = Optional.empty()
-        // insertPendingCancel = Optional.empty()
-        // 두 번째 findByOriginal... = Optional.of(PENDING or CANCELLED)
+        String originalPosTrx = baseReq.originalPosTrx();
+        int originalAttemptSeq = baseReq.originalAttemptSeq();
+
+        PaymentAttempt originalAttempt = originalApprovedAttempt();
+        PaymentCancel rereadCancel = cancelledCancel();
+
+        when(repository.findOriginalAttempt(originalPosTrx, originalAttemptSeq))
+                .thenReturn(Optional.of(originalAttempt));
+
+        when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(rereadCancel));
+
+        when(repository.insertPendingCancel(any(CancelInsertParam.class)))
+                .thenReturn(Optional.empty());
 
         // when
-        // CancelResponse res = service.cancel(baseReq);
+        CancelResponse res = service.cancel(baseReq);
 
         // then
-        // 재조회 row 기준 응답 확인
-        // verify(vanCancelAssembler, never()).getVanCancelRequest(any(), any());
-        // verifyNoInteractions(vanGateway);
+        assertEquals(CancelStatus.CANCELLED.name(), res.cancelStatus());
+        assertEquals(rereadCancel.cancelApprovalNo(), res.cancelApprovalNo());
+
+        verify(repository, times(2))
+                .findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq);
+        verify(repository).insertPendingCancel(any(CancelInsertParam.class));
+        verify(vanCancelAssembler, never()).getVanCancelRequest(any(), any());
+        verifyNoInteractions(vanGateway);
     }
 
     private PaymentAttempt originalApprovedAttempt() {
@@ -529,6 +598,20 @@ class PaymentCancelServiceImplTest {
                 .declineCode(VanDeclineCode.TIMEOUT)
                 .vanTrxId("2376-20260519-9991-1001-01")
                 .message("CANCEL_TIMEOUT")
+                .respondedAt(LocalDateTime.now())
+                .build();
+    }
+
+    private VanCancelResponse vanCancelResDeclined() {
+        return VanCancelResponse.builder()
+                .posTrx(baseReq.posTrx())
+                .originalPosTrx(baseReq.originalPosTrx())
+                .originalAttemptSeq(baseReq.originalAttemptSeq())
+                .cancelStatus(CancelStatus.CANCEL_DECLINED)
+                .cancelApprovalNo(null)
+                .declineCode(VanDeclineCode.DO_NOT_HONOR)
+                .vanTrxId("2376-20260519-9991-1001-01")
+                .message("CANCEL_DECLINED_BY_VAN")
                 .respondedAt(LocalDateTime.now())
                 .build();
     }
