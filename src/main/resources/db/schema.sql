@@ -18,52 +18,73 @@ PRAGMA foreign_keys = ON;
 -- 핵심: UNIQUE(STORE_CD, BIZ_DATE, POS_NO)
 -- 수정 이력 : 20260123 Last-Seq -> SEQ로 칼럼명 변경
 -- ---------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS POS_TRX_SEQUENCE (
-    SEQ_ID      INTEGER PRIMARY KEY AUTOINCREMENT,
-    STORE_CD    TEXT    NOT NULL,              -- 점포코드(4자리 권장)
-    BIZ_DATE    TEXT    NOT NULL,              -- 영업일자(YYYYMMDD)
-    POS_NO      TEXT    NOT NULL,              -- 포스번호(4자리 권장)
-    SEQ    INTEGER NOT NULL,                   -- 마지막 발번된 거래일련
-    UPDATED_AT  TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ','now')),
+CREATE TABLE IF NOT EXISTS POS_TRX_SEQUENCE
+(
+	SEQ_ID     INTEGER PRIMARY KEY AUTOINCREMENT,
+	STORE_CD   TEXT    NOT NULL, -- 점포코드(4자리 권장)
+	BIZ_DATE   TEXT    NOT NULL, -- 영업일자(YYYYMMDD)
+	POS_NO     TEXT    NOT NULL, -- 포스번호(4자리 권장)
+	SEQ        INTEGER NOT NULL, -- 마지막 발번된 거래일련
+	UPDATED_AT TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
 
-    UNIQUE (STORE_CD, BIZ_DATE, POS_NO)
-    );
+	UNIQUE (STORE_CD, BIZ_DATE, POS_NO)
+);
 
 -- ---------------------------------------------------------------------
--- 2) PAYMENT_ATTEMPT
+-- 2) PAYMENT_ATTEMPT_SEQ
+-- 목적: 동일 포스TR(POS_TRX) 내 결제시도 번호(ATTEMPT_SEQ)를
+--       원자적으로 발급하기 위한 기준 테이블.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS PAYMENT_ATTEMPT_SEQ
+(
+	SEQ_ID     INTEGER PRIMARY KEY AUTOINCREMENT,
+	POS_TRX    TEXT    NOT NULL, -- 포스TR(거래번호)
+	LAST_SEQ   INTEGER NOT NULL, -- 해당 POS_TRX에서 마지막으로 발급된 ATTEMPT_SEQ
+	CREATED_AT TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	UPDATED_AT TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+
+	UNIQUE (POS_TRX)
+);
+
+CREATE INDEX IF NOT EXISTS IDX_PAYMENT_ATTEMPT_SEQ_POS_TRX
+	ON PAYMENT_ATTEMPT_SEQ (POS_TRX);
+
+-- ---------------------------------------------------------------------
+-- 3) PAYMENT_ATTEMPT
 -- 목적: 승인 1회 "시도" 단위의 정본 데이터.
 --       멱등/중복 방지를 위해 (POS_TRX, ATTEMPT_SEQ) 유니크를 보장한다.
 -- 상태: FINAL_STATUS
 --   - NULL = 처리중(미확정)
 --   - APPROVED / DECLINED / UNKNOWN_TIMEOUT = 확정 상태
 -- ---------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS PAYMENT_ATTEMPT (
-    ATTEMPT_ID    INTEGER PRIMARY KEY AUTOINCREMENT,
-    POS_TRX       TEXT    NOT NULL,            -- 포스TR(거래번호)
-    ATTEMPT_SEQ   INTEGER NOT NULL,            -- 결제시도 순번(서버 발급/관리)
-    AMOUNT        INTEGER NOT NULL,            -- 결제금액(>0)
-    CARD_BIN      TEXT    NULL,                -- BIN(최소정보)
-    CARD_LAST4    TEXT    NULL,                -- 마지막 4자리
-    CARD_BRAND    TEXT    NULL,                -- VISA/MC 등
-    FINAL_STATUS  TEXT    NULL,                -- NULL/APPROVED/DECLINED/UNKNOWN_TIMEOUT
-    APPROVAL_NO   TEXT    NULL,                -- 승인번호(승인 시)
-    DECLINE_CODE  TEXT    NULL,                -- 거절코드(거절 시)
-    VAN_TRX_ID    TEXT    NULL,                -- VAN 쪽에서 해당 승인/조회 건을 추적하기 위한 내부 거래키
-    CREATED_AT    TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ','now')),
-    UPDATED_AT    TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ','now')),
+CREATE TABLE IF NOT EXISTS PAYMENT_ATTEMPT
+(
+	ATTEMPT_ID   INTEGER PRIMARY KEY AUTOINCREMENT,
+	POS_TRX      TEXT    NOT NULL, -- 포스TR(거래번호)
+	ATTEMPT_SEQ  INTEGER NOT NULL, -- 결제시도 순번(서버 발급/관리)
+	AMOUNT       INTEGER NOT NULL, -- 결제금액(>0)
+	CARD_BIN     TEXT    NULL,     -- BIN(최소정보)
+	CARD_LAST4   TEXT    NULL,     -- 마지막 4자리
+	CARD_BRAND   TEXT    NULL,     -- VISA/MC 등
+	FINAL_STATUS TEXT    NULL,     -- NULL/APPROVED/DECLINED/UNKNOWN_TIMEOUT
+	APPROVAL_NO  TEXT    NULL,     -- 승인번호(승인 시)
+	DECLINE_CODE TEXT    NULL,     -- 거절코드(거절 시)
+	VAN_TRX_ID   TEXT    NULL,     -- VAN 쪽에서 해당 승인/조회 건을 추적하기 위한 내부 거래키
+	CREATED_AT   TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	UPDATED_AT   TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
 
-    UNIQUE (POS_TRX, ATTEMPT_SEQ),
-    CHECK (AMOUNT > 0)
-    );
+	UNIQUE (POS_TRX, ATTEMPT_SEQ),
+	CHECK (AMOUNT > 0)
+);
 
 CREATE INDEX IF NOT EXISTS IDX_PAYMENT_ATTEMPT_POS_TRX
-    ON PAYMENT_ATTEMPT (POS_TRX);
+	ON PAYMENT_ATTEMPT (POS_TRX);
 
 CREATE INDEX IF NOT EXISTS IDX_PAYMENT_ATTEMPT_FINAL_STATUS
-    ON PAYMENT_ATTEMPT (FINAL_STATUS);
+	ON PAYMENT_ATTEMPT (FINAL_STATUS);
 
 -- ---------------------------------------------------------------------
--- 3) PAYMENT_CANCEL
+-- 4) PAYMENT_CANCEL
 -- 목적: "전체취소" 추적용 row.
 --       원거래(ORIGINAL_TRX_NO, ORIGINAL_ATTEMPT_SEQ) 기준 중복 취소 방지.
 -- 상태: CANCEL_STATUS
@@ -71,80 +92,84 @@ CREATE INDEX IF NOT EXISTS IDX_PAYMENT_ATTEMPT_FINAL_STATUS
 --   - CANCELLED / CANCEL_DECLINED = 확정 상태
 -- FK(물리): 원거래 attempt를 참조(정상 흐름에서는 존재해야 함)
 -- ---------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS PAYMENT_CANCEL (
-    CANCEL_ID            INTEGER PRIMARY KEY AUTOINCREMENT,
-    CURRENT_TRX_NO        TEXT    NOT NULL,    -- 현거래번호(취소 요청 단위)
-    ORIGINAL_TRX_NO       TEXT    NOT NULL,    -- 원거래 포스TR
-    ORIGINAL_ATTEMPT_SEQ  INTEGER NOT NULL,    -- 원거래 attempt_seq
-    CANCEL_STATUS         TEXT    NOT NULL,    -- PENDING/CANCELLED/CANCEL_DECLINED
-    CANCEL_APPROVAL_NO    TEXT    NULL,        -- 취소 승인번호(성공 시)
-    DECLINE_CODE          TEXT    NULL,        -- 취소 거절코드(거절 시)
-    CREATED_AT            TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ','now')),
-    UPDATED_AT            TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ','now')),
+CREATE TABLE IF NOT EXISTS PAYMENT_CANCEL
+(
+	CANCEL_ID            INTEGER
+		primary key autoincrement,
+	CURRENT_TRX_NO       TEXT                                                 not null,
+	ORIGINAL_TRX_NO      TEXT                                                 not null,
+	ORIGINAL_ATTEMPT_SEQ INTEGER                                              not null,
+	CANCEL_STATUS        TEXT                                                 not null,
+	CANCEL_APPROVAL_NO   TEXT,
+	DECLINE_CODE         TEXT,
+	CREATED_AT           TEXT default (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')) not null,
+	UPDATED_AT           TEXT default (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')) not null,
 
-    UNIQUE (ORIGINAL_TRX_NO, ORIGINAL_ATTEMPT_SEQ),
+	unique (CURRENT_TRX_NO),
+	unique (ORIGINAL_TRX_NO, ORIGINAL_ATTEMPT_SEQ),
 
-    -- 원거래 존재를 보장(정책: APPROVED인 원거래만 취소 가능)
-    FOREIGN KEY (ORIGINAL_TRX_NO, ORIGINAL_ATTEMPT_SEQ)
-    REFERENCES PAYMENT_ATTEMPT (POS_TRX, ATTEMPT_SEQ)
-    ON UPDATE RESTRICT
-    ON DELETE RESTRICT
-    );
+	foreign key (ORIGINAL_TRX_NO, ORIGINAL_ATTEMPT_SEQ)
+		references PAYMENT_ATTEMPT (POS_TRX, ATTEMPT_SEQ)
+		on update restrict
+		on delete restrict
+);
 
 CREATE INDEX IF NOT EXISTS IDX_PAYMENT_CANCEL_STATUS
-    ON PAYMENT_CANCEL (CANCEL_STATUS);
+	ON PAYMENT_CANCEL (CANCEL_STATUS);
 
 CREATE INDEX IF NOT EXISTS IDX_PAYMENT_CANCEL_ORIGINAL_TRX
-    ON PAYMENT_CANCEL (ORIGINAL_TRX_NO);
+	ON PAYMENT_CANCEL (ORIGINAL_TRX_NO);
 
 -- ---------------------------------------------------------------------
--- 4) BIN_CATALOG
+-- 5) BIN_CATALOG
 -- 목적: BIN(카드빈) 매핑/검증 기준 데이터.
 --       "카드빈16" 컨셉은 BIN_LEN(6/8/16 등) 컬럼으로 반영.
 -- ---------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS BIN_CATALOG (
-    BIN        TEXT    NOT NULL,               -- BIN 값(문자열)
-    BRAND      TEXT    NULL,                   -- VISA/MC 등
-    ISSUER     TEXT    NULL,                   -- 발급사(선택)
-    COUNTRY    TEXT    NULL,                   -- 국가(선택)
-    BIN_LEN    INTEGER NOT NULL,               -- 예: 6/8/16
-    ACTIVE_YN  TEXT    NOT NULL DEFAULT 'Y',   -- Y/N
-    CREATED_AT TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ','now')),
-    UPDATED_AT TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ','now')),
+CREATE TABLE IF NOT EXISTS BIN_CATALOG
+(
+	BIN        TEXT    NOT NULL,             -- BIN 값(문자열)
+	BRAND      TEXT    NULL,                 -- VISA/MC 등
+	ISSUER     TEXT    NULL,                 -- 발급사(선택)
+	COUNTRY    TEXT    NULL,                 -- 국가(선택)
+	BIN_LEN    INTEGER NOT NULL,             -- 예: 6/8/16
+	ACTIVE_YN  TEXT    NOT NULL DEFAULT 'Y', -- Y/N
+	CREATED_AT TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	UPDATED_AT TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
 
-    PRIMARY KEY (BIN),
-    CHECK (ACTIVE_YN IN ('Y','N'))
-    );
+	PRIMARY KEY (BIN),
+	CHECK (ACTIVE_YN IN ('Y', 'N'))
+);
 
 CREATE INDEX IF NOT EXISTS IDX_BIN_CATALOG_ACTIVE
-    ON BIN_CATALOG (ACTIVE_YN);
+	ON BIN_CATALOG (ACTIVE_YN);
 
 -- ---------------------------------------------------------------------
--- 5) PAYMENT_EVENT_LOG
+-- 6) PAYMENT_EVENT_LOG
 -- 목적: 승인/조회/취소 처리 과정의 중요 이벤트를 남기는 저널 테이블.
 --       전문 원문 저장은 하지 않고, 코드/요약만 기록한다.
 -- ---------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS PAYMENT_EVENT_LOG (
-    EVENT_ID         INTEGER PRIMARY KEY AUTOINCREMENT,
-    EVENT_TIME       TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ','now')),
-    EVENT_TYPE       TEXT    NOT NULL,     -- APPROVE_REQ/APPROVE_RES/INQUIRY_REQ/...
-    POS_TRX          TEXT    NULL,
-    ATTEMPT_SEQ      INTEGER NULL,
-    CURRENT_TRX_NO   TEXT    NULL,         -- 취소 현거래번호(있으면)
-    RESULT_CODE      TEXT    NULL,         -- OK/DECLINED/RETRY_LATER 등
-    STATUS_SNAPSHOT  TEXT    NULL,         -- FINAL_STATUS/CANCEL_STATUS 요약
-    CORRELATION_ID   TEXT    NULL,         -- 요청 추적 ID (X-REQUEST-ID 등)
-    NOTE             TEXT    NULL          -- 운영 메모(민감정보 금지)
-    );
+CREATE TABLE IF NOT EXISTS PAYMENT_EVENT_LOG
+(
+	EVENT_ID        INTEGER PRIMARY KEY AUTOINCREMENT,
+	EVENT_TIME      TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	EVENT_TYPE      TEXT    NOT NULL, -- APPROVE_REQ/APPROVE_RES/INQUIRY_REQ/...
+	POS_TRX         TEXT    NULL,
+	ATTEMPT_SEQ     INTEGER NULL,
+	CURRENT_TRX_NO  TEXT    NULL,     -- 취소 현거래번호(있으면)
+	RESULT_CODE     TEXT    NULL,     -- OK/DECLINED/RETRY_LATER 등
+	STATUS_SNAPSHOT TEXT    NULL,     -- FINAL_STATUS/CANCEL_STATUS 요약
+	CORRELATION_ID  TEXT    NULL,     -- 요청 추적 ID (X-REQUEST-ID 등)
+	NOTE            TEXT    NULL      -- 운영 메모(민감정보 금지)
+);
 
 CREATE INDEX IF NOT EXISTS IDX_EVENT_LOG_POS_TRX_ATTEMPT
-    ON PAYMENT_EVENT_LOG (POS_TRX, ATTEMPT_SEQ);
+	ON PAYMENT_EVENT_LOG (POS_TRX, ATTEMPT_SEQ);
 
 CREATE INDEX IF NOT EXISTS IDX_EVENT_LOG_CORRELATION
-    ON PAYMENT_EVENT_LOG (CORRELATION_ID);
+	ON PAYMENT_EVENT_LOG (CORRELATION_ID);
 
 CREATE INDEX IF NOT EXISTS IDX_EVENT_LOG_EVENT_TYPE
-    ON PAYMENT_EVENT_LOG (EVENT_TYPE);
+	ON PAYMENT_EVENT_LOG (EVENT_TYPE);
 
 CREATE INDEX IF NOT EXISTS IDX_EVENT_LOG_EVENT_TIME
-    ON PAYMENT_EVENT_LOG (EVENT_TIME);
+	ON PAYMENT_EVENT_LOG (EVENT_TIME);

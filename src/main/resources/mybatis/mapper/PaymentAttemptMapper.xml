@@ -55,13 +55,15 @@
         "최신 1건"이 보장되지 않으므로 반드시 정렬 + 1건 제한을 추가해야 한다.
     -->
     <select id="findLatestByPosTrx" resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt">
-        SELECT A.FINAL_STATUS,
-               A.APPROVAL_NO,
-               A.DECLINE_CODE,
-               A.CARD_BIN,
-               A.CARD_LAST4,
-               A.ATTEMPT_SEQ,
-               A.amount
+        SELECT
+                A.FINAL_STATUS AS finalStatus,
+                A.APPROVAL_NO AS approvalNo,
+                A.DECLINE_CODE AS declineCode,
+                A.CARD_BIN AS cardBin,
+                A.CARD_LAST4 AS cardLast4,
+                A.ATTEMPT_SEQ AS attemptSeq,
+                A.AMOUNT AS amount,
+                A.VAN_TRX_ID AS vanTrxId
         from PAYMENT_ATTEMPT A
         WHERE 1 = 1
           AND A.POS_TRX = #{posTrx}
@@ -70,17 +72,19 @@
 
     <select id="findLatestByPosTrxAndAttemptSeq"
             resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt">
-        SELECT A.FINAL_STATUS,
-               A.APPROVAL_NO,
-               A.DECLINE_CODE,
-               A.CARD_BIN,
-               A.CARD_LAST4,
-               A.ATTEMPT_SEQ,
-               A.amount
-        from PAYMENT_ATTEMPT A
+        SELECT
+            A.FINAL_STATUS AS finalStatus,
+            A.APPROVAL_NO AS approvalNo,
+            A.DECLINE_CODE AS declineCode,
+            A.CARD_BIN AS cardBin,
+            A.CARD_LAST4 AS cardLast4,
+            A.ATTEMPT_SEQ AS attemptSeq,
+            A.AMOUNT AS amount,
+            A.VAN_TRX_ID AS vanTrxId
+        FROM PAYMENT_ATTEMPT A
         WHERE 1 = 1
-          AND A.POS_TRX = #{posTrx}
-          AND A.ATTEMPT_SEQ = #{attemptSeq};
+            AND A.POS_TRX = #{posTrx}
+            AND A.ATTEMPT_SEQ = #{attemptSeq};
     </select>
 
     <!--

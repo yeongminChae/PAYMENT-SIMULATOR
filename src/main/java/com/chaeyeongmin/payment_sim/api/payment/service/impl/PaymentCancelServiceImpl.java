@@ -1,19 +1,23 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.impl;
 
-import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardSummary;
 import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
-import com.chaeyeongmin.payment_sim.api.payment.dto.response.InquiryResponse;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.CancelRequestValidator;
-import com.chaeyeongmin.payment_sim.common.api.ApiResponse;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
+import com.chaeyeongmin.payment_sim.van.client.assembler.VanCancelAssembler;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelRequest;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelResponse;
+import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
+import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -26,7 +30,9 @@ import java.util.Optional;
 public class PaymentCancelServiceImpl implements PaymentCancelService {
 
     private final PaymentCancelRepository repository;
+    private final VanGateway vanGateway;
     private final CancelRequestValidator validator;
+    private final VanCancelAssembler vanCancelAssembler;
 
     @Override
     public CancelResponse cancel(CancelRequest request) {
@@ -41,7 +47,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         int originalAttemptSeq = request.originalAttemptSeq();
 
         Optional<PaymentAttempt> originalAttemptOpt =
-                repository.findOriginalAttempt(originalPosTrx, originalAttemptSeq);;
+                repository.findOriginalAttempt(originalPosTrx, originalAttemptSeq);
 
         // C3-1: 원거래 없음
         if (originalAttemptOpt.isEmpty()) {
@@ -66,7 +72,6 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                 originalAttemptSeq,
                 originalAttempt.finalStatus()
         );
-
 
         // C4-1: 원거래 상태 검증
         PaymentFinalStatus originalStatus = originalAttempt.getFinalStatusEnum();
@@ -117,8 +122,31 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // C4-2-2: 기존 cancel row가 없는 경우
         // - 원거래는 APPROVED이고, 기존 취소 row도 없으므로 신규 취소 진행 가능 상태다.
         // - 여기까지 통과하면 다음 단계인 C5(PENDING cancel row 생성)로 넘어간다.
-        // - 아직 C5~C8을 구현하지 않았다면 임시로 retryLater 응답을 내린다.
-        return CancelResponse.retryLater(
+        CancelInsertParam insertParam = CancelInsertParam.pending(
+                posTrx,
+                originalPosTrx,
+                originalAttemptSeq
+        );
+
+        Optional<PaymentCancel> insertedCancelOpt = repository.insertPendingCancel(insertParam);
+
+        if (insertedCancelOpt.isPresent()) {
+            PaymentCancel insertedCancel = insertedCancelOpt.get();
+
+            log.info("[cancel][C5] pending cancel row created. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, cancelStatus={}",
+                    posTrx,
+                    originalPosTrx,
+                    originalAttemptSeq,
+                    insertedCancel.cancelStatus()
+            );
+
+            return resolveVanCancelResponse(request, originalAttempt);
+        }
+
+        // C5 insert 실패 시 기존 cancel row 재조회 후 상태별 응답 필요
+        // 그 외 예외 케이스 처리
+        return handleInsertPendingMiss(
+                request,
                 posTrx,
                 originalPosTrx,
                 originalAttemptSeq
@@ -164,6 +192,124 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
 
         };
 
+    }
+
+    private CancelResponse resolveVanCancelResponse(
+            CancelRequest request,
+            PaymentAttempt originalAttempt
+    ) {
+        // C5 성공: PENDING row 생성 완료
+        String posTrx = request.posTrx();
+        String originalPosTrx = request.originalPosTrx();
+        int originalAttemptSeq = request.originalAttemptSeq();
+
+        // C6~C8은 후속 구현 예정이므로 현재는 retryLater 응답
+        VanCancelRequest vanCancelRequest = vanCancelAssembler.getVanCancelRequest(request, originalAttempt);
+
+        VanCancelResponse vanCancelResponse = vanGateway.cancel(vanCancelRequest);
+        CancelStatus vanFinalStatus = vanCancelResponse.cancelStatus();
+        String responseDeclineCode = toDeclineCode(vanCancelResponse.declineCode());
+
+        switch (vanFinalStatus) {
+            // PENDING -> DB 저장 없이 메서드 즉시 리턴
+            case PENDING -> {
+                return CancelResponse.retryLater(
+                        posTrx,
+                        originalPosTrx,
+                        originalAttemptSeq
+                );
+            }
+
+            // CANCELLED -> DB 업데이트 후 메서드 리턴
+            case CANCELLED -> {
+                // DB 업데이트 처리 로직
+                CancelResultUpdateParam updateParam = CancelResultUpdateParam.cancelled(
+                        posTrx,
+                        originalPosTrx,
+                        originalAttemptSeq,
+                        vanCancelResponse.cancelApprovalNo()
+                );
+                Optional<PaymentCancel> updateCancelResult =
+                        repository.updateCancelResult(updateParam);
+
+                if (updateCancelResult.isPresent()) {
+                    PaymentCancel updatedCancel = updateCancelResult.get();
+
+                    return CancelResponse.cancelled(
+                            updatedCancel.posTrx(),
+                            updatedCancel.originalPosTrx(),
+                            updatedCancel.originalAttemptSeq(),
+                            updatedCancel.cancelApprovalNo()
+                    );
+                }
+
+            }
+
+            // - CANCEL_DECLINED -> 이전 취소 요청이 VAN에서 거절된 상태이므로 DECLINED 재응답
+            case CANCEL_DECLINED -> {
+                // DB 업데이트 처리 로직
+                CancelResultUpdateParam updateParam = CancelResultUpdateParam.declined(
+                        posTrx,
+                        originalPosTrx,
+                        originalAttemptSeq,
+                        responseDeclineCode
+                );
+                Optional<PaymentCancel> updateCancelResult =
+                        repository.updateCancelResult(updateParam);
+
+                if (updateCancelResult.isPresent()) {
+                    PaymentCancel updatedCancel = updateCancelResult.get();
+
+                    return CancelResponse.declined(
+                            updatedCancel.posTrx(),
+                            updatedCancel.originalPosTrx(),
+                            updatedCancel.originalAttemptSeq(),
+                            updatedCancel.declineCode()
+                    );
+                }
+
+            }
+
+        }
+
+        log.error("[cancel][C7-0rows] update cancel result failed. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, intendedStatus={}",
+                posTrx, originalPosTrx, originalAttemptSeq, vanFinalStatus);
+        return CancelResponse.retryLater(
+                posTrx,
+                originalPosTrx,
+                originalAttemptSeq
+        );
+
+    }
+
+    private CancelResponse handleInsertPendingMiss(
+            CancelRequest request,
+            String posTrx,
+            String originalPosTrx,
+            int originalAttemptSeq
+    ) {
+        Optional<PaymentCancel> reCancelOpt =
+                repository.findByOriginalPosTrxAndOriginalAttemptSeq(
+                        originalPosTrx,
+                        originalAttemptSeq
+                );
+
+        if (reCancelOpt.isPresent())
+            return getCancelResponseFromExistingCancel(request, reCancelOpt.get());
+
+        log.error("[cancel][C5-insert-miss][CRITICAL_CANCEL_ROW_NOT_FOUND] pending insert failed but cancel row not found. posTrx={}, originalPosTrx={}, originalAttemptSeq={}",
+                posTrx, originalPosTrx, originalAttemptSeq);
+
+        return CancelResponse.retryLater(
+                posTrx,
+                originalPosTrx,
+                originalAttemptSeq
+        );
+    }
+
+    private String toDeclineCode(VanDeclineCode declineCode) {
+        if (declineCode == null) return null;
+        return declineCode.code();
     }
 
 }
