@@ -31,7 +31,26 @@ CREATE TABLE IF NOT EXISTS POS_TRX_SEQUENCE
 );
 
 -- ---------------------------------------------------------------------
--- 2) PAYMENT_ATTEMPT
+-- 2) PAYMENT_ATTEMPT_SEQ
+-- 목적: 동일 포스TR(POS_TRX) 내 결제시도 번호(ATTEMPT_SEQ)를
+--       원자적으로 발급하기 위한 기준 테이블.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS PAYMENT_ATTEMPT_SEQ
+(
+	SEQ_ID     INTEGER PRIMARY KEY AUTOINCREMENT,
+	POS_TRX    TEXT    NOT NULL, -- 포스TR(거래번호)
+	LAST_SEQ   INTEGER NOT NULL, -- 해당 POS_TRX에서 마지막으로 발급된 ATTEMPT_SEQ
+	CREATED_AT TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	UPDATED_AT TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+
+	UNIQUE (POS_TRX)
+);
+
+CREATE INDEX IF NOT EXISTS IDX_PAYMENT_ATTEMPT_SEQ_POS_TRX
+	ON PAYMENT_ATTEMPT_SEQ (POS_TRX);
+
+-- ---------------------------------------------------------------------
+-- 3) PAYMENT_ATTEMPT
 -- 목적: 승인 1회 "시도" 단위의 정본 데이터.
 --       멱등/중복 방지를 위해 (POS_TRX, ATTEMPT_SEQ) 유니크를 보장한다.
 -- 상태: FINAL_STATUS
@@ -65,7 +84,7 @@ CREATE INDEX IF NOT EXISTS IDX_PAYMENT_ATTEMPT_FINAL_STATUS
 	ON PAYMENT_ATTEMPT (FINAL_STATUS);
 
 -- ---------------------------------------------------------------------
--- 3) PAYMENT_CANCEL
+-- 4) PAYMENT_CANCEL
 -- 목적: "전체취소" 추적용 row.
 --       원거래(ORIGINAL_TRX_NO, ORIGINAL_ATTEMPT_SEQ) 기준 중복 취소 방지.
 -- 상태: CANCEL_STATUS
@@ -102,7 +121,7 @@ CREATE INDEX IF NOT EXISTS IDX_PAYMENT_CANCEL_ORIGINAL_TRX
 	ON PAYMENT_CANCEL (ORIGINAL_TRX_NO);
 
 -- ---------------------------------------------------------------------
--- 4) BIN_CATALOG
+-- 5) BIN_CATALOG
 -- 목적: BIN(카드빈) 매핑/검증 기준 데이터.
 --       "카드빈16" 컨셉은 BIN_LEN(6/8/16 등) 컬럼으로 반영.
 -- ---------------------------------------------------------------------
@@ -125,7 +144,7 @@ CREATE INDEX IF NOT EXISTS IDX_BIN_CATALOG_ACTIVE
 	ON BIN_CATALOG (ACTIVE_YN);
 
 -- ---------------------------------------------------------------------
--- 5) PAYMENT_EVENT_LOG
+-- 6) PAYMENT_EVENT_LOG
 -- 목적: 승인/조회/취소 처리 과정의 중요 이벤트를 남기는 저널 테이블.
 --       전문 원문 저장은 하지 않고, 코드/요약만 기록한다.
 -- ---------------------------------------------------------------------
@@ -154,22 +173,3 @@ CREATE INDEX IF NOT EXISTS IDX_EVENT_LOG_EVENT_TYPE
 
 CREATE INDEX IF NOT EXISTS IDX_EVENT_LOG_EVENT_TIME
 	ON PAYMENT_EVENT_LOG (EVENT_TIME);
-
--- ---------------------------------------------------------------------
--- 2) PAYMENT_ATTEMPT_SEQ
--- 목적: 동일 포스TR(POS_TRX) 내 결제시도 번호(ATTEMPT_SEQ)를
---       원자적으로 발급하기 위한 기준 테이블.
--- ---------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS PAYMENT_ATTEMPT_SEQ
-(
-	SEQ_ID     INTEGER PRIMARY KEY AUTOINCREMENT,
-	POS_TRX    TEXT    NOT NULL, -- 포스TR(거래번호)
-	LAST_SEQ   INTEGER NOT NULL, -- 해당 POS_TRX에서 마지막으로 발급된 ATTEMPT_SEQ
-	CREATED_AT TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
-	UPDATED_AT TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
-
-	UNIQUE (POS_TRX)
-);
-
-CREATE INDEX IF NOT EXISTS IDX_PAYMENT_ATTEMPT_SEQ_POS_TRX
-	ON PAYMENT_ATTEMPT_SEQ (POS_TRX);

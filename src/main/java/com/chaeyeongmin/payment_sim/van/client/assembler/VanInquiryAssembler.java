@@ -31,7 +31,7 @@ public class VanInquiryAssembler {
         return VanInquiryRequest.builder()
                 .posTrx(posTrx)
                 .attemptSeq(attemptSeq)
-                .vanTrxId(vanTrxId) // TODO: 추후 원거래 vanTrxId 연결 이후 설정
+                .vanTrxId(vanTrxId) // 저장된 VAN 추적키가 있으면 사용하고, 없으면 fallback 정책으로 생성
                 .cardLast4(cardLast4)
                 .build();
     }
