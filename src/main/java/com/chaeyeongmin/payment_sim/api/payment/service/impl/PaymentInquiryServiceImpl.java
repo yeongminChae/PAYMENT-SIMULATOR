@@ -23,6 +23,14 @@ import org.springframework.stereotype.Service;
 
 import java.util.Optional;
 
+/**
+ * [Service]
+ * 결제 조회(Inquiry) 유스케이스의 흐름을 제어한다.
+ * <p>
+ * DB에 이미 확정된 승인/거절 결과가 있으면 VAN을 다시 호출하지 않고 재응답한다.
+ * UNKNOWN_TIMEOUT 상태만 VAN에 조회하고, 확정 결과를 얻으면 조건부 update 결과를
+ * 응답 소스로 사용한다. PROCESSING은 외부 조회 없이 retryLater로 응답한다.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -191,6 +199,9 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
             CardSummary fallbackCardSummary
     ) {
 
+        // Q6 update 0 rows:
+        // UNKNOWN_TIMEOUT 조건부 update 전에 다른 요청이 먼저 확정했을 수 있다.
+        // 승인 서비스의 A7 경합 처리와 동일하게 DB를 재조회하고, 실제 저장값을 응답 소스로 사용한다.
         Optional<PaymentAttempt> rereadOpt =
                 repository.findByPosTrxAndAttemptSeq(posTrx, attemptSeq);
 

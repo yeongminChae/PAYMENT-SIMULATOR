@@ -24,6 +24,14 @@ import org.springframework.stereotype.Service;
 
 import java.util.Optional;
 
+/**
+ * [Service]
+ * 결제 취소(Cancel) 유스케이스의 흐름을 제어한다.
+ * <p>
+ * 원승인 거래가 APPROVED인지 확인한 뒤, 원거래 1건당 하나의 cancel row만 생성한다.
+ * 이미 cancel row가 있으면 VAN을 다시 호출하지 않고 DB 상태를 재응답한다.
+ * 신규 취소는 PENDING row를 먼저 만든 뒤 VAN 결과를 DB에 확정 저장한다.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -198,12 +206,13 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
             CancelRequest request,
             PaymentAttempt originalAttempt
     ) {
-        // C5 성공: PENDING row 생성 완료
+        // C5 성공: PENDING row를 먼저 저장했으므로, VAN 호출 중 타임아웃이 발생해도
+        // 후속 요청은 기존 row를 보고 VAN 중복 호출 없이 retryLater로 응답할 수 있다.
         String posTrx = request.posTrx();
         String originalPosTrx = request.originalPosTrx();
         int originalAttemptSeq = request.originalAttemptSeq();
 
-        // C6~C8은 후속 구현 예정이므로 현재는 retryLater 응답
+        // C6: VAN 취소 요청 구성 및 외부 취소 호출
         VanCancelRequest vanCancelRequest = vanCancelAssembler.getVanCancelRequest(request, originalAttempt);
 
         VanCancelResponse vanCancelResponse = vanGateway.cancel(vanCancelRequest);
@@ -272,6 +281,9 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
 
         }
 
+        // C7 update 0 rows:
+        // 다른 요청이 먼저 PENDING row를 확정했거나 DB 반영이 실패했을 수 있다.
+        // 현재 구현은 보수적으로 retryLater를 반환한다.
         log.error("[cancel][C7-0rows] update cancel result failed. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, intendedStatus={}",
                 posTrx, originalPosTrx, originalAttemptSeq, vanFinalStatus);
         return CancelResponse.retryLater(
@@ -294,6 +306,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                         originalAttemptSeq
                 );
 
+        // UNIQUE 제약 경합으로 insert가 실패했으면 먼저 생성된 row를 응답 소스로 사용한다.
         if (reCancelOpt.isPresent())
             return getCancelResponseFromExistingCancel(request, reCancelOpt.get());
 
