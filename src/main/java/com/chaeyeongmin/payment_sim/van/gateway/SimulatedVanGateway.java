@@ -47,10 +47,15 @@ public class SimulatedVanGateway implements VanGateway {
         LocalDateTime now = LocalDateTime.now();
 
         // 4) 타임아웃 규칙(시뮬레이터 전용)
-        // - attemptSeq가 7의 배수이면 "VAN 타임아웃/미확정" 상황을 인위적으로 만든다.
+        // - cardLast4 = 7777이면 "VAN 타임아웃/미확정" 상황을 인위적으로 만든다.
         // - 실제로는 네트워크 장애/응답 지연/서버 과부하 등으로 발생할 수 있는 케이스를 흉내.
         // - declineCode는 TIMEOUT 같은 내부 코드를 사용(후속 A7 저장 & A4 재조회 분기 테스트용)
-        if (attemptSeq % 7 == 0) {
+        if ("7777".equals(request.cardLast4())) {
+            // 1차 MVP 시뮬레이터 규칙:
+            // UNKNOWN_TIMEOUT을 attemptSeq 기반으로 만들면 테스트에서 재현이 어렵기 때문에,
+            // 요청 데이터만 보고 의도를 알 수 있도록 cardLast4 기반으로 결과를 고정한다.
+            // 4242=APPROVED, 1111=DECLINED, 7777=UNKNOWN_TIMEOUT
+            // 실제 VAN 규칙이 아니라 통합 테스트 재현성을 위한 테스트 전용 규칙이다.
             return approveRespFactory.unknownTimeout(
                     posTrx, attemptSeq, VanDeclineCode.TIMEOUT, vanTrxId, now
             );
@@ -79,7 +84,7 @@ public class SimulatedVanGateway implements VanGateway {
         // [Q5] VAN 조회 호출(시뮬레이터)
         // - 실제 VAN이라면 vanTrxId 또는 원거래키로 기존 승인 결과를 조회한다.
         // - MVP 시뮬레이터는 별도 VAN 저장소 없이 cardLast4 기반 결정 규칙으로 결과를 생성한다.
-        // - cardLast4 == "0000"은 조회해도 여전히 미확정인 케이스를 재현하기 위한 테스트용 규칙이다.
+        // - cardLast4 == "7777"은 조회해도 여전히 미확정인 케이스를 재현하기 위한 테스트용 규칙이다.
         // - 마지막 자리 짝수는 APPROVED, 홀수는 DECLINED로 판단한다.
 
         // - posTrx/attemptSeq는 상위(포스서버)에서 생성/관리하는 추적 키
@@ -91,7 +96,12 @@ public class SimulatedVanGateway implements VanGateway {
         String cardLast4 = request.cardLast4();
         LocalDateTime now = LocalDateTime.now();
 
-        if ("0000".equals(cardLast4)) {
+        if ("7777".equals(cardLast4)) {
+            // 1차 MVP Inquiry 시뮬레이터 규칙:
+            // Approve에서 cardLast4=7777 거래를 UNKNOWN_TIMEOUT으로 저장했으므로,
+            // Inquiry에서도 같은 거래를 조회했을 때 UNKNOWN_TIMEOUT을 유지하도록 7777 기준으로 분기한다.
+            // 즉, IT-APP-003은 UNKNOWN_TIMEOUT 거래가 조회 후에도 DB 상태를 흔들지 않고 유지되는지 검증한다.
+            // 실제 VAN 조회 규칙이 아니라 통합 테스트 재현성을 위한 테스트 전용 규칙이다.
             return inquiryRespFactory.unknownTimeout(
                     posTrx, attemptSeq, VanDeclineCode.TIMEOUT, vanTrxId, now
             );
