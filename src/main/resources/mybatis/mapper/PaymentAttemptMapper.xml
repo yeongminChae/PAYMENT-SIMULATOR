@@ -4,5 +4,127 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
 <mapper namespace="com.chaeyeongmin.payment_sim.infra.mybatis.mapper.PaymentAttemptMapper">
-    <!-- TODO: SQL 매핑 작성 -->
+    <!--
+      [insertAttemptSeq]
+      - PAYMENT_ATTEMPT_SEQ 에서 posTrx 기준 attempt_seq를 원자 발급한다.
+      - 최초: (POS_TRX, LAST_SEQ=1)
+      - 이후: LAST_SEQ = LAST_SEQ + 1
+      - 반환: 발급된 LAST_SEQ
+    -->
+    <select id="insertAttemptSeq" resultType="int">
+        INSERT INTO PAYMENT_ATTEMPT_SEQ(POS_TRX,
+                                        LAST_SEQ,
+                                        UPDATED_AT)
+        VALUES (#{posTrx},
+                1,
+                CURRENT_TIMESTAMP) ON CONFLICT (POS_TRX)
+            DO
+        UPDATE SET LAST_SEQ = LAST_SEQ + 1,
+            UPDATED_AT = CURRENT_TIMESTAMP
+            RETURNING LAST_SEQ;
+    </select>
+
+    <!--
+      [insertAttempt]
+      - 승인 시도 정본(PAYMENT_ATTEMPT) 저장
+      - UNIQUE(POS_TRX, ATTEMPT_SEQ) 위반 시 예외로 "중복 시도"를 감지한다.
+    -->
+    <insert id="insertAttempt">
+        INSERT INTO PAYMENT_ATTEMPT (POS_TRX,
+                                     ATTEMPT_SEQ,
+                                     AMOUNT,
+                                     CARD_BIN,
+                                     CARD_LAST4,
+                                     CARD_BRAND,
+                                     CREATED_AT,
+                                     UPDATED_AT)
+        VALUES (#{attempt.posTrx},
+                #{attempt.attemptSeq},
+                #{attempt.amount},
+                #{attempt.cardBin},
+                #{attempt.cardLast4},
+                #{attempt.cardBrand},
+                #{attempt.createdAt},
+                CURRENT_TIMESTAMP);
+    </insert>
+
+    <!--
+        [findLatestByPosTrx]
+        - 특정 posTrx(거래번호/포스TR)에 대한 "현재 저장된 최신 처리 상태"를 조회한다.
+        → 동일 posTrx로 attempt가 여러 건 쌓일 수 있으니
+        "최신 1건"이 보장되지 않으므로 반드시 정렬 + 1건 제한을 추가해야 한다.
+    -->
+    <select id="findLatestByPosTrx" resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt">
+        SELECT
+                A.FINAL_STATUS AS finalStatus,
+                A.APPROVAL_NO AS approvalNo,
+                A.DECLINE_CODE AS declineCode,
+                A.CARD_BIN AS cardBin,
+                A.CARD_LAST4 AS cardLast4,
+                A.ATTEMPT_SEQ AS attemptSeq,
+                A.AMOUNT AS amount,
+                A.VAN_TRX_ID AS vanTrxId
+        from PAYMENT_ATTEMPT A
+        WHERE 1 = 1
+          AND A.POS_TRX = #{posTrx}
+        ORDER BY A.ATTEMPT_SEQ DESC LIMIT 1;
+    </select>
+
+    <select id="findLatestByPosTrxAndAttemptSeq"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt">
+        SELECT
+            A.FINAL_STATUS AS finalStatus,
+            A.APPROVAL_NO AS approvalNo,
+            A.DECLINE_CODE AS declineCode,
+            A.CARD_BIN AS cardBin,
+            A.CARD_LAST4 AS cardLast4,
+            A.ATTEMPT_SEQ AS attemptSeq,
+            A.AMOUNT AS amount,
+            A.VAN_TRX_ID AS vanTrxId
+        FROM PAYMENT_ATTEMPT A
+        WHERE 1 = 1
+            AND A.POS_TRX = #{posTrx}
+            AND A.ATTEMPT_SEQ = #{attemptSeq};
+    </select>
+
+    <!--
+        [updateAttemptResultReturning]
+        (A7: 최종 결과 확정 저장)
+        - 목적: 처리중(FINAL_STATUS IS NULL) 상태로 저장된 PAYMENT_ATTEMPT row를 "최종 결과"로 1회 확정한다.
+        - 멱등성: FINAL_STATUS IS NULL 조건으로 이미 확정된 row는 덮어쓰지 않는다.
+        - 동시성: 중복요청/재시도/경합 상황에서도 "첫 확정 저장 1회만 성공"하며,
+            나머지는 0 rows(=RETURNING 결과 없음)로 떨어진다.
+
+        반환:
+        - Optional<PaymentAttemptUpdatedRow>:
+        - 값 있음  : 이번 호출이 최종 결과 확정 저장에 성공했고, 확정된 row(최종값)를 반환
+        - 값 없음  : (1) 이미 확정됨 (2) 대상 row 없음 (3) attemptSeq mismatch 등
+            → 이 경우 Service는 A9/A10을 위해 DB 재조회(findLatestByPosTrx)로 분기한다.
+
+        보안:
+        - PAN/expiry 등 민감정보는 절대 저장/반환하지 않는다.
+        -->
+    <select id="updateAttemptResult"
+            resultType="com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentAttemptUpdatedRow">
+        UPDATE PAYMENT_ATTEMPT
+        SET
+        FINAL_STATUS = #{attempt.finalStatus},
+        APPROVAL_NO = #{attempt.approvalNo}, <!-- 승인 성공일 때만 의미 있음(그 외 null 허용) -->
+        DECLINE_CODE = #{attempt.declineCode}, <!-- 거절/타임아웃일 때만 의미 있음(승인 성공이면 null 허용) -->
+        VAN_TRX_ID = #{attempt.vanTrxId}, <!-- VAN 추적키(있으면 저장). 정책 없으면 null 허용 -->
+        UPDATED_AT = CURRENT_TIMESTAMP
+        WHERE POS_TRX = #{attempt.posTrx}
+        AND ATTEMPT_SEQ = #{attempt.attemptSeq}
+        AND FINAL_STATUS IS NULL
+        RETURNING
+        POS_TRX AS posTrx,
+        ATTEMPT_SEQ AS attemptSeq,
+        FINAL_STATUS AS finalStatus,
+        APPROVAL_NO AS approvalNo,
+        DECLINE_CODE AS declineCode,
+        CARD_BIN as cardBin,
+        CARD_LAST4 as cardLast4,
+        VAN_TRX_ID AS vanTrxId;
+    </select>
+
 </mapper>

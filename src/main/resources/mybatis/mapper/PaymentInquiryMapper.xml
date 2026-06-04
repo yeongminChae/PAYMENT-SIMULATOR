@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.chaeyeongmin.payment_sim.infra.mybatis.mapper.PaymentInquiryMapper">
+
+    <select id="findByPosTrxAndAttemptSeq"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt">
+        SELECT
+               A.FINAL_STATUS,
+               A.APPROVAL_NO,
+               A.DECLINE_CODE,
+               A.CARD_BIN,
+               A.CARD_LAST4,
+               A.ATTEMPT_SEQ,
+               A.AMOUNT,
+               A.VAN_TRX_ID AS vanTrxId
+           FROM PAYMENT_ATTEMPT A
+           WHERE A.POS_TRX = #{posTrx}
+             AND A.ATTEMPT_SEQ = #{attemptSeq}
+           LIMIT 1;
+    </select>
+
+    <select id="updateUnknownToFinal"
+            resultType="com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentAttemptUpdatedRow">
+        UPDATE PAYMENT_ATTEMPT
+        SET
+            FINAL_STATUS = #{attempt.finalStatus},
+            APPROVAL_NO = #{attempt.approvalNo},
+            DECLINE_CODE = #{attempt.declineCode},
+            VAN_TRX_ID = #{attempt.vanTrxId},
+            UPDATED_AT = CURRENT_TIMESTAMP
+        WHERE 1 = 1
+            and POS_TRX = #{attempt.posTrx}
+            AND ATTEMPT_SEQ = #{attempt.attemptSeq}
+            AND FINAL_STATUS = 'UNKNOWN_TIMEOUT'
+        RETURNING
+            POS_TRX AS posTrx,
+            ATTEMPT_SEQ AS attemptSeq,
+            FINAL_STATUS AS finalStatus,
+            APPROVAL_NO AS approvalNo,
+            DECLINE_CODE AS declineCode,
+            CARD_BIN AS cardBin,
+            CARD_LAST4 AS cardLast4,
+            VAN_TRX_ID AS vanTrxId;
+    </select>
+
+</mapper>

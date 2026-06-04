@@ -1,8 +1,100 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
-        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
 <mapper namespace="com.chaeyeongmin.payment_sim.infra.mybatis.mapper.PaymentCancelMapper">
-    <!-- TODO: SQL 매핑 작성 -->
+
+    <!--
+        [C5] 취소 거래 row 생성
+        - 원거래가 APPROVED이고 기존 cancel row가 없을 때 호출한다.
+        - 최초 cancel row는 PENDING 상태로 생성한다.
+        - UNIQUE(CURRENT_TRX_NO), UNIQUE(ORIGINAL_TRX_NO, ORIGINAL_ATTEMPT_SEQ)로
+          중복 취소/중복 거래번호를 DB에서 방어한다.
+        - INSERT 성공 시 생성된 cancel row를 RETURNING으로 반환한다.
+    -->
+    <select id="insertPendingCancel"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentCancel">
+        INSERT INTO PAYMENT_CANCEL (
+        CURRENT_TRX_NO,
+        ORIGINAL_TRX_NO,
+        ORIGINAL_ATTEMPT_SEQ,
+        CANCEL_STATUS
+        )
+        VALUES (
+        #{cancel.posTrx},
+        #{cancel.originalPosTrx},
+        #{cancel.originalAttemptSeq},
+        #{cancel.cancelStatus}
+        )
+        RETURNING
+        CURRENT_TRX_NO AS posTrx,
+        ORIGINAL_TRX_NO AS originalPosTrx,
+        ORIGINAL_ATTEMPT_SEQ AS originalAttemptSeq,
+        CANCEL_STATUS AS cancelStatus,
+        CANCEL_APPROVAL_NO AS cancelApprovalNo,
+        DECLINE_CODE AS declineCode;
+    </select>
+
+    <select id="updateCancelResult"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentCancel">
+        UPDATE PAYMENT_CANCEL
+        SET
+        CANCEL_STATUS = #{cancel.cancelStatus},
+        CANCEL_APPROVAL_NO = #{cancel.cancelApprovalNo},
+        DECLINE_CODE = #{cancel.declineCode},
+        UPDATED_AT = STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE CURRENT_TRX_NO = #{cancel.posTrx}
+        AND ORIGINAL_TRX_NO = #{cancel.originalPosTrx}
+        AND ORIGINAL_ATTEMPT_SEQ = #{cancel.originalAttemptSeq}
+        AND CANCEL_STATUS = 'PENDING'
+        RETURNING
+        CURRENT_TRX_NO AS posTrx,
+        ORIGINAL_TRX_NO AS originalPosTrx,
+        ORIGINAL_ATTEMPT_SEQ AS originalAttemptSeq,
+        CANCEL_STATUS AS cancelStatus,
+        CANCEL_APPROVAL_NO AS cancelApprovalNo,
+        DECLINE_CODE AS declineCode
+    </select>
+
+    <!--
+       [C3] 취소 대상 원거래 attempt 조회
+       - originalPosTrx + originalAttemptSeq 기준으로 원승인 attempt를 조회한다.
+       - 원거래가 없으면 Service에서 NOT_FOUND로 처리한다.
+       - 원거래가 있으면 C4에서 APPROVED 여부를 검증한다.
+   -->
+    <select id="findOriginalAttempt"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt">
+        SELECT
+        A.FINAL_STATUS AS finalStatus,
+        A.APPROVAL_NO AS approvalNo,
+        A.DECLINE_CODE AS declineCode,
+        A.CARD_BIN AS cardBin,
+        A.CARD_LAST4 AS cardLast4,
+        A.ATTEMPT_SEQ AS attemptSeq,
+        A.AMOUNT AS amount,
+        A.VAN_TRX_ID AS vanTrxId
+        FROM PAYMENT_ATTEMPT A
+        WHERE 1 = 1
+        and A.POS_TRX = #{posTrx}
+        AND A.ATTEMPT_SEQ = #{attemptSeq}
+        LIMIT 1
+    </select>
+
+    <select id="findByOriginalPosTrxAndOriginalAttemptSeq"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentCancel">
+        SELECT
+        C.CURRENT_TRX_NO AS posTrx,
+        C.ORIGINAL_TRX_NO AS originalPosTrx,
+        C.ORIGINAL_ATTEMPT_SEQ AS originalAttemptSeq,
+        C.CANCEL_STATUS AS cancelStatus,
+        C.CANCEL_APPROVAL_NO AS cancelApprovalNo,
+        C.DECLINE_CODE AS declineCode
+        FROM PAYMENT_CANCEL C
+        WHERE 1 = 1
+        and C.ORIGINAL_TRX_NO = #{originalPosTrx}
+        AND C.ORIGINAL_ATTEMPT_SEQ = #{originalAttemptSeq}
+        LIMIT 1
+    </select>
+
 </mapper>
