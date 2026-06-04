@@ -28,9 +28,16 @@ import java.util.Optional;
  * [Service]
  * 결제 취소(Cancel) 유스케이스의 흐름을 제어한다.
  * <p>
- * 원승인 거래가 APPROVED인지 확인한 뒤, 원거래 1건당 하나의 cancel row만 생성한다.
- * 이미 cancel row가 있으면 VAN을 다시 호출하지 않고 DB 상태를 재응답한다.
- * 신규 취소는 PENDING row를 먼저 만든 뒤 VAN 결과를 DB에 확정 저장한다.
+ * 이 클래스에서 기억할 핵심:
+ * - 취소는 "원승인 attempt"를 대상으로 하는 후속 거래다.
+ * - MVP 정책은 전액취소 1회만 허용하므로, 원거래(originalPosTrx + originalAttemptSeq) 기준으로 cancel row를 1건만 만든다.
+ * - 이미 cancel row가 있으면 VAN 취소를 다시 호출하지 않고 DB 상태를 기준으로 재응답한다.
+ * - 신규 취소는 PENDING row를 먼저 만든 뒤 VAN을 호출한다. 그래야 VAN 호출 중 장애/타임아웃이 나도 후속 요청이 중복 취소를 막을 수 있다.
+ * <p>
+ * 상태 정책:
+ * - PENDING         : 취소 요청은 접수됐지만 최종 결과 미확정
+ * - CANCELLED       : 취소 성공 확정
+ * - CANCEL_DECLINED : VAN 또는 정책상 취소 거절 확정
  */
 @Slf4j
 @Service
@@ -44,20 +51,28 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
 
     @Override
     public CancelResponse cancel(CancelRequest request) {
-        // C1: 취소 요청은 Controller에서 수신/로깅
+        // C1: 취소 요청은 Controller에서 수신/로깅한다.
+        // - Service는 원거래 확인, 중복 취소 방지, VAN 취소 호출, DB 확정 저장을 담당한다.
 
-        // C2: 취소 유효성 검증
+        // C2: 취소 유효성 검증.
+        // - posTrx는 이번 취소 거래번호(현거래번호)다.
+        // - originalPosTrx + originalAttemptSeq는 취소할 원승인 attempt를 찾는 식별자다.
+        // - 입력이 잘못되면 원거래 조회나 VAN 취소로 진행하면 안 된다.
         validator.validate(request);
 
-        // C3: 취소 대상 원거래 attempt 조회
         String posTrx = request.posTrx();
         String originalPosTrx = request.originalPosTrx();
         int originalAttemptSeq = request.originalAttemptSeq();
 
+        // C3: 취소 대상 원거래 attempt 조회.
+        // - 취소는 독립 거래처럼 보이지만 실제로는 원승인 attempt에 종속된다.
+        // - 원거래가 없으면 취소 가능 여부도 판단할 수 없으므로 NOT_FOUND로 종료한다.
         Optional<PaymentAttempt> originalAttemptOpt =
                 repository.findOriginalAttempt(originalPosTrx, originalAttemptSeq);
 
-        // C3-1: 원거래 없음
+        // C3-1: 원거래 없음.
+        // - DB에 원승인 attempt가 없으므로 PAYMENT_CANCEL row를 만들지 않는다.
+        // - 존재하지 않는 거래를 VAN에 취소 요청하지 않는다.
         if (originalAttemptOpt.isEmpty()) {
             log.info("[cancel][C3] original attempt not found. posTrx={}, originalPosTrx={}, originalAttemptSeq={}",
                     posTrx,
@@ -71,7 +86,8 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
             );
         }
 
-        // C3-2: 원거래 존재
+        // C3-2: 원거래 존재.
+        // - 이제 원거래의 최종 승인 상태를 보고 취소 가능 여부를 판단한다.
         PaymentAttempt originalAttempt = originalAttemptOpt.get();
 
         log.info("[cancel][C3] original attempt found. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, originalFinalStatus={}",
@@ -81,10 +97,11 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                 originalAttempt.finalStatus()
         );
 
-        // C4-1: 원거래 상태 검증
+        // C4-1: 원거래 상태 검증.
+        // - 취소 가능한 원거래는 APPROVED뿐이다.
+        // - DECLINED/UNKNOWN_TIMEOUT/PROCESSING은 실제 승인 확정이 아니므로 취소 대상이 아니다.
         PaymentFinalStatus originalStatus = originalAttempt.getFinalStatusEnum();
 
-        // 원거래 상태가 APPROVED일 경우에만 취소 가능하게끔
         if (originalStatus != PaymentFinalStatus.APPROVED) {
             log.info("[cancel][C4] cancel not allowed. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, originalStatus={}",
                     request.posTrx(),
@@ -93,6 +110,9 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                     originalStatus
             );
 
+            // C4-1 종료 응답.
+            // - 이 결과는 DB의 cancel 상태가 아니라 "응답 전용 취소 불가 상태"다.
+            // - 취소 row를 만들지 않으므로 후속 중복 취소 방지 대상도 아니다.
             return CancelResponse.cancelNotAllowed(
                     request.posTrx(),
                     request.originalPosTrx(),
@@ -101,17 +121,15 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
             );
         }
 
-        // C4-2: 기존 취소 row 확인
+        // C4-2: 기존 취소 row 확인.
+        // - 원거래가 APPROVED여도 이미 취소 요청이 있었으면 VAN을 다시 호출하면 안 된다.
+        // - 원거래 기준 unique 제약과 함께 "원승인 1건당 취소 1건" 정책을 보장한다.
         Optional<PaymentCancel> cancelOpt =
                 repository.findByOriginalPosTrxAndOriginalAttemptSeq(
                         originalPosTrx,
                         originalAttemptSeq
                 );
 
-        // C4-2: 기존 취소 row 확인
-        // - 원거래(originalPosTrx + originalAttemptSeq)에 대해 이미 생성된 cancel row가 있는지 조회한다.
-        // - MVP 전액취소 정책에서는 원거래 1건당 취소 row 1건만 허용한다.
-        // - 기존 cancel row가 있으면 VAN 취소를 다시 호출하지 않고 DB 상태 기준으로 재응답한다.
         if (cancelOpt.isPresent()) {
             PaymentCancel cancel = cancelOpt.get();
 
@@ -122,20 +140,25 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                     cancel.cancelStatus()
             );
 
-            // C4-2-1: 기존 cancel row가 있는 경우
-            // - cancelStatus를 확인해서 상태별 응답을 만든다.
+            // C4-2-1: 기존 cancel row 재응답.
+            // - 기존 row가 있으면 현재 요청의 posTrx가 달라도 원거래 기준 기존 취소 상태를 우선한다.
+            // - 이 분기에서는 외부 VAN 취소를 절대 다시 호출하지 않는다.
             return getCancelResponseFromExistingCancel(request, cancel);
         }
 
-        // C4-2-2: 기존 cancel row가 없는 경우
+        // C4-2-2: 기존 cancel row가 없는 경우.
         // - 원거래는 APPROVED이고, 기존 취소 row도 없으므로 신규 취소 진행 가능 상태다.
-        // - 여기까지 통과하면 다음 단계인 C5(PENDING cancel row 생성)로 넘어간다.
+        // - 여기까지 통과하면 C5에서 먼저 PENDING row를 만든다.
+        // - PENDING 선저장은 외부 VAN 호출 전에 "취소 시도 중"이라는 내부 락/흔적을 남기는 역할이다.
         CancelInsertParam insertParam = CancelInsertParam.pending(
                 posTrx,
                 originalPosTrx,
                 originalAttemptSeq
         );
 
+        // C5: PENDING cancel row 생성.
+        // - insertParam은 PAYMENT_CANCEL insert 전용 명령 객체다.
+        // - CURRENT_TRX_NO에는 이번 취소 거래번호를, ORIGINAL_*에는 취소 대상 원거래 식별자를 담는다.
         Optional<PaymentCancel> insertedCancelOpt = repository.insertPendingCancel(insertParam);
 
         if (insertedCancelOpt.isPresent()) {
@@ -148,11 +171,14 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                     insertedCancel.cancelStatus()
             );
 
+            // C5 성공 후에만 VAN 취소를 호출한다.
+            // - PENDING row가 없으면 후속 요청에서 중복 취소를 막을 근거가 약해진다.
             return resolveVanCancelResponse(request, originalAttempt);
         }
 
-        // C5 insert 실패 시 기존 cancel row 재조회 후 상태별 응답 필요
-        // 그 외 예외 케이스 처리
+        // C5 insert 실패.
+        // - 보통은 unique 제약 경합으로 다른 요청이 먼저 cancel row를 만든 경우를 의심한다.
+        // - 그래서 곧바로 실패 응답을 내리지 않고 기존 row를 재조회해 재응답을 시도한다.
         return handleInsertPendingMiss(
                 request,
                 posTrx,
@@ -162,9 +188,18 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
 
     }
 
-    // C4-2-1: 기존 cancel row가 있는 경우
-    // - cancelStatus를 확인해서 상태별 응답을 만든다.
-    // - 이 분기에서는 C5 cancel row 생성도 하지 않고, C6 VAN 취소 호출도 하지 않는다.
+    /**
+     * 기존 PAYMENT_CANCEL row를 기준으로 취소 응답을 만든다.
+     * <p>
+     * 이 함수의 역할:
+     * - 이미 취소 row가 있는 경우, 그 row의 cancelStatus를 기준으로 보고 상태별 재응답한다.
+     * - C4 기존 row 조회 경로와 C5 insert miss 후 재조회 경로가 같은 응답 규칙을 쓰게 한다.
+     * <p>
+     * 분기 기준:
+     * - PENDING         : 이전 취소 요청이 아직 미확정이므로 retryLater
+     * - CANCELLED       : 이미 취소 완료. 응답은 alreadyCancelled 의미로 조립
+     * - CANCEL_DECLINED : 이전 취소 요청이 거절 확정. declineCode와 함께 재응답
+     */
     private CancelResponse getCancelResponseFromExistingCancel(
             CancelRequest request,
             PaymentCancel cancel
@@ -175,14 +210,16 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         int originalAttemptSeq = request.originalAttemptSeq();
 
         return switch (cancelStatus) {
-            // - PENDING -> 취소 처리 중/미확정이므로 RETRY_LATER
+            // PENDING -> 취소 처리 중/미확정.
+            // - VAN을 다시 호출하지 않고 클라이언트가 나중에 재시도/조회하도록 유도한다.
             case PENDING -> CancelResponse.retryLater(
                     posTrx,
                     originalPosTrx,
                     originalAttemptSeq
             );
 
-            // - CANCELLED -> 이미 취소 완료된 거래이므로 ALREADY_CANCELLED
+            // CANCELLED -> 이미 취소 완료.
+            // - 기존 cancelApprovalNo를 그대로 돌려줘 동일 원거래 재취소가 같은 결과를 보게 한다.
             case CANCELLED -> CancelResponse.alreadyCancelled(
                     posTrx,
                     originalPosTrx,
@@ -190,7 +227,8 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                     cancel.cancelApprovalNo()
             );
 
-            // - CANCEL_DECLINED -> 이전 취소 요청이 VAN에서 거절된 상태이므로 DECLINED 재응답
+            // CANCEL_DECLINED -> 이전 취소 요청이 VAN에서 거절된 상태.
+            // - 거절 사유를 보존해 같은 원거래 재요청에도 같은 의미를 돌려준다.
             case CANCEL_DECLINED -> CancelResponse.declined(
                     posTrx,
                     originalPosTrx,
@@ -202,25 +240,42 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
 
     }
 
+    /**
+     * PENDING cancel row 생성 이후 VAN 취소를 호출하고, 결과를 DB에 확정 저장한다.
+     * <p>
+     * 이 함수가 처리하는 범위:
+     * - VAN 취소 요청 DTO 조립
+     * - VAN cancel 호출
+     * - VAN 결과별 DB update
+     * - update miss 시 보수적 retryLater 응답
+     * <p>
+     * 중요한 전제:
+     * - 이 함수에 들어오기 전 이미 PENDING cancel row가 생성되어 있어야 한다.
+     * - 그래야 VAN 호출 도중 장애가 나도 후속 요청이 기존 PENDING row를 보고 중복 호출을 피할 수 있다.
+     */
     private CancelResponse resolveVanCancelResponse(
             CancelRequest request,
             PaymentAttempt originalAttempt
     ) {
-        // C5 성공: PENDING row를 먼저 저장했으므로, VAN 호출 중 타임아웃이 발생해도
-        // 후속 요청은 기존 row를 보고 VAN 중복 호출 없이 retryLater로 응답할 수 있다.
         String posTrx = request.posTrx();
         String originalPosTrx = request.originalPosTrx();
         int originalAttemptSeq = request.originalAttemptSeq();
 
-        // C6: VAN 취소 요청 구성 및 외부 취소 호출
+        // C6: VAN 취소 요청 DTO 구성.
+        // - CancelRequest에는 현취소 거래번호와 원거래 식별자가 있다.
+        // - originalAttempt에는 원승인 금액/승인번호/카드요약 등 VAN 취소에 필요한 원거래 정보가 있다.
+        // - assembler는 두 객체를 합쳐 VAN 계약에 맞는 취소 전문을 만든다.
         VanCancelRequest vanCancelRequest = vanCancelAssembler.getVanCancelRequest(request, originalAttempt);
 
+        // C6-1: VAN 취소 호출.
+        // - 신규 취소 흐름에서 실제 외부 취소 시도는 여기서 1번만 수행한다.
         VanCancelResponse vanCancelResponse = vanGateway.cancel(vanCancelRequest);
         CancelStatus vanFinalStatus = vanCancelResponse.cancelStatus();
         String responseDeclineCode = toDeclineCode(vanCancelResponse.declineCode());
 
         switch (vanFinalStatus) {
-            // PENDING -> DB 저장 없이 메서드 즉시 리턴
+            // PENDING -> VAN도 아직 취소 결과를 확정하지 못한 상태.
+            // - 이미 DB에는 PENDING row가 있으므로 추가 update 없이 retryLater 응답한다.
             case PENDING -> {
                 return CancelResponse.retryLater(
                         posTrx,
@@ -229,9 +284,10 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                 );
             }
 
-            // CANCELLED -> DB 업데이트 후 메서드 리턴
+            // CANCELLED -> 취소 성공 확정.
+            // - PAYMENT_CANCEL row를 CANCELLED로 바꾸고 cancelApprovalNo를 저장한다.
+            // - 응답은 update RETURNING row 기준으로 조립해 DB 저장값과 응답값을 맞춘다.
             case CANCELLED -> {
-                // DB 업데이트 처리 로직
                 CancelResultUpdateParam updateParam = CancelResultUpdateParam.cancelled(
                         posTrx,
                         originalPosTrx,
@@ -254,9 +310,10 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
 
             }
 
-            // - CANCEL_DECLINED -> 이전 취소 요청이 VAN에서 거절된 상태이므로 DECLINED 재응답
+            // CANCEL_DECLINED -> 취소 거절 확정.
+            // - PAYMENT_CANCEL row를 CANCEL_DECLINED로 바꾸고 declineCode를 저장한다.
+            // - 이 상태도 최종 상태이므로 이후 같은 원거래 취소 요청은 DB 재응답으로 처리한다.
             case CANCEL_DECLINED -> {
-                // DB 업데이트 처리 로직
                 CancelResultUpdateParam updateParam = CancelResultUpdateParam.declined(
                         posTrx,
                         originalPosTrx,
@@ -284,6 +341,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // C7 update 0 rows:
         // 다른 요청이 먼저 PENDING row를 확정했거나 DB 반영이 실패했을 수 있다.
         // 현재 구현은 보수적으로 retryLater를 반환한다.
+        // 향후 고도화한다면 여기서 기존 cancel row를 재조회해 실제 상태를 재응답하는 방식으로 승인/조회와 맞출 수 있다.
         log.error("[cancel][C7-0rows] update cancel result failed. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, intendedStatus={}",
                 posTrx, originalPosTrx, originalAttemptSeq, vanFinalStatus);
         return CancelResponse.retryLater(
@@ -294,6 +352,14 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
 
     }
 
+    /**
+     * PENDING cancel row insert가 실패했을 때의 경합/방어 처리.
+     * <p>
+     * 이 함수의 역할:
+     * - insert 실패를 즉시 장애로 보지 않고, unique 제약 경합으로 기존 row가 생겼는지 재조회한다.
+     * - 기존 row가 있으면 그 row의 상태를 기준으로 재응답한다.
+     * - 기존 row도 없으면 정상 흐름이 아니므로 로그를 남기고 retryLater로 방어한다.
+     */
     private CancelResponse handleInsertPendingMiss(
             CancelRequest request,
             String posTrx,
@@ -307,9 +373,13 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                 );
 
         // UNIQUE 제약 경합으로 insert가 실패했으면 먼저 생성된 row를 응답 소스로 사용한다.
+        // - 예: 같은 원거래 취소 요청 2개가 거의 동시에 들어온 경우.
+        // - 한쪽 insert만 성공하고 다른 쪽은 여기로 내려온 뒤 기존 row를 재응답한다.
         if (reCancelOpt.isPresent())
             return getCancelResponseFromExistingCancel(request, reCancelOpt.get());
 
+        // insert도 실패했고 재조회도 실패한 경우.
+        // - 정상적인 unique 경합이라면 row가 보여야 하므로, 이 로그는 DB 반영/트랜잭션/매퍼 쪽 확인 신호다.
         log.error("[cancel][C5-insert-miss][CRITICAL_CANCEL_ROW_NOT_FOUND] pending insert failed but cancel row not found. posTrx={}, originalPosTrx={}, originalAttemptSeq={}",
                 posTrx, originalPosTrx, originalAttemptSeq);
 
@@ -320,6 +390,11 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         );
     }
 
+    /**
+     * VAN decline enum을 내부 저장/응답용 문자열 코드로 바꾼다.
+     * <p>
+     * 취소 성공이나 PENDING에서는 declineCode가 없을 수 있으므로 null-safe 변환이 필요하다.
+     */
     private String toDeclineCode(VanDeclineCode declineCode) {
         if (declineCode == null) return null;
         return declineCode.code();
