@@ -24,8 +24,8 @@
 ## 2. 기술 스택
 
 | 구분            | 기술                                       |
-| ------------- | ---------------------------------------- |
-| Language      | Java 17                                  |
+| ------------- |------------------------------------------|
+| Language      | Java 21                                  |
 | Framework     | Spring Boot                              |
 | Persistence   | MyBatis                                  |
 | Database      | SQLite                                   |
