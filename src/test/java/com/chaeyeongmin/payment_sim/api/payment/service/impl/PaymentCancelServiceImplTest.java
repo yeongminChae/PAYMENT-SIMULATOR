@@ -5,6 +5,7 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.CancelRequestValidator;
+import com.chaeyeongmin.payment_sim.api.payment.validate.enums.CancelValidationError;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
@@ -85,19 +86,24 @@ class PaymentCancelServiceImplTest {
      */
     @Test
     void cancel_C2_invalid_shouldThrow_andNoCalls() {
-        // given
-        doThrow(new IllegalArgumentException("INVALID"))
+        doThrow(new BusinessException(
+                ResultCode.INVALID,
+                CancelValidationError.INVALID_REQUEST.code()
+        ))
                 .when(validator)
                 .validate(baseReq);
 
-        // when + then
-        assertThrows(
-                IllegalArgumentException.class,
+        BusinessException exception = assertThrows(
+                BusinessException.class,
                 () -> service.cancel(baseReq)
         );
 
-        // then
+        assertEquals(ResultCode.INVALID, exception.getResultCode());
+        assertEquals(CancelValidationError.INVALID_REQUEST.code(), exception.getMessage());
+
+        verify(validator).validate(baseReq);
         verifyNoInteractions(repository, vanGateway, vanCancelAssembler);
+
     }
 
     /**

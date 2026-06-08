@@ -4,6 +4,8 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.request.ApproveRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
 import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveRequestValidator;
 import com.chaeyeongmin.payment_sim.api.payment.validate.enums.ApproveValidationError;
+import com.chaeyeongmin.payment_sim.common.api.ResultCode;
+import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.common.policy.CardValidationPolicy;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,12 +59,13 @@ class PaymentApprovalServiceImplValidateTest {
         baseReq.setCard(new CardInput("abcdef1111111111", "2812"));
 
         // when
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
+        BusinessException exception = assertThrows(
+                BusinessException.class,
                 () -> validator.validate(baseReq)
         );
 
         // then
+        assertEquals(ResultCode.INVALID, exception.getResultCode());
         assertEquals(ApproveValidationError.INVALID_CARD.code(), exception.getMessage());
         verifyNoInteractions(repo);
     }
@@ -84,12 +87,13 @@ class PaymentApprovalServiceImplValidateTest {
         baseReq.setCard(new CardInput("4111111111111112", "2812"));
 
         // when
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
+        BusinessException exception = assertThrows(
+                BusinessException.class,
                 () -> validator.validate(baseReq)
         );
 
         // then
+        assertEquals(ResultCode.INVALID, exception.getResultCode());
         assertEquals(ApproveValidationError.INVALID_CARD.code(), exception.getMessage());
         verifyNoInteractions(repo);
     }

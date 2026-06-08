@@ -38,7 +38,8 @@ public class PaymentApiResponseMapper {
             case "CANCEL_DECLINED" -> ResultCode.CANCEL_DECLINED;
             case "CANCEL_NOT_ALLOWED" -> ResultCode.CANCEL_NOT_ALLOWED;
             case "PENDING" -> ResultCode.RETRY_LATER;
-            default -> throw new IllegalArgumentException("Unsupported cancelStatus: " + cancelStatus);
+            // cancelStatus는 서비스가 만든 내부 응답 상태이므로 미지원 값은 사용자 입력 오류가 아니다.
+            default -> throw new IllegalStateException("Unsupported cancelStatus: " + cancelStatus);
         };
     }
 }

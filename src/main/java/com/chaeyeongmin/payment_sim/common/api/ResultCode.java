@@ -9,7 +9,7 @@ public enum ResultCode {
     INVALID,
     NOT_FOUND,
     ALREADY_CANCELLED,
-    // 20260608 추가
     CANCEL_DECLINED,
-    CANCEL_NOT_ALLOWED
+    CANCEL_NOT_ALLOWED,
+    INTERNAL_ERROR
 }
