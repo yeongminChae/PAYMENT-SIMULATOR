@@ -7,6 +7,7 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.request.InquiryRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.ApproveResponse;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.InquiryResponse;
+import com.chaeyeongmin.payment_sim.api.payment.mapper.PaymentApiResponseMapper;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentInquiryService;
@@ -44,6 +45,7 @@ public class PaymentController {
     private final PaymentApprovalService approvalService;
     private final PaymentInquiryService inquiryService;
     private final PaymentCancelService cancelService;
+    private final PaymentApiResponseMapper responseMapper;
 
     @PostMapping("/approve")
     public ApiResponse<ApproveResponse> approve(
@@ -61,7 +63,7 @@ public class PaymentController {
         log.info("[APPROVE] res posTrx={}, attemptSeq={}, approvalNo={}, declineCode={}, cardSummary={}"
                 , res.posTrx(), res.attemptSeq(), res.approvalNo(), res.declineCode(), res.cardSummary());
 
-        return ApiResponse.ok(res);
+        return responseMapper.fromApprove(res);
     }
 
     @PostMapping("/inquiry")
@@ -75,7 +77,7 @@ public class PaymentController {
         log.info("[INQUIRY] res posTrx={}, attemptSeq={}, finalStatus={}, approvalNo={}, declineCode={}",
                 res.posTrx(), res.attemptSeq(), res.finalStatus(), res.approvalNo(), res.declineCode());
 
-        return ApiResponse.ok(res);
+        return responseMapper.fromInquiry(res);
     }
 
     @PostMapping("/cancel")
@@ -97,6 +99,6 @@ public class PaymentController {
                 response.cancelStatus()
         );
 
-        return ApiResponse.ok(response);
+        return responseMapper.fromCancel(response);
     }
 }

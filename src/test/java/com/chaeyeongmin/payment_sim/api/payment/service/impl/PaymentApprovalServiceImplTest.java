@@ -6,6 +6,8 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.request.ApproveRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.ApproveResponse;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveRequestValidator;
+import com.chaeyeongmin.payment_sim.common.api.ResultCode;
+import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptInsertParam;
@@ -80,12 +82,19 @@ class PaymentApprovalServiceImplTest {
     @Test
     void approve_A2_invalid_shouldThrow_andNoCalls() {
         // given: validator.validate(baseReq) 호출 시 무조건 INVALID_CARD 예외를 던지도록 설정
-        doThrow(new IllegalArgumentException("INVALID_CARD"))
+        doThrow(new BusinessException(ResultCode.INVALID, "INVALID_CARD"))
                 .when(validator)
                 .validate(baseReq);
 
         // when + then
-        assertThrows(IllegalArgumentException.class, () -> service.approve(baseReq));
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.approve(baseReq)
+        );
+
+        assertEquals(ResultCode.INVALID, exception.getResultCode());
+        assertEquals("INVALID_CARD", exception.getMessage());
+        verify(validator).validate(baseReq);
         verifyNoInteractions(repository, gateway, assembler);
     }
 

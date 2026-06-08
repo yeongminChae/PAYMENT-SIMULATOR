@@ -5,6 +5,9 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.request.InquiryRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.InquiryResponse;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentInquiryService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.InquiryRequestValidator;
+import com.chaeyeongmin.payment_sim.api.payment.validate.enums.ApproveValidationError;
+import com.chaeyeongmin.payment_sim.api.payment.validate.enums.CancelValidationError;
+import com.chaeyeongmin.payment_sim.api.payment.validate.enums.InquiryValidationError;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
@@ -93,17 +96,25 @@ class PaymentInquiryServiceImplTest {
     @Test
     void inquiry_Q2_invalid_shouldThrow_andNoCalls() {
         // given
-        doThrow(new IllegalArgumentException("INVALID"))
+        doThrow(new BusinessException(
+                ResultCode.INVALID,
+                InquiryValidationError.INVALID_REQUEST.code()
+        ))
                 .when(validator)
                 .validate(baseReq);
 
         // when + then
-        assertThrows(
-                IllegalArgumentException.class,
+        BusinessException exception = assertThrows(
+                BusinessException.class,
                 () -> service.inquiry(baseReq)
         );
 
+        assertEquals(ResultCode.INVALID, exception.getResultCode());
+        assertEquals(InquiryValidationError.INVALID_REQUEST.code(), exception.getMessage());
+
+        verify(validator).validate(baseReq);
         verifyNoInteractions(repository, gateway, assembler);
+
     }
 
     /**
