@@ -149,7 +149,7 @@ class PaymentFlowIntegrationTest {
         // 이 테스트가 통과하면 승인 거절도 유실되지 않고 후속 조회·취소 판단에 사용할 수 있다.
         JsonNode approveResponse = approveDeclined(APPROVE_POS_TRX_IT_APP_002);
 
-        assertEquals("OK", approveResponse.path("result_code").asText());
+        assertEquals("DECLINED", approveResponse.path("result_code").asText());
 
         JsonNode approveData = approveResponse.path("data");
         int attemptSeq = approveData.path("attemptSeq").asInt();
@@ -179,7 +179,7 @@ class PaymentFlowIntegrationTest {
         JsonNode approveResponse = approveUnknownTimeout(APPROVE_POS_TRX_IT_APP_003);
 
         // then: Approve 응답이 UNKNOWN_TIMEOUT인지 확인한다.
-        assertEquals("OK", approveResponse.path("result_code").asText());
+        assertEquals("UNKNOWN_TIMEOUT", approveResponse.path("result_code").asText());
 
         JsonNode approveData = approveResponse.path("data");
         int attemptSeq = approveData.path("attemptSeq").asInt();
@@ -208,7 +208,7 @@ class PaymentFlowIntegrationTest {
         JsonNode inquiryResponse = inquiry(APPROVE_POS_TRX_IT_APP_003, attemptSeq);
 
         // then: MVP 1차 정책상 inquiry 이후에도 UNKNOWN_TIMEOUT을 유지한다.
-        assertEquals("OK", inquiryResponse.path("result_code").asText());
+        assertEquals("UNKNOWN_TIMEOUT", inquiryResponse.path("result_code").asText());
 
         JsonNode inquiryData = inquiryResponse.path("data");
         assertEquals("UNKNOWN_TIMEOUT", inquiryData.path("finalStatus").asText());
@@ -305,7 +305,7 @@ class PaymentFlowIntegrationTest {
                 attemptSeq
         );
 
-        assertEquals("OK", cancelResponse.path("result_code").asText());
+        assertEquals("CANCEL_NOT_ALLOWED", cancelResponse.path("result_code").asText());
 
         JsonNode cancelData = cancelResponse.path("data");
         assertEquals("CANCEL_NOT_ALLOWED", cancelData.path("cancelStatus").asText());
