@@ -1,5 +1,7 @@
 package com.chaeyeongmin.payment_sim.api.payment.dto.response;
 
+import com.chaeyeongmin.payment_sim.api.payment.dto.enums.CancelResultStatus;
+
 /**
  * [API Response] 결제 취소 응답 DTO
  *
@@ -20,7 +22,7 @@ public record CancelResponse(
         String posTrx,
         String originalPosTrx,
         int originalAttemptSeq,
-        String cancelStatus,
+        CancelResultStatus cancelStatus,
         String cancelApprovalNo,
         String declineCode
 ) {
@@ -35,7 +37,7 @@ public record CancelResponse(
                 posTrx,
                 originalPosTrx,
                 originalAttemptSeq,
-                "CANCELLED",
+                CancelResultStatus.CANCELLED,
                 cancelApprovalNo,
                 null
         );
@@ -51,7 +53,7 @@ public record CancelResponse(
                 posTrx,
                 originalPosTrx,
                 originalAttemptSeq,
-                "CANCEL_DECLINED",
+                CancelResultStatus.CANCEL_DECLINED,
                 null,
                 declineCode
         );
@@ -67,7 +69,7 @@ public record CancelResponse(
                 posTrx,
                 originalPosTrx,
                 originalAttemptSeq,
-                "CANCELLED",
+                CancelResultStatus.ALREADY_CANCELLED,
                 cancelApprovalNo,
                 null
         );
@@ -83,7 +85,7 @@ public record CancelResponse(
                 posTrx,
                 originalPosTrx,
                 originalAttemptSeq,
-                "CANCEL_NOT_ALLOWED",
+                CancelResultStatus.CANCEL_NOT_ALLOWED,
                 null,
                 declineCode
         );
@@ -98,7 +100,7 @@ public record CancelResponse(
                 posTrx,
                 originalPosTrx,
                 originalAttemptSeq,
-                "PENDING",
+                CancelResultStatus.RETRY_LATER,
                 null,
                 null
         );
