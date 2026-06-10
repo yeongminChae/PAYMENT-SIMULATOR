@@ -9,7 +9,6 @@
         [C5] 취소 거래 row 생성
         - 원거래가 APPROVED이고 기존 cancel row가 없을 때 호출한다.
         - 최초 cancel row는 PENDING 상태로 생성한다.
-        - CANCEL_STATUS는 cancelStatusValue()로 문자열화해 DB 저장값을 명시한다.
         - UNIQUE(CURRENT_TRX_NO), UNIQUE(ORIGINAL_TRX_NO, ORIGINAL_ATTEMPT_SEQ)로
           중복 취소/중복 거래번호를 DB에서 방어한다.
         - INSERT 성공 시 생성된 cancel row를 RETURNING으로 반환한다.
@@ -26,7 +25,7 @@
         #{cancel.posTrx},
         #{cancel.originalPosTrx},
         #{cancel.originalAttemptSeq},
-        #{cancel.cancelStatusValue}
+        #{cancel.cancelStatus}
         )
         RETURNING
         CURRENT_TRX_NO AS posTrx,
@@ -37,18 +36,11 @@
         DECLINE_CODE AS declineCode;
     </select>
 
-    <!--
-        [C7] 취소 결과 확정 update
-        - VAN cancel 결과가 CANCELLED 또는 CANCEL_DECLINED로 확정됐을 때 호출한다.
-        - 최초 C5에서 만든 PENDING row만 확정 대상으로 삼는다.
-        - CURRENT_TRX_NO + ORIGINAL_* + PENDING 조건을 모두 만족해야 update 된다.
-        - update된 row를 RETURNING으로 받아 DB 저장값 기준으로 API 응답을 만든다.
-    -->
     <select id="updateCancelResult"
             resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentCancel">
         UPDATE PAYMENT_CANCEL
         SET
-        CANCEL_STATUS = #{cancel.cancelStatusValue},
+        CANCEL_STATUS = #{cancel.cancelStatus},
         CANCEL_APPROVAL_NO = #{cancel.cancelApprovalNo},
         DECLINE_CODE = #{cancel.declineCode},
         UPDATED_AT = STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')
@@ -66,11 +58,11 @@
     </select>
 
     <!--
-        [C3] 취소 대상 원거래 attempt 조회
-        - originalPosTrx + originalAttemptSeq 기준으로 원승인 attempt를 조회한다.
-        - 원거래가 없으면 Service에서 NOT_FOUND로 처리한다.
-        - 원거래가 있으면 C4에서 APPROVED 여부를 검증한다.
-    -->
+       [C3] 취소 대상 원거래 attempt 조회
+       - originalPosTrx + originalAttemptSeq 기준으로 원승인 attempt를 조회한다.
+       - 원거래가 없으면 Service에서 NOT_FOUND로 처리한다.
+       - 원거래가 있으면 C4에서 APPROVED 여부를 검증한다.
+   -->
     <select id="findOriginalAttempt"
             resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt">
         SELECT
@@ -89,11 +81,6 @@
         LIMIT 1
     </select>
 
-    <!--
-        [C4/C5/C7 복구] 원거래 기준 기존 취소 row 조회
-        - 같은 원거래에 이미 취소 row가 있으면 VAN cancel을 다시 호출하지 않고 이 row 상태로 재응답한다.
-        - C5 insert unique 충돌이나 C7 update miss 이후에도 같은 조회를 재사용할 수 있다.
-    -->
     <select id="findByOriginalPosTrxAndOriginalAttemptSeq"
             resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentCancel">
         SELECT

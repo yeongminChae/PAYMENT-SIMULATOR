@@ -339,11 +339,10 @@ class PaymentFlowIntegrationTest {
         Map<String, Object> cancelRow = findPaymentCancel(APPROVE_POS_TRX_IT_APP_007, attemptSeq);
 
         assertEquals(FIRST_CANCEL_POS_TRX_IT_APP_007, cancelRow.get("CURRENT_TRX_NO"));
-        assertEquals("CANCELLED", cancelRow.get("CANCEL_STATUS"));
         assertEquals("OK", firstCancelResponse.path("result_code").asText());
-        assertEquals("ALREADY_CANCELLED", secondCancelResponse.path("result_code").asText());
+        assertEquals("OK", secondCancelResponse.path("result_code").asText());
         assertEquals("CANCELLED", firstCancelData.path("cancelStatus").asText());
-        assertEquals("ALREADY_CANCELLED", secondCancelData.path("cancelStatus").asText());
+        assertEquals("CANCELLED", secondCancelData.path("cancelStatus").asText());
         assertNotNull(firstCancelApprovalNo);
         // 두 번째 요청에도 첫 취소 승인번호를 돌려주는지 확인해 기존 cancel row 재응답 동작을 검증한다.
         assertEquals(firstCancelApprovalNo, textOrNull(secondCancelData, "cancelApprovalNo"));

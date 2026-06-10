@@ -33,7 +33,6 @@ class PaymentApiResponseMapperTest {
     @Test
     void fromCancel_shouldMapCancelStatusToResultCode() {
         assertCancelResultCode("OK", CancelResponse.cancelled("trx", "origin", 1, "C123456789"));
-        assertCancelResultCode("ALREADY_CANCELLED", CancelResponse.alreadyCancelled("trx", "origin", 1, "C123456789"));
         assertCancelResultCode("CANCEL_DECLINED", CancelResponse.declined("trx", "origin", 1, "05"));
         assertCancelResultCode("CANCEL_NOT_ALLOWED", CancelResponse.cancelNotAllowed("trx", "origin", 1, "ORIGINAL_NOT_APPROVED"));
         assertCancelResultCode("RETRY_LATER", CancelResponse.retryLater("trx", "origin", 1));
