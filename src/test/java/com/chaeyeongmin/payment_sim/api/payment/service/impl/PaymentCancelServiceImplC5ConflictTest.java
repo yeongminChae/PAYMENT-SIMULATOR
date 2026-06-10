@@ -227,7 +227,9 @@ class PaymentCancelServiceImplC5ConflictTest {
     }
 
     private void verifyC5ConflictRecoveryTried() {
-        // C4 최초 조회 1회 + C5 conflict 후 복구 재조회 1회를 검증한다.
+        // 같은 original 기준 조회가 총 2번 호출되어야 한다.
+        // 1회차: C4 기존 cancel row 확인
+        // 2회차: C5 insert conflict 후 복구 재조회
         verify(repository, times(2)).findByOriginalPosTrxAndOriginalAttemptSeq(
                 baseReq.originalPosTrx(),
                 baseReq.originalAttemptSeq()
@@ -278,7 +280,7 @@ class PaymentCancelServiceImplC5ConflictTest {
                 baseReq.posTrx(),
                 baseReq.originalPosTrx(),
                 baseReq.originalAttemptSeq(),
-                status.name(),
+                status,
                 cancelApprovalNo,
                 declineCode
         );

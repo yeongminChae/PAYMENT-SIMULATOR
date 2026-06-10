@@ -563,7 +563,7 @@ class PaymentCancelServiceImplTest {
                 baseReq.posTrx(),
                 baseReq.originalPosTrx(),
                 baseReq.originalAttemptSeq(),
-                status.name(),
+                status,
                 cancelApprovalNo,
                 declineCode
         );
