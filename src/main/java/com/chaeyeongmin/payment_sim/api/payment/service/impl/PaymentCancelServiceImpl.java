@@ -20,6 +20,7 @@ import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
@@ -104,9 +105,9 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
 
         if (originalStatus != PaymentFinalStatus.APPROVED) {
             log.info("[cancel][C4] cancel not allowed. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, originalStatus={}",
-                    request.posTrx(),
-                    request.originalPosTrx(),
-                    request.originalAttemptSeq(),
+                    posTrx,
+                    originalPosTrx,
+                    originalAttemptSeq,
                     originalStatus
             );
 
@@ -114,9 +115,9 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
             // - 이 결과는 DB의 cancel 상태가 아니라 "응답 전용 취소 불가 상태"다.
             // - 취소 row를 만들지 않으므로 후속 중복 취소 방지 대상도 아니다.
             return CancelResponse.cancelNotAllowed(
-                    request.posTrx(),
-                    request.originalPosTrx(),
-                    request.originalAttemptSeq(),
+                    posTrx,
+                    originalPosTrx,
+                    originalAttemptSeq,
                     "ORIGINAL_NOT_APPROVED"
             );
         }
@@ -125,7 +126,9 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // - 원거래가 APPROVED여도 이미 취소 요청이 있었으면 VAN을 다시 호출하면 안 된다.
         // - 원거래 기준 unique 제약과 함께 "원승인 1건당 취소 1건" 정책을 보장한다.
         Optional<PaymentCancel> cancelOpt =
-                repository.findByOriginalPosTrxAndOriginalAttemptSeq(
+                findCancelByOriginal(
+                        "C4-existing-cancel-check",
+                        posTrx,
                         originalPosTrx,
                         originalAttemptSeq
                 );
@@ -134,9 +137,9 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
             PaymentCancel cancel = cancelOpt.get();
 
             log.info("[cancel][C4] existing cancel row found. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, cancelStatus={}",
-                    request.posTrx(),
-                    request.originalPosTrx(),
-                    request.originalAttemptSeq(),
+                    posTrx,
+                    originalPosTrx,
+                    originalAttemptSeq,
                     cancel.cancelStatus()
             );
 
@@ -159,7 +162,30 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // C5: PENDING cancel row 생성.
         // - insertParam은 PAYMENT_CANCEL insert 전용 명령 객체다.
         // - CURRENT_TRX_NO에는 이번 취소 거래번호를, ORIGINAL_*에는 취소 대상 원거래 식별자를 담는다.
-        Optional<PaymentCancel> insertedCancelOpt = repository.insertPendingCancel(insertParam);
+        // - insert가 성공한 요청만 VAN cancel 호출 권한을 얻는다.
+        // - unique 충돌은 동일 원거래 취소가 먼저 접수된 경합으로 보고 original 기준 재조회 복구로 넘긴다.
+        Optional<PaymentCancel> insertedCancelOpt;
+        try {
+            insertedCancelOpt = repository.insertPendingCancel(insertParam);
+
+        } catch (DataIntegrityViolationException e) {
+            // SQLite/MyBatis 조합에서는 unique 충돌이 Optional.empty가 아니라
+            // DataIntegrityViolationException 계열 예외로 올라올 수 있다.
+            // 이 경로에서는 VAN cancel을 호출하지 않고, 이미 생성된 PAYMENT_CANCEL row를 재조회해 재응답한다.
+            log.warn("[cancel][C5-conflict] pending cancel insert conflict. posTrx={}, originalPosTrx={}, originalAttemptSeq={}",
+                    posTrx,
+                    originalPosTrx,
+                    originalAttemptSeq,
+                    e
+            );
+
+            return handleInsertPendingMiss(
+                    request,
+                    posTrx,
+                    originalPosTrx,
+                    originalAttemptSeq
+            );
+        }
 
         if (insertedCancelOpt.isPresent()) {
             PaymentCancel insertedCancel = insertedCancelOpt.get();
@@ -204,7 +230,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
             CancelRequest request,
             PaymentCancel cancel
     ) {
-        CancelStatus cancelStatus = cancel.getCancelStatusEnum();
+        CancelStatus cancelStatus = cancel.cancelStatus();
         String posTrx = request.posTrx();
         String originalPosTrx = request.originalPosTrx();
         int originalAttemptSeq = request.originalAttemptSeq();
@@ -339,17 +365,45 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         }
 
         // C7 update 0 rows:
-        // 다른 요청이 먼저 PENDING row를 확정했거나 DB 반영이 실패했을 수 있다.
-        // 현재 구현은 보수적으로 retryLater를 반환한다.
-        // 향후 고도화한다면 여기서 기존 cancel row를 재조회해 실제 상태를 재응답하는 방식으로 승인/조회와 맞출 수 있다.
+        // - updateCancelResult는 PENDING row를 최종 상태로 바꾸는 단계다.
+        // - 여기까지 왔다는 것은 이미 VAN cancel을 1회 호출했다는 뜻이다.
+        // - update 결과가 empty라고 해서 cancel row 자체가 없다는 의미는 아니다.
+        //   예: CURRENT_TRX_NO/상태 조건이 맞지 않거나, 다른 흐름이 먼저 row를 확정했을 수 있다.
+        // - 그래서 즉시 retryLater로 끝내지 않고 original 기준으로 재조회해 현재 DB 상태를 응답에 반영한다.
         log.error("[cancel][C7-0rows] update cancel result failed. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, intendedStatus={}",
                 posTrx, originalPosTrx, originalAttemptSeq, vanFinalStatus);
-        return CancelResponse.retryLater(
+        return recoverFromC7UpdateEmpty(
+                request,
                 posTrx,
                 originalPosTrx,
                 originalAttemptSeq
         );
 
+    }
+
+    private Optional<PaymentCancel> findCancelByOriginal(
+            String phase,
+            String posTrx,
+            String originalPosTrx,
+            int originalAttemptSeq
+    ) {
+        Optional<PaymentCancel> cancelOpt =
+                repository.findByOriginalPosTrxAndOriginalAttemptSeq(
+                        originalPosTrx,
+                        originalAttemptSeq
+                );
+
+        cancelOpt.ifPresent(cancel ->
+                log.info("[cancel][{}] cancel row found. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, cancelStatus={}",
+                        phase,
+                        posTrx,
+                        originalPosTrx,
+                        originalAttemptSeq,
+                        cancel.cancelStatus()
+                )
+        );
+
+        return cancelOpt;
     }
 
     /**
@@ -367,7 +421,9 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
             int originalAttemptSeq
     ) {
         Optional<PaymentCancel> reCancelOpt =
-                repository.findByOriginalPosTrxAndOriginalAttemptSeq(
+                findCancelByOriginal(
+                        "C5-insert-miss",
+                        posTrx,
                         originalPosTrx,
                         originalAttemptSeq
                 );
@@ -388,6 +444,101 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                 originalPosTrx,
                 originalAttemptSeq
         );
+    }
+
+    /**
+     * C7 update empty 복구 처리.
+     *
+     * <p>
+     * 이 메서드는 C5 insert miss 복구와 일부러 분리한다.
+     * C5는 VAN cancel 호출 권한을 얻지 못한 중복/경합 요청이므로
+     * 기존 row가 CANCELLED면 ALREADY_CANCELLED로 재응답한다.
+     *
+     * <p>
+     * 반면 C7은 이미 이 요청이 VAN cancel을 호출한 뒤 update 결과만 empty인 상황이다.
+     * 따라서 original 기준 재조회 결과가 CANCELLED이면 "이미 취소됨"이 아니라
+     * "취소 성공 상태가 DB에서 확인됨"으로 보고 CANCELLED 응답을 내려준다.
+     *
+     * <p>
+     * 복구 기준:
+     * - PENDING         : DB 최종 확정이 아직 보이지 않으므로 RETRY_LATER
+     * - CANCELLED       : C7 요청의 취소 성공 상태로 보고 CANCELLED
+     * - CANCEL_DECLINED : C7 요청의 취소 거절 상태로 보고 CANCEL_DECLINED
+     * - row 없음        : 정합성 이상 가능성이 있으므로 error log 후 RETRY_LATER
+     */
+    private CancelResponse recoverFromC7UpdateEmpty(
+            CancelRequest request,
+            String posTrx,
+            String originalPosTrx,
+            int originalAttemptSeq
+    ) {
+        Optional<PaymentCancel> reCancelOpt =
+                findCancelByOriginal(
+                        "C7-update-empty",
+                        posTrx,
+                        originalPosTrx,
+                        originalAttemptSeq
+                );
+
+        if (reCancelOpt.isEmpty()) {
+            log.error("[cancel][C7-recovery][CRITICAL_CANCEL_ROW_NOT_FOUND] update result missed and cancel row not found. posTrx={}, originalPosTrx={}, originalAttemptSeq={}",
+                    posTrx, originalPosTrx, originalAttemptSeq);
+
+            return CancelResponse.retryLater(
+                    posTrx,
+                    originalPosTrx,
+                    originalAttemptSeq
+            );
+        }
+
+        PaymentCancel cancel = reCancelOpt.get();
+        log.info("[cancel][C7-recovery] recovered cancel row after update miss. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, recoveredStatus={}",
+                posTrx,
+                originalPosTrx,
+                originalAttemptSeq,
+                cancel.cancelStatus()
+        );
+
+        return getCancelResponseFromC7RecoveredCancel(cancel);
+    }
+
+    /**
+     * C7 update empty 이후 재조회된 PAYMENT_CANCEL row를 API 응답으로 변환한다.
+     *
+     * <p>
+     * 기존 row 재응답({@link #getCancelResponseFromExistingCancel(CancelRequest, PaymentCancel)})과
+     * 가장 중요한 차이는 CANCELLED 매핑이다.
+     *
+     * <p>
+     * - 기존 row 재응답: 현재 요청은 VAN을 호출하지 않은 중복 요청이므로 CANCELLED -> ALREADY_CANCELLED
+     * - C7 복구 응답 : 현재 요청은 VAN을 이미 호출했으므로 CANCELLED -> CANCELLED
+     */
+    private CancelResponse getCancelResponseFromC7RecoveredCancel(
+            PaymentCancel cancel
+    ) {
+        return switch (cancel.cancelStatus()) {
+            case PENDING -> CancelResponse.retryLater(
+                    cancel.posTrx(),
+                    cancel.originalPosTrx(),
+                    cancel.originalAttemptSeq()
+            );
+
+            case CANCELLED -> CancelResponse.cancelled(
+                    cancel.posTrx(),
+                    cancel.originalPosTrx(),
+                    cancel.originalAttemptSeq(),
+                    cancel.cancelApprovalNo()
+            );
+
+            case CANCEL_DECLINED -> CancelResponse.declined(
+                    cancel.posTrx(),
+                    cancel.originalPosTrx(),
+                    cancel.originalAttemptSeq(),
+                    cancel.declineCode()
+            );
+
+        };
+
     }
 
     /**

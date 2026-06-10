@@ -1,5 +1,6 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.impl;
 
+import com.chaeyeongmin.payment_sim.api.payment.dto.enums.CancelResultStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
@@ -169,7 +170,7 @@ class PaymentCancelServiceImplTest {
         CancelResponse res = service.cancel(baseReq);
 
         // then
-        assertEquals("CANCEL_NOT_ALLOWED", res.cancelStatus());
+        assertEquals(CancelResultStatus.CANCEL_NOT_ALLOWED, res.cancelStatus());
         assertEquals("ORIGINAL_NOT_APPROVED", res.declineCode());
 
         verify(validator).validate(baseReq);
@@ -209,7 +210,7 @@ class PaymentCancelServiceImplTest {
         CancelResponse res = service.cancel(baseReq);
 
         // then
-        assertEquals(CancelStatus.PENDING.name(), res.cancelStatus());
+        assertEquals(CancelResultStatus.RETRY_LATER, res.cancelStatus());
         verify(repository, never()).insertPendingCancel(any());
         verifyNoInteractions(vanGateway, vanCancelAssembler);
 
@@ -223,7 +224,7 @@ class PaymentCancelServiceImplTest {
      * - And  : 기존 PAYMENT_CANCEL row 상태가 CANCELLED
      * - When : service.cancel() 호출
      * - Then : 기존 DB 취소 결과를 재응답한다
-     * - And  : MVP 1차에서는 ALREADY_CANCELLED 별도 상태가 아니라 CANCELLED 재응답으로 처리한다
+     * - And  : 기존 CANCELLED row는 신규 취소 성공이 아니라 ALREADY_CANCELLED로 응답한다
      * - And  : C5 insert/VAN cancel 호출이 없어야 한다
      * <p>
      * [흐름도]
@@ -245,7 +246,7 @@ class PaymentCancelServiceImplTest {
         CancelResponse res = service.cancel(baseReq);
 
         // then
-        assertEquals(CancelStatus.CANCELLED.name(), res.cancelStatus());
+        assertEquals(CancelResultStatus.ALREADY_CANCELLED, res.cancelStatus());
         assertEquals("A137515458", res.cancelApprovalNo());
 
         verify(repository, never()).insertPendingCancel(any());
@@ -281,7 +282,7 @@ class PaymentCancelServiceImplTest {
         CancelResponse res = service.cancel(baseReq);
 
         // then
-        assertEquals(CancelStatus.CANCEL_DECLINED.name(), res.cancelStatus());
+        assertEquals(CancelResultStatus.CANCEL_DECLINED, res.cancelStatus());
         assertEquals("05", res.declineCode());
 
         verify(repository, never()).insertPendingCancel(any());
@@ -332,7 +333,7 @@ class PaymentCancelServiceImplTest {
         CancelResponse res = service.cancel(baseReq);
 
         // then
-        assertEquals(CancelStatus.CANCELLED.name(), res.cancelStatus());
+        assertEquals(CancelResultStatus.CANCELLED, res.cancelStatus());
         assertEquals(cancelledCancel().cancelApprovalNo(), res.cancelApprovalNo());
 
         verify(repository).insertPendingCancel(any());
@@ -398,7 +399,7 @@ class PaymentCancelServiceImplTest {
         CancelResponse res = service.cancel(baseReq);
 
         // then
-        assertEquals(CancelStatus.CANCEL_DECLINED.name(), res.cancelStatus());
+        assertEquals(CancelResultStatus.CANCEL_DECLINED, res.cancelStatus());
         assertEquals(updatedCancel.declineCode(), res.declineCode());
 
         verify(repository).findOriginalAttempt(originalPosTrx, originalAttemptSeq);
@@ -460,7 +461,7 @@ class PaymentCancelServiceImplTest {
         CancelResponse res = service.cancel(baseReq);
 
         // then
-        assertEquals(CancelStatus.PENDING.name(), res.cancelStatus());
+        assertEquals(CancelResultStatus.RETRY_LATER, res.cancelStatus());
         assertEquals(pendingCancel.declineCode(), res.declineCode());
         verify(repository, never()).updateCancelResult(any());
 
@@ -505,7 +506,7 @@ class PaymentCancelServiceImplTest {
         CancelResponse res = service.cancel(baseReq);
 
         // then
-        assertEquals(CancelStatus.CANCELLED.name(), res.cancelStatus());
+        assertEquals(CancelResultStatus.ALREADY_CANCELLED, res.cancelStatus());
         assertEquals(rereadCancel.cancelApprovalNo(), res.cancelApprovalNo());
 
         verify(repository, times(2))
@@ -562,7 +563,7 @@ class PaymentCancelServiceImplTest {
                 baseReq.posTrx(),
                 baseReq.originalPosTrx(),
                 baseReq.originalAttemptSeq(),
-                status.name(),
+                status,
                 cancelApprovalNo,
                 declineCode
         );
