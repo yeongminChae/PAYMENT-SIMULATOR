@@ -1,5 +1,8 @@
 package com.chaeyeongmin.payment_sim.api.payment;
 
+import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
+import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
+import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -92,6 +95,9 @@ class PaymentFlowIntegrationTest {
     // JdbcTemplate은 API 호출 뒤 SQLite에 저장된 row를 SQL로 직접 확인하고 정리할 때 사용한다.
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private PaymentCancelRepository paymentCancelRepository;
 
     // @BeforeEach는 각 테스트 실행 직전에 호출된다. 이전 실행이 남긴 DB 데이터가 현재 테스트에 영향을 주지 않게 한다.
     @BeforeEach
@@ -286,6 +292,12 @@ class PaymentFlowIntegrationTest {
         assertEquals(CANCEL_POS_TRX_IT_APP_005, cancelRow.get("CURRENT_TRX_NO"));
         assertNotNull(cancelRow.get("CANCEL_APPROVAL_NO"));
         assertNull(cancelRow.get("DECLINE_CODE"));
+
+        PaymentCancel paymentCancel = paymentCancelRepository
+                .findByOriginalPosTrxAndOriginalAttemptSeq(APPROVE_POS_TRX_IT_APP_005, attemptSeq)
+                .orElseThrow();
+
+        assertEquals(CancelStatus.CANCELLED, paymentCancel.cancelStatus());
 
     }
 

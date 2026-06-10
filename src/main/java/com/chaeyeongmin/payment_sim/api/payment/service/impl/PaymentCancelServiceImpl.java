@@ -499,7 +499,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                 cancel.cancelStatus()
         );
 
-        return getCancelResponseFromC7RecoveredCancel(request, cancel);
+        return getCancelResponseFromC7RecoveredCancel(cancel);
     }
 
     /**
@@ -514,7 +514,6 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
      * - C7 복구 응답 : 현재 요청은 VAN을 이미 호출했으므로 CANCELLED -> CANCELLED
      */
     private CancelResponse getCancelResponseFromC7RecoveredCancel(
-            CancelRequest request,
             PaymentCancel cancel
     ) {
         return switch (cancel.cancelStatus()) {

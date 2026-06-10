@@ -24,9 +24,9 @@ import java.time.LocalDateTime;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
-import static org.mockito.Mockito.never;
 
 public class PaymentCancelServiceImplC7UpdateEmptyTest {
 
@@ -83,6 +83,8 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
 
         verifyCancelMockData();
         assertEquals(CancelResultStatus.RETRY_LATER, res.cancelStatus());
+        assertNull(res.cancelApprovalNo());
+        assertNull(res.declineCode());
 
     }
 
@@ -101,12 +103,15 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
 
         // C4 -> C5:
         // - 첫 번째 조회는 "기존 cancel row 없음"으로 응답해 C5 insert까지 내려가게 만든다.
-        givenCancelMockData(Optional.of(cancelledCancel()), vanCancelResCancelled());
+        PaymentCancel recoveredCancel = cancelledCancel();
+        givenCancelMockData(Optional.of(recoveredCancel), vanCancelResCancelled());
 
         CancelResponse res = service.cancel(baseReq);
 
         verifyCancelMockData();
         assertEquals(CancelResultStatus.CANCELLED, res.cancelStatus());
+        assertEquals(recoveredCancel.cancelApprovalNo(), res.cancelApprovalNo());
+
     }
 
     /**
@@ -124,12 +129,15 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
 
         // C4 -> C5:
         // - 첫 번째 조회는 "기존 cancel row 없음"으로 응답해 C5 insert까지 내려가게 만든다.
-        givenCancelMockData(Optional.of(cancelDeclinedCancel()), vanCancelResDeclined());
+        PaymentCancel recoveredCancel = cancelDeclinedCancel();
+        givenCancelMockData(Optional.of(recoveredCancel), vanCancelResDeclined());
 
         CancelResponse res = service.cancel(baseReq);
 
         verifyCancelMockData();
         assertEquals(CancelResultStatus.CANCEL_DECLINED, res.cancelStatus());
+        assertEquals(recoveredCancel.declineCode(), res.declineCode());
+
     }
 
     /**
@@ -149,6 +157,9 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
 
         verifyCancelMockData();
         assertEquals(CancelResultStatus.RETRY_LATER, res.cancelStatus());
+        assertNull(res.cancelApprovalNo());
+        assertNull(res.declineCode());
+
     }
 
     private void givenApprovedOriginal() {
