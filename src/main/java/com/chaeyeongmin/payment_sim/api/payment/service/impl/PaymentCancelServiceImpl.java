@@ -20,7 +20,6 @@ import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
@@ -160,30 +159,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // C5: PENDING cancel row 생성.
         // - insertParam은 PAYMENT_CANCEL insert 전용 명령 객체다.
         // - CURRENT_TRX_NO에는 이번 취소 거래번호를, ORIGINAL_*에는 취소 대상 원거래 식별자를 담는다.
-        // - insert가 성공한 요청만 VAN cancel 호출 권한을 얻는다.
-        // - unique 충돌은 동일 원거래 취소가 먼저 접수된 경합으로 보고 original 기준 재조회 복구로 넘긴다.
-        Optional<PaymentCancel> insertedCancelOpt;
-        try {
-            insertedCancelOpt = repository.insertPendingCancel(insertParam);
-
-        } catch (DataIntegrityViolationException e) {
-            // SQLite/MyBatis 조합에서는 unique 충돌이 Optional.empty가 아니라
-            // DataIntegrityViolationException 계열 예외로 올라올 수 있다.
-            // 이 경로에서는 VAN cancel을 호출하지 않고, 이미 생성된 PAYMENT_CANCEL row를 재조회해 재응답한다.
-            log.warn("[cancel][C5-conflict] pending cancel insert conflict. posTrx={}, originalPosTrx={}, originalAttemptSeq={}",
-                    posTrx,
-                    originalPosTrx,
-                    originalAttemptSeq,
-                    e
-            );
-
-            return handleInsertPendingMiss(
-                    request,
-                    posTrx,
-                    originalPosTrx,
-                    originalAttemptSeq
-            );
-        }
+        Optional<PaymentCancel> insertedCancelOpt = repository.insertPendingCancel(insertParam);
 
         if (insertedCancelOpt.isPresent()) {
             PaymentCancel insertedCancel = insertedCancelOpt.get();
