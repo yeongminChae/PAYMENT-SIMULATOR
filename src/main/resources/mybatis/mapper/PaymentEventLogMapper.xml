@@ -4,5 +4,40 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
 <mapper namespace="com.chaeyeongmin.payment_sim.infra.mybatis.mapper.PaymentEventLogMapper">
-    <!-- TODO: SQL 매핑 작성 -->
+    <!--
+        결제 업무 이벤트 구조화 로그 저장.
+        - 민감정보 원문(PAN/CVC/Track/EMV/전문 원문)은 저장하지 않는다.
+        - EVENT_TIME은 DB 기본값을 사용한다.
+    -->
+    <insert id="insert">
+        INSERT INTO PAYMENT_EVENT_LOG (
+        EVENT_TYPE,
+        POS_TRX,
+        ATTEMPT_SEQ,
+        CURRENT_TRX_NO,
+        ORIGINAL_POS_TRX,
+        ORIGINAL_ATTEMPT_SEQ,
+        RESULT_CODE,
+        STATUS_SNAPSHOT,
+        VAN_TRX_ID,
+        APPROVAL_NO,
+        DECLINE_CODE,
+        CORRELATION_ID,
+        NOTE
+        ) VALUES (
+        #{event.eventType},
+        #{event.posTrx},
+        #{event.attemptSeq},
+        #{event.currentTrxNo},
+        #{event.originalPosTrx},
+        #{event.originalAttemptSeq},
+        #{event.resultCode},
+        #{event.statusSnapshot},
+        #{event.vanTrxId},
+        #{event.approvalNo},
+        #{event.declineCode},
+        #{event.correlationId},
+        #{event.note}
+        )
+    </insert>
 </mapper>
