@@ -7,6 +7,8 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.request.ApproveRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.ApproveResponse;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveRequestValidator;
+import com.chaeyeongmin.payment_sim.common.api.ResultCode;
+import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptInsertParam;
@@ -23,6 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -75,20 +78,34 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
             // - DECLINED: 승인 거절은 같은 posTrx로 다시 시도할 수 있게 열어둔 MVP 정책.
             //   따라서 DECLINED일 때만 아래 A3 신규 attempt 발급 흐름으로 내려간다.
             if (status != PaymentFinalStatus.DECLINED) {
-                log.info("[approve][A4] reuse db result. posTrx={}, attemptSeq={}, status={}",
+                // MVP2 승인 멱등성 기준:
+                // - posTrx가 같아도 "같은 승인 요청"이라고 보려면 payload까지 같아야 한다.
+                // - full PAN은 저장하지 않으므로 DB에 남긴 amount/cardBin/cardLast4만 비교한다.
+                // - payload가 같으면 DB 재응답, 다르면 같은 거래번호 재사용으로 보고 차단한다.
+                if (isSameApprovalPayload(request, latest)) {
+                    log.info("[approve][A4] reuse db result. posTrx={}, attemptSeq={}, status={}",
+                            trx, latest.attemptSeq(), status);
+
+                    // DB 재응답.
+                    // - 저장된 attempt row를 기준으로 삼으므로, 응답도 DB 컬럼에서 조립한다.
+                    // - 처리중(PROCESSING)도 "아직 확정되지 않은 DB 상태"를 응답 DTO로 표현한 것이다.
+                    return getApproveResponse(
+                            status,
+                            trx,
+                            latest.attemptSeq(),
+                            latest.approvalNo(),
+                            latest.declineCode(),
+                            getCardSummary(latest.cardBin(), latest.cardLast4())
+                    );
+                }
+
+                log.warn("[approve][A4-conflict] posTrx already used with different payload. posTrx={}, attemptSeq={}, status={}",
                         trx, latest.attemptSeq(), status);
 
-                // DB 재응답.
-                // - 저장된 attempt row를 기준으로 삼으므로, 응답도 DB 컬럼에서 조립한다.
-                // - 처리중(PROCESSING)도 "아직 확정되지 않은 DB 상태"를 응답 DTO로 표현한 것이다.
-                return getApproveResponse(
-                        status,
-                        trx,
-                        latest.attemptSeq(),
-                        latest.approvalNo(),
-                        latest.declineCode(),
-                        getCardSummary(latest.cardBin(), latest.cardLast4())
-                );
+                // 같은 posTrx로 카드/금액을 바꿔 승인하면 멱등 재요청이 아니라 거래번호 재사용이다.
+                // 외부 VAN 호출 전에 끊어야 중복 승인이나 서로 다른 승인 결과가 생기지 않는다.
+                throw new BusinessException(ResultCode.CONFLICT, "POS_TRX_ALREADY_USED");
+
             }
 
         }
@@ -311,6 +328,21 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
     private String toDeclineCode(VanDeclineCode declineCode) {
         if (declineCode == null) return null;
         return declineCode.code();
+    }
+
+    /**
+     * 승인 멱등 재응답이 가능한 "동일 payload"인지 판단한다.
+     *
+     * <p>
+     * PAN 원문은 저장하지 않기 때문에 현재 MVP2에서는 카드 비교를 cardBin/cardLast4로 제한한다.
+     * 이 비교가 false면 APPROVED/PROCESSING/UNKNOWN_TIMEOUT 상태에서는 POS_TRX_ALREADY_USED로 차단한다.
+     */
+    private boolean isSameApprovalPayload(ApproveRequest request, PaymentAttempt latest) {
+        CardInput reqCard = request.getCard();
+
+        return Objects.equals(latest.cardBin(), reqCard.bin8())
+                && Objects.equals(latest.cardLast4(), reqCard.last4())
+                && latest.amount() == request.getAmount();
     }
 
 }

@@ -65,6 +65,30 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         String originalPosTrx = request.originalPosTrx();
         int originalAttemptSeq = request.originalAttemptSeq();
 
+        // C4-1: cancel posTrx 사용 여부 확인.
+        // - MVP2에서는 cancel posTrx를 1회용 취소 거래번호로 본다.
+        // - 이미 사용된 cancel posTrx가 다시 들어오면 같은 original 여부와 관계없이 거래번호 중복으로 차단한다.
+        // - 이 검사는 원거래 조회보다 먼저 수행한다.
+        //   같은 cancel posTrx를 다른 original에 붙여 재사용하는 요청도 원거래 존재 여부와 무관하게 실패해야 하기 때문이다.
+        Optional<PaymentCancel> existingCancelOpt = repository.findByPosTrx(posTrx);
+        if (existingCancelOpt.isPresent()) {
+            PaymentCancel existingCancel = existingCancelOpt.get();
+
+            log.warn("[cancel][C4-1-conflict] cancel posTrx already used. posTrx={}, existingOriginalPosTrx={}, existingOriginalAttemptSeq={}, existingCancelStatus={}",
+                    posTrx,
+                    existingCancel.originalPosTrx(),
+                    existingCancel.originalAttemptSeq(),
+                    existingCancel.cancelStatus()
+            );
+
+            // 여기서 차단되면 이후 original 기준 재응답 정책으로 내려가지 않는다.
+            // cancel posTrx 자체가 이미 사용된 거래번호이므로, 같은 original 재요청도 허용하지 않는다.
+            throw new BusinessException(
+                    ResultCode.CONFLICT,
+                    "POS_TRX_ALREADY_USED"
+            );
+        }
+
         // C3: 취소 대상 원거래 attempt 조회.
         // - 취소는 독립 거래처럼 보이지만 실제로는 원승인 attempt에 종속된다.
         // - 원거래가 없으면 취소 가능 여부도 판단할 수 없으므로 NOT_FOUND로 종료한다.

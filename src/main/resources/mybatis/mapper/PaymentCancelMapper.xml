@@ -110,4 +110,25 @@
         LIMIT 1
     </select>
 
+    <!--
+        cancel posTrx 중복 방어용 조회.
+        - CURRENT_TRX_NO는 이번 취소 요청의 거래번호(cancel posTrx)다.
+        - original 기준 기존 취소 row 조회보다 먼저 사용해서, 같은 cancel posTrx 재사용을 차단한다.
+        - PAYMENT_CANCEL의 실제 컬럼명은 CURRENT_TRX_NO이므로 이 컬럼으로 조회한다.
+    -->
+    <select id="findByPosTrx"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentCancel">
+        SELECT
+        C.CURRENT_TRX_NO AS posTrx,
+        C.ORIGINAL_TRX_NO AS originalPosTrx,
+        C.ORIGINAL_ATTEMPT_SEQ AS originalAttemptSeq,
+        C.CANCEL_STATUS AS cancelStatus,
+        C.CANCEL_APPROVAL_NO AS cancelApprovalNo,
+        C.DECLINE_CODE AS declineCode
+        FROM PAYMENT_CANCEL C
+        WHERE 1 = 1
+        and C.CURRENT_TRX_NO = #{posTrx}
+        LIMIT 1
+    </select>
+
 </mapper>

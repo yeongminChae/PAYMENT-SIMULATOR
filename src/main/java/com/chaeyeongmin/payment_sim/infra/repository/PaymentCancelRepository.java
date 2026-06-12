@@ -11,6 +11,8 @@ public interface PaymentCancelRepository {
 
     Optional<PaymentAttempt> findOriginalAttempt(String posTrx, int attemptSeq);
 
+    Optional<PaymentCancel> findByPosTrx(String posTrx);
+
     Optional<PaymentCancel> findByOriginalPosTrxAndOriginalAttemptSeq(
             String originalPosTrx,
             int originalAttemptSeq

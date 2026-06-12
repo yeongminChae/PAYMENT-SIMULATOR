@@ -426,6 +426,9 @@ class PaymentApprovalServiceImplTest {
     // 테스트용 객체 생성 메소드
 
     // status만 바꿔서 새 record를 생성
+    // MVP2 승인 멱등 정책에서는 기존 DB row와 재요청 payload의 amount/cardBin/cardLast4가 모두 같아야 재응답한다.
+    // baseReq PAN(4111111111111111)의 bin8() 결과가 41111111이므로, 기존 row fixture도 같은 cardBin으로 맞춘다.
+    // 이 값이 411111처럼 다르면 APPROVED/PROCESSING 재응답 테스트가 "다른 payload"로 판단되어 POS_TRX_ALREADY_USED가 발생한다.
     private PaymentAttempt latestAttempt(
             String finalStatus,
             String approveNo,
@@ -436,7 +439,7 @@ class PaymentApprovalServiceImplTest {
                 finalStatus,
                 approveNo, // approvalNo (필요 없으면 null로 바꿔도 됨)
                 declineCode,         // declineCode
-                "411111",      // cardBin
+                "41111111",      // cardBin: baseReq.getCard().bin8()과 동일해야 멱등 재응답 payload로 인정된다.
                 "1111",        // cardLast4
                 attemptSeq,
                 10000,
