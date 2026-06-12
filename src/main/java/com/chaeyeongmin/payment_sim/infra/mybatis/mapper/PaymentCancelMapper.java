@@ -28,6 +28,13 @@ public interface PaymentCancelMapper {
     );
 
     /**
+     * 현거래 기준으로 만들어진 기존 PAYMENT_CANCEL row가 존재하는지 조회한다.
+     */
+    Optional<PaymentCancel> findByPosTrx(
+            @Param("posTrx") String posTrx
+    );
+
+    /**
      * 원거래 기준으로 기존 PAYMENT_CANCEL row를 조회한다.
      */
     Optional<PaymentCancel> findByOriginalPosTrxAndOriginalAttemptSeq(
