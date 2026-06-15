@@ -364,6 +364,9 @@ class PaymentCancelServiceImplIdempotencyTest {
         ));
     }
 
+    /**
+     * [시나리오] UT-2-LOG-EVENT-008
+     */
     @Test
     void cancel_originalNotApproved_shouldLogCancelNotAllowed() {
         CancelRequest request = cancelRequest(
@@ -392,6 +395,9 @@ class PaymentCancelServiceImplIdempotencyTest {
         ));
     }
 
+    /**
+     * [시나리오] UT-2-LOG-EVENT-005
+     */
     @Test
     void cancel_newRequest_vanCancelled_shouldLogPendingVanAndFinalizedEvents() {
         CancelRequest request = cancelRequest(

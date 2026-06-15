@@ -14,6 +14,9 @@ class PaymentEventLogRollbackListenerTest {
     private final PaymentEventLogRollbackListener listener =
             new PaymentEventLogRollbackListener(paymentEventLogService);
 
+    /**
+     * [시나리오] UT-2-LOG-STRUCT-002
+     */
     @Test
     void handle_recordsPublishedLog() {
         PaymentEventLogInsertParam event = new PaymentEventLogInsertParam(
