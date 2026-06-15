@@ -20,6 +20,9 @@ class PaymentEventLogRecorderTest {
     private final PaymentEventLogRecorder recorder =
             new PaymentEventLogRecorder(paymentEventLogService, eventPublisher);
 
+    /**
+     * [시나리오] UT-2-LOG-STRUCT-001
+     */
     @Test
     void record_writesLogImmediately() {
         PaymentEventLogInsertParam event = approveConflictEvent();
@@ -30,6 +33,9 @@ class PaymentEventLogRecorderTest {
         verifyNoInteractions(eventPublisher);
     }
 
+    /**
+     * [시나리오] UT-2-LOG-STRUCT-001
+     */
     @Test
     void recordAfterRollback_publishesRollbackEvent() {
         PaymentEventLogInsertParam event = approveConflictEvent();

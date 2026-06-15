@@ -390,6 +390,9 @@ class PaymentApprovalServiceImplIdempotencyTest {
         verifyApproveNewAttemptEventsWithoutPan("4242424211111111");
     }
 
+    /**
+     * [시나리오] UT-2-LOG-EVENT-004
+     */
     @Test
     void approve_updateMissAndRereadEmpty_shouldLogUnknownTimeoutEvent() {
         String posTrx = "2376-20260521-9991-1008";
