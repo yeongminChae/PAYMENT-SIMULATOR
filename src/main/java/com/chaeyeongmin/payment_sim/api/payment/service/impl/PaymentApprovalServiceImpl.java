@@ -5,6 +5,7 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardSummary;
 import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.ApproveRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.ApproveResponse;
+import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveRequestValidator;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
@@ -12,7 +13,6 @@ import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
-import com.chaeyeongmin.payment_sim.infra.repository.PaymentEventLogRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdateParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentEventLogInsertParam;
@@ -55,7 +55,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
     private final VanGateway vanGateway;
     private final ApproveRequestValidator validator;
     private final VanApproveAssembler vanApproveAssembler;
-    private final PaymentEventLogRepository paymentEventLogRepository;
+    private final PaymentEventLogRecorder paymentEventLogRecorder;
 
     @Transactional
     @Override
@@ -441,7 +441,29 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
             String declineCode,
             String note
     ) {
-        paymentEventLogRepository.insert(new PaymentEventLogInsertParam(
+        PaymentEventLogInsertParam event = getPaymentEventLogInsertParam(
+                eventType,
+                posTrx,
+                attemptSeq,
+                resultCode,
+                statusSnapshot,
+                vanTrxId,
+                approvalNo,
+                declineCode,
+                note
+        );
+
+        if (eventType == PaymentEventType.APPROVE_CONFLICT) {
+            // 충돌 이벤트는 이 메서드가 BusinessException으로 rollback된 뒤 listener가 기록한다.
+            paymentEventLogRecorder.recordAfterRollback(event);
+            return;
+        }
+
+        paymentEventLogRecorder.record(event);
+    }
+
+    private static PaymentEventLogInsertParam getPaymentEventLogInsertParam(PaymentEventType eventType, String posTrx, int attemptSeq, String resultCode, String statusSnapshot, String vanTrxId, String approvalNo, String declineCode, String note) {
+        return new PaymentEventLogInsertParam(
                 eventType,
                 posTrx,
                 attemptSeq,
@@ -455,7 +477,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
                 declineCode,
                 null,
                 note
-        ));
+        );
     }
 
     /**

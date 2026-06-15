@@ -10,7 +10,7 @@ import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
-import com.chaeyeongmin.payment_sim.infra.repository.PaymentEventLogRepository;
+import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdateParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentAttemptUpdatedRow;
@@ -48,7 +48,7 @@ class PaymentApprovalServiceImplTest {
     private VanGateway gateway;
     private ApproveRequestValidator validator;
     private VanApproveAssembler assembler;
-    private PaymentEventLogRepository paymentEventLogRepository;
+    private PaymentEventLogRecorder paymentEventLogRecorder;
 
     // 기본 정상 요청 (필드 세팅은 각 테스트에서 수정해서 사용)
     private ApproveRequest baseReq;
@@ -59,14 +59,14 @@ class PaymentApprovalServiceImplTest {
         gateway = mock(VanGateway.class);
         validator = mock(ApproveRequestValidator.class);
         assembler = mock(VanApproveAssembler.class);
-        paymentEventLogRepository = mock(PaymentEventLogRepository.class);
+        paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
 
         service = new PaymentApprovalServiceImpl(
                 repository,
                 gateway,
                 validator,
                 assembler,
-                paymentEventLogRepository
+                paymentEventLogRecorder
         );
 
         baseReq = new ApproveRequest(
@@ -562,5 +562,4 @@ class PaymentApprovalServiceImplTest {
                 null
         );
     }
-
 }

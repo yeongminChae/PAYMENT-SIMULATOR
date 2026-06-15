@@ -11,7 +11,7 @@ import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
-import com.chaeyeongmin.payment_sim.infra.repository.PaymentEventLogRepository;
+import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdateParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentEventLogInsertParam;
@@ -49,7 +49,7 @@ class PaymentApprovalServiceImplIdempotencyTest {
     private VanGateway vanGateway;
     private ApproveRequestValidator validator;
     private VanApproveAssembler vanApproveAssembler;
-    private PaymentEventLogRepository paymentEventLogRepository;
+    private PaymentEventLogRecorder paymentEventLogRecorder;
 
     @BeforeEach
     void setUp() {
@@ -57,14 +57,14 @@ class PaymentApprovalServiceImplIdempotencyTest {
         vanGateway = mock(VanGateway.class);
         validator = mock(ApproveRequestValidator.class);
         vanApproveAssembler = mock(VanApproveAssembler.class);
-        paymentEventLogRepository = mock(PaymentEventLogRepository.class);
+        paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
 
         service = new PaymentApprovalServiceImpl(
                 repository,
                 vanGateway,
                 validator,
                 vanApproveAssembler,
-                paymentEventLogRepository
+                paymentEventLogRecorder
         );
     }
 
@@ -109,7 +109,7 @@ class PaymentApprovalServiceImplIdempotencyTest {
         assertEquals("4242", response.cardSummary().cardLast4());
 
         verifyNoNewApprovalAttempt(posTrx);
-        verify(paymentEventLogRepository).insert(argThat(event ->
+        verify(paymentEventLogRecorder).record(argThat(event ->
                 event.eventType() == PaymentEventType.APPROVE_REUSED
                         && posTrx.equals(event.posTrx())
                         && event.attemptSeq() == 1
@@ -152,7 +152,7 @@ class PaymentApprovalServiceImplIdempotencyTest {
         assertEquals(ResultCode.CONFLICT, exception.getResultCode());
         assertEquals("POS_TRX_ALREADY_USED", exception.getMessage());
         verifyNoNewApprovalAttempt(posTrx);
-        verify(paymentEventLogRepository).insert(argThat(event ->
+        verify(paymentEventLogRecorder).recordAfterRollback(argThat(event ->
                 event.eventType() == PaymentEventType.APPROVE_CONFLICT
                         && posTrx.equals(event.posTrx())
                         && event.attemptSeq() == 1
@@ -194,7 +194,7 @@ class PaymentApprovalServiceImplIdempotencyTest {
         assertEquals(ResultCode.CONFLICT, exception.getResultCode());
         assertEquals("POS_TRX_ALREADY_USED", exception.getMessage());
         verifyNoNewApprovalAttempt(posTrx);
-        verify(paymentEventLogRepository).insert(argThat(event ->
+        verify(paymentEventLogRecorder).recordAfterRollback(argThat(event ->
                 event.eventType() == PaymentEventType.APPROVE_CONFLICT
                         && posTrx.equals(event.posTrx())
                         && event.attemptSeq() == 1
@@ -238,7 +238,7 @@ class PaymentApprovalServiceImplIdempotencyTest {
         assertEquals(ResultCode.CONFLICT, exception.getResultCode());
         assertEquals("POS_TRX_ALREADY_USED", exception.getMessage());
         verifyNoNewApprovalAttempt(posTrx);
-        verify(paymentEventLogRepository).insert(argThat(event ->
+        verify(paymentEventLogRecorder).recordAfterRollback(argThat(event ->
                 event.eventType() == PaymentEventType.APPROVE_CONFLICT
                         && posTrx.equals(event.posTrx())
                         && event.attemptSeq() == 1
@@ -289,7 +289,7 @@ class PaymentApprovalServiceImplIdempotencyTest {
         assertEquals(ResultCode.CONFLICT, exception.getResultCode());
         assertEquals("POS_TRX_ALREADY_USED", exception.getMessage());
         verifyNoNewApprovalAttempt(posTrx);
-        verify(paymentEventLogRepository).insert(argThat(event ->
+        verify(paymentEventLogRecorder).recordAfterRollback(argThat(event ->
                 event.eventType() == PaymentEventType.APPROVE_CONFLICT
                         && posTrx.equals(event.posTrx())
                         && event.attemptSeq() == 1
@@ -411,7 +411,7 @@ class PaymentApprovalServiceImplIdempotencyTest {
         ApproveResponse response = service.approve(request);
 
         assertEquals(PaymentFinalStatus.UNKNOWN_TIMEOUT, response.finalStatus());
-        verify(paymentEventLogRepository).insert(argThat(event ->
+        verify(paymentEventLogRecorder).record(argThat(event ->
                 event.eventType() == PaymentEventType.APPROVE_UNKNOWN_TIMEOUT
                         && posTrx.equals(event.posTrx())
                         && event.attemptSeq() == attemptSeq
@@ -454,7 +454,7 @@ class PaymentApprovalServiceImplIdempotencyTest {
         ArgumentCaptor<PaymentEventLogInsertParam> captor =
                 ArgumentCaptor.forClass(PaymentEventLogInsertParam.class);
 
-        verify(paymentEventLogRepository, times(4)).insert(captor.capture());
+        verify(paymentEventLogRecorder, times(4)).record(captor.capture());
         List<PaymentEventLogInsertParam> events = captor.getAllValues();
 
         // 신규 승인 성공 흐름은 attempt 생성 -> VAN 요청 -> VAN 응답 -> DB 확정 순서가 중요하다.
@@ -612,5 +612,4 @@ class PaymentApprovalServiceImplIdempotencyTest {
                 "VAN-TRX-APPROVED"
         );
     }
-
 }

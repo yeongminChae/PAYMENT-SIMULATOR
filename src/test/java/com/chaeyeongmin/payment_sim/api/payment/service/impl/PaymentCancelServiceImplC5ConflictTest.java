@@ -10,7 +10,7 @@ import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
-import com.chaeyeongmin.payment_sim.infra.repository.PaymentEventLogRepository;
+import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanCancelAssembler;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
@@ -46,7 +46,7 @@ class PaymentCancelServiceImplC5ConflictTest {
     private VanGateway vanGateway;
     private CancelRequestValidator validator;
     private VanCancelAssembler vanCancelAssembler;
-    private PaymentEventLogRepository paymentEventLogRepository;
+    private PaymentEventLogRecorder paymentEventLogRecorder;
 
     private CancelRequest baseReq;
 
@@ -56,14 +56,14 @@ class PaymentCancelServiceImplC5ConflictTest {
         vanGateway = mock(VanGateway.class);
         validator = mock(CancelRequestValidator.class);
         vanCancelAssembler = mock(VanCancelAssembler.class);
-        paymentEventLogRepository = mock(PaymentEventLogRepository.class);
+        paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
 
         service = new PaymentCancelServiceImpl(
                 repository,
                 vanGateway,
                 validator,
                 vanCancelAssembler,
-                paymentEventLogRepository
+                paymentEventLogRecorder
         );
 
         baseReq = new CancelRequest(
@@ -289,5 +289,4 @@ class PaymentCancelServiceImplC5ConflictTest {
                 declineCode
         );
     }
-
 }

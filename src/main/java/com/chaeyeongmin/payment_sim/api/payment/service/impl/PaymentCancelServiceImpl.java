@@ -4,6 +4,7 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.enums.CancelResultStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
+import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.CancelRequestValidator;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
@@ -13,7 +14,6 @@ import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
-import com.chaeyeongmin.payment_sim.infra.repository.PaymentEventLogRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentEventLogInsertParam;
@@ -54,7 +54,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
     private final VanGateway vanGateway;
     private final CancelRequestValidator validator;
     private final VanCancelAssembler vanCancelAssembler;
-    private final PaymentEventLogRepository paymentEventLogRepository;
+    private final PaymentEventLogRecorder paymentEventLogRecorder;
 
     @Transactional
     @Override
@@ -705,12 +705,14 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
      * 취소 이벤트 로그를 구조화 컬럼만으로 저장한다.
      *
      * <p>
-     * CURRENT_TRX_NO에는 항상 이번 요청의 cancel posTrx를 저장하고,
+     * POS_TRX에는 항상 이번 요청의 cancel posTrx를 저장하고,
      * 원승인 식별자는 ORIGINAL_* 컬럼에 분리해 저장한다.
+     * CURRENT_TRX_NO는 과거 취소 거래번호 용도로 쓰던 컬럼이지만,
+     * 신규 이벤트 정책에서는 승인/취소 모두 POS_TRX를 현재 요청 거래번호로 통일한다.
      */
     private void insertCancelEvent(
             PaymentEventType eventType,
-            String currentTrxNo,
+            String posTrx,
             String originalPosTrx,
             int originalAttemptSeq,
             String resultCode,
@@ -720,11 +722,11 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
             String declineCode,
             String note
     ) {
-        paymentEventLogRepository.insert(new PaymentEventLogInsertParam(
+        PaymentEventLogInsertParam event = new PaymentEventLogInsertParam(
                 eventType,
+                posTrx,
                 null,
                 null,
-                currentTrxNo,
                 originalPosTrx,
                 originalAttemptSeq,
                 resultCode,
@@ -734,7 +736,15 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                 declineCode,
                 null,
                 note
-        ));
+        );
+
+        if (eventType == PaymentEventType.CANCEL_CONFLICT) {
+            // 충돌 이벤트는 이 메서드가 BusinessException으로 rollback된 뒤 listener가 기록한다.
+            paymentEventLogRecorder.recordAfterRollback(event);
+            return;
+        }
+
+        paymentEventLogRecorder.record(event);
     }
 
 }

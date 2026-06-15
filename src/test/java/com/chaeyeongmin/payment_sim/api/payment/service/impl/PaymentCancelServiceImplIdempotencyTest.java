@@ -13,7 +13,7 @@ import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
-import com.chaeyeongmin.payment_sim.infra.repository.PaymentEventLogRepository;
+import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentEventLogInsertParam;
@@ -50,7 +50,7 @@ class PaymentCancelServiceImplIdempotencyTest {
     private VanGateway vanGateway;
     private CancelRequestValidator validator;
     private VanCancelAssembler vanCancelAssembler;
-    private PaymentEventLogRepository paymentEventLogRepository;
+    private PaymentEventLogRecorder paymentEventLogRecorder;
 
     @BeforeEach
     void setUp() {
@@ -58,14 +58,14 @@ class PaymentCancelServiceImplIdempotencyTest {
         vanGateway = mock(VanGateway.class);
         validator = mock(CancelRequestValidator.class);
         vanCancelAssembler = mock(VanCancelAssembler.class);
-        paymentEventLogRepository = mock(PaymentEventLogRepository.class);
+        paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
 
         service = new PaymentCancelServiceImpl(
                 repository,
                 vanGateway,
                 validator,
                 vanCancelAssembler,
-                paymentEventLogRepository
+                paymentEventLogRecorder
         );
     }
 
@@ -114,9 +114,10 @@ class PaymentCancelServiceImplIdempotencyTest {
         assertEquals(ResultCode.CONFLICT, exception.getResultCode());
         assertEquals("POS_TRX_ALREADY_USED", exception.getMessage());
         verifySameCancelPosTrxConflictBlocked(request);
-        verify(paymentEventLogRepository).insert(argThat(event ->
+        verify(paymentEventLogRecorder).recordAfterRollback(argThat(event ->
                 event.eventType() == PaymentEventType.CANCEL_CONFLICT
-                        && request.posTrx().equals(event.currentTrxNo())
+                        && request.posTrx().equals(event.posTrx())
+                        && event.currentTrxNo() == null
                         && request.originalPosTrx().equals(event.originalPosTrx())
                         && request.originalAttemptSeq() == event.originalAttemptSeq()
                         && ResultCode.CONFLICT.name().equals(event.resultCode())
@@ -173,9 +174,10 @@ class PaymentCancelServiceImplIdempotencyTest {
         assertEquals(request.originalPosTrx(), response.originalPosTrx());
         assertEquals(request.originalAttemptSeq(), response.originalAttemptSeq());
         verifyExistingOriginalCancelRepliedWithoutVan(request);
-        verify(paymentEventLogRepository).insert(argThat(event ->
+        verify(paymentEventLogRecorder).record(argThat(event ->
                 event.eventType() == PaymentEventType.CANCEL_REUSED_BY_ORIGINAL
-                        && request.posTrx().equals(event.currentTrxNo())
+                        && request.posTrx().equals(event.posTrx())
+                        && event.currentTrxNo() == null
                         && request.originalPosTrx().equals(event.originalPosTrx())
                         && request.originalAttemptSeq() == event.originalAttemptSeq()
                         && ResultCode.ALREADY_CANCELLED.name().equals(event.resultCode())
@@ -232,9 +234,10 @@ class PaymentCancelServiceImplIdempotencyTest {
         assertEquals(request.originalPosTrx(), response.originalPosTrx());
         assertEquals(request.originalAttemptSeq(), response.originalAttemptSeq());
         verifyExistingOriginalCancelRepliedWithoutVan(request);
-        verify(paymentEventLogRepository).insert(argThat(event ->
+        verify(paymentEventLogRecorder).record(argThat(event ->
                 event.eventType() == PaymentEventType.CANCEL_REUSED_BY_ORIGINAL
-                        && request.posTrx().equals(event.currentTrxNo())
+                        && request.posTrx().equals(event.posTrx())
+                        && event.currentTrxNo() == null
                         && request.originalPosTrx().equals(event.originalPosTrx())
                         && request.originalAttemptSeq() == event.originalAttemptSeq()
                         && ResultCode.RETRY_LATER.name().equals(event.resultCode())
@@ -291,9 +294,10 @@ class PaymentCancelServiceImplIdempotencyTest {
         assertEquals(request.originalPosTrx(), response.originalPosTrx());
         assertEquals(request.originalAttemptSeq(), response.originalAttemptSeq());
         verifyExistingOriginalCancelRepliedWithoutVan(request);
-        verify(paymentEventLogRepository).insert(argThat(event ->
+        verify(paymentEventLogRecorder).record(argThat(event ->
                 event.eventType() == PaymentEventType.CANCEL_REUSED_BY_ORIGINAL
-                        && request.posTrx().equals(event.currentTrxNo())
+                        && request.posTrx().equals(event.posTrx())
+                        && event.currentTrxNo() == null
                         && request.originalPosTrx().equals(event.originalPosTrx())
                         && request.originalAttemptSeq() == event.originalAttemptSeq()
                         && ResultCode.CANCEL_DECLINED.name().equals(event.resultCode())
@@ -347,9 +351,10 @@ class PaymentCancelServiceImplIdempotencyTest {
         assertEquals(ResultCode.CONFLICT, exception.getResultCode());
         assertEquals("POS_TRX_ALREADY_USED", exception.getMessage());
         verifySameCancelPosTrxConflictBlocked(request);
-        verify(paymentEventLogRepository).insert(argThat(event ->
+        verify(paymentEventLogRecorder).recordAfterRollback(argThat(event ->
                 event.eventType() == PaymentEventType.CANCEL_CONFLICT
-                        && request.posTrx().equals(event.currentTrxNo())
+                        && request.posTrx().equals(event.posTrx())
+                        && event.currentTrxNo() == null
                         && request.originalPosTrx().equals(event.originalPosTrx())
                         && request.originalAttemptSeq() == event.originalAttemptSeq()
                         && ResultCode.CONFLICT.name().equals(event.resultCode())
@@ -374,9 +379,10 @@ class PaymentCancelServiceImplIdempotencyTest {
         CancelResponse response = service.cancel(request);
 
         assertEquals(CancelResultStatus.CANCEL_NOT_ALLOWED, response.cancelStatus());
-        verify(paymentEventLogRepository).insert(argThat(event ->
+        verify(paymentEventLogRecorder).record(argThat(event ->
                 event.eventType() == PaymentEventType.CANCEL_NOT_ALLOWED
-                        && request.posTrx().equals(event.currentTrxNo())
+                        && request.posTrx().equals(event.posTrx())
+                        && event.currentTrxNo() == null
                         && request.originalPosTrx().equals(event.originalPosTrx())
                         && request.originalAttemptSeq() == event.originalAttemptSeq()
                         && ResultCode.CANCEL_NOT_ALLOWED.name().equals(event.resultCode())
@@ -561,7 +567,7 @@ class PaymentCancelServiceImplIdempotencyTest {
         ArgumentCaptor<PaymentEventLogInsertParam> captor =
                 ArgumentCaptor.forClass(PaymentEventLogInsertParam.class);
 
-        verify(paymentEventLogRepository, times(4)).insert(captor.capture());
+        verify(paymentEventLogRecorder, times(4)).record(captor.capture());
         List<PaymentEventLogInsertParam> events = captor.getAllValues();
 
         // 신규 취소 성공 흐름은 pending 생성 -> VAN 요청 -> VAN 응답 -> DB 확정 순서가 중요하다.
@@ -592,10 +598,10 @@ class PaymentCancelServiceImplIdempotencyTest {
         assertEquals("cancel finalized", finalized.note());
 
         events.forEach(event -> {
-            Assertions.assertEquals("2376-20260521-9991-3004", event.currentTrxNo());
+            Assertions.assertEquals("2376-20260521-9991-3004", event.posTrx());
+            Assertions.assertNull(event.currentTrxNo());
             Assertions.assertEquals("2376-20260521-9991-1004", event.originalPosTrx());
             Assertions.assertEquals(1, event.originalAttemptSeq());
         });
     }
-
 }
