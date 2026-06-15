@@ -5,14 +5,17 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardSummary;
 import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.ApproveRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.ApproveResponse;
+import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveRequestValidator;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
+import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdateParam;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentEventLogInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentAttemptUpdatedRow;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanApproveAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveRequest;
@@ -52,6 +55,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
     private final VanGateway vanGateway;
     private final ApproveRequestValidator validator;
     private final VanApproveAssembler vanApproveAssembler;
+    private final PaymentEventLogRecorder paymentEventLogRecorder;
 
     @Transactional
     @Override
@@ -86,6 +90,18 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
                     log.info("[approve][A4] reuse db result. posTrx={}, attemptSeq={}, status={}",
                             trx, latest.attemptSeq(), status);
 
+                    insertApproveEvent(
+                            PaymentEventType.APPROVE_REUSED,
+                            trx,
+                            latest.attemptSeq(),
+                            resultCodeOf(status),
+                            status.name(),
+                            latest.vanTrxId(),
+                            latest.approvalNo(),
+                            latest.declineCode(),
+                            "approval result reused by same posTrx and same payload"
+                    );
+
                     // DB 재응답.
                     // - 저장된 attempt row를 기준으로 삼으므로, 응답도 DB 컬럼에서 조립한다.
                     // - 처리중(PROCESSING)도 "아직 확정되지 않은 DB 상태"를 응답 DTO로 표현한 것이다.
@@ -104,6 +120,17 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
 
                 // 같은 posTrx로 카드/금액을 바꿔 승인하면 멱등 재요청이 아니라 거래번호 재사용이다.
                 // 외부 VAN 호출 전에 끊어야 중복 승인이나 서로 다른 승인 결과가 생기지 않는다.
+                insertApproveEvent(
+                        PaymentEventType.APPROVE_CONFLICT,
+                        trx,
+                        latest.attemptSeq(),
+                        ResultCode.CONFLICT.name(),
+                        status.name(),
+                        latest.vanTrxId(),
+                        latest.approvalNo(),
+                        latest.declineCode(),
+                        "POS_TRX_ALREADY_USED"
+                );
                 throw new BusinessException(ResultCode.CONFLICT, "POS_TRX_ALREADY_USED");
 
             }
@@ -130,6 +157,17 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
                 null,
                 LocalDateTime.now()
         ));
+        insertApproveEvent(
+                PaymentEventType.APPROVE_ATTEMPT_CREATED,
+                trx,
+                attemptSeq,
+                null,
+                PaymentFinalStatus.PROCESSING.name(),
+                null,
+                null,
+                null,
+                "approval attempt created"
+        );
 
         // 요청 카드정보에서 만든 응답용 카드 요약.
         // - 이후 update miss 등으로 DB row를 응답 소스로 쓰기 어려운 방어 분기에서 fallback으로 사용한다.
@@ -142,10 +180,33 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         VanApproveRequest vanApproveReq =
                 vanApproveAssembler.getVanApproveRequest(trx, attemptSeq, request);
 
+        insertApproveEvent(
+                PaymentEventType.APPROVE_VAN_REQUESTED,
+                trx,
+                attemptSeq,
+                null,
+                PaymentFinalStatus.PROCESSING.name(),
+                null,
+                null,
+                null,
+                "VAN approve requested"
+        );
+
         // A6: VAN 승인 호출.
         // - 이 흐름에서 실제 외부 승인 시도는 여기서 1번만 발생해야 한다.
         // - 위 A4에서 재요청을 걸러낸 이유도 이 중복 호출을 막기 위해서다.
         VanApproveResponse vanApproveRes = vanGateway.approve(vanApproveReq);
+        insertApproveEvent(
+                PaymentEventType.APPROVE_VAN_RESULT_RECEIVED,
+                trx,
+                attemptSeq,
+                resultCodeOf(vanApproveRes.finalStatus()),
+                vanApproveRes.finalStatus().name(),
+                vanApproveRes.vanTrxId(),
+                vanApproveRes.approvalNo(),
+                toDeclineCode(vanApproveRes.declineCode()),
+                "VAN approve result received"
+        );
 
         // A7: VAN 결과를 DB update 파라미터로 변환.
         // - VAN 응답 객체는 외부 시스템 관점의 결과다.
@@ -169,6 +230,18 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
 
             log.info("[approve][A7] finalized. posTrx={}, attemptSeq={}, finalStatus={}, vanTrxId={}",
                     trx, attemptSeq, row.finalStatus(), row.vanTrxId());
+
+            insertApproveEvent(
+                    PaymentEventType.APPROVE_FINALIZED,
+                    trx,
+                    attemptSeq,
+                    resultCodeOf(row.finalStatus()),
+                    row.finalStatus().name(),
+                    row.vanTrxId(),
+                    row.approvalNo(),
+                    row.declineCode(),
+                    "approval finalized"
+            );
 
             return getApproveResponse(
                     row.finalStatus(),
@@ -228,6 +301,18 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         // - 이 경우에도 승인 성공/거절을 임의로 만들면 위험하므로 UNKNOWN_TIMEOUT 계열로 방어 응답한다.
         log.error("[approve][A7-0rows][CRITICAL_ATTEMPT_NOT_FOUND] update miss; attempt row not found after VAN response. posTrx={}, attemptSeq={}, vanStatus={}, vanTrxId={}",
                 trx, attemptSeq, vanApproveRes.finalStatus(), vanApproveRes.vanTrxId());
+
+        insertApproveEvent(
+                PaymentEventType.APPROVE_UNKNOWN_TIMEOUT,
+                trx,
+                attemptSeq,
+                ResultCode.UNKNOWN_TIMEOUT.name(),
+                PaymentFinalStatus.UNKNOWN_TIMEOUT.name(),
+                vanApproveRes.vanTrxId(),
+                null,
+                "UNKNOWN_AFTER_UPDATE_MISS",
+                "approval unknown timeout after update miss"
+        );
 
         return ApproveResponse.unknownTimeout(
                 trx,
@@ -328,6 +413,71 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
     private String toDeclineCode(VanDeclineCode declineCode) {
         if (declineCode == null) return null;
         return declineCode.code();
+    }
+
+    private String resultCodeOf(PaymentFinalStatus status) {
+        return switch (status) {
+            case APPROVED -> ResultCode.OK.name();
+            case DECLINED -> ResultCode.DECLINED.name();
+            case UNKNOWN_TIMEOUT -> ResultCode.UNKNOWN_TIMEOUT.name();
+            case PROCESSING -> ResultCode.RETRY_LATER.name();
+        };
+    }
+
+    /**
+     * 승인 이벤트 로그를 구조화 컬럼만으로 저장한다.
+     *
+     * <p>
+     * PAN/CVC/전문 원문은 파라미터에 포함하지 않는다.
+     */
+    private void insertApproveEvent(
+            PaymentEventType eventType,
+            String posTrx,
+            int attemptSeq,
+            String resultCode,
+            String statusSnapshot,
+            String vanTrxId,
+            String approvalNo,
+            String declineCode,
+            String note
+    ) {
+        PaymentEventLogInsertParam event = getPaymentEventLogInsertParam(
+                eventType,
+                posTrx,
+                attemptSeq,
+                resultCode,
+                statusSnapshot,
+                vanTrxId,
+                approvalNo,
+                declineCode,
+                note
+        );
+
+        if (eventType == PaymentEventType.APPROVE_CONFLICT) {
+            // 충돌 이벤트는 이 메서드가 BusinessException으로 rollback된 뒤 listener가 기록한다.
+            paymentEventLogRecorder.recordAfterRollback(event);
+            return;
+        }
+
+        paymentEventLogRecorder.record(event);
+    }
+
+    private static PaymentEventLogInsertParam getPaymentEventLogInsertParam(PaymentEventType eventType, String posTrx, int attemptSeq, String resultCode, String statusSnapshot, String vanTrxId, String approvalNo, String declineCode, String note) {
+        return new PaymentEventLogInsertParam(
+                eventType,
+                posTrx,
+                attemptSeq,
+                null,
+                null,
+                null,
+                resultCode,
+                statusSnapshot,
+                vanTrxId,
+                approvalNo,
+                declineCode,
+                null,
+                note
+        );
     }
 
     /**

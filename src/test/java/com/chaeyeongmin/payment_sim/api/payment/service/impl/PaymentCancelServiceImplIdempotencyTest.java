@@ -11,15 +11,23 @@ import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
+import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
+import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentEventLogInsertParam;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanCancelAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelRequest;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelResponse;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -27,8 +35,11 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyInt;
+import static org.mockito.Mockito.argThat;
+import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -39,6 +50,7 @@ class PaymentCancelServiceImplIdempotencyTest {
     private VanGateway vanGateway;
     private CancelRequestValidator validator;
     private VanCancelAssembler vanCancelAssembler;
+    private PaymentEventLogRecorder paymentEventLogRecorder;
 
     @BeforeEach
     void setUp() {
@@ -46,12 +58,14 @@ class PaymentCancelServiceImplIdempotencyTest {
         vanGateway = mock(VanGateway.class);
         validator = mock(CancelRequestValidator.class);
         vanCancelAssembler = mock(VanCancelAssembler.class);
+        paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
 
         service = new PaymentCancelServiceImpl(
                 repository,
                 vanGateway,
                 validator,
-                vanCancelAssembler
+                vanCancelAssembler,
+                paymentEventLogRecorder
         );
     }
 
@@ -100,6 +114,17 @@ class PaymentCancelServiceImplIdempotencyTest {
         assertEquals(ResultCode.CONFLICT, exception.getResultCode());
         assertEquals("POS_TRX_ALREADY_USED", exception.getMessage());
         verifySameCancelPosTrxConflictBlocked(request);
+        verify(paymentEventLogRecorder).recordAfterRollback(argThat(event ->
+                event.eventType() == PaymentEventType.CANCEL_CONFLICT
+                        && request.posTrx().equals(event.posTrx())
+                        && event.currentTrxNo() == null
+                        && request.originalPosTrx().equals(event.originalPosTrx())
+                        && request.originalAttemptSeq() == event.originalAttemptSeq()
+                        && ResultCode.CONFLICT.name().equals(event.resultCode())
+                        && CancelStatus.CANCELLED.name().equals(event.statusSnapshot())
+                        && "C123456789".equals(event.approvalNo())
+                        && "POS_TRX_ALREADY_USED".equals(event.note())
+        ));
     }
 
     /**
@@ -149,6 +174,17 @@ class PaymentCancelServiceImplIdempotencyTest {
         assertEquals(request.originalPosTrx(), response.originalPosTrx());
         assertEquals(request.originalAttemptSeq(), response.originalAttemptSeq());
         verifyExistingOriginalCancelRepliedWithoutVan(request);
+        verify(paymentEventLogRecorder).record(argThat(event ->
+                event.eventType() == PaymentEventType.CANCEL_REUSED_BY_ORIGINAL
+                        && request.posTrx().equals(event.posTrx())
+                        && event.currentTrxNo() == null
+                        && request.originalPosTrx().equals(event.originalPosTrx())
+                        && request.originalAttemptSeq() == event.originalAttemptSeq()
+                        && ResultCode.ALREADY_CANCELLED.name().equals(event.resultCode())
+                        && CancelResultStatus.ALREADY_CANCELLED.name().equals(event.statusSnapshot())
+                        && "C123456789".equals(event.approvalNo())
+                        && "cancel result reused by original".equals(event.note())
+        ));
     }
 
     /**
@@ -198,6 +234,16 @@ class PaymentCancelServiceImplIdempotencyTest {
         assertEquals(request.originalPosTrx(), response.originalPosTrx());
         assertEquals(request.originalAttemptSeq(), response.originalAttemptSeq());
         verifyExistingOriginalCancelRepliedWithoutVan(request);
+        verify(paymentEventLogRecorder).record(argThat(event ->
+                event.eventType() == PaymentEventType.CANCEL_REUSED_BY_ORIGINAL
+                        && request.posTrx().equals(event.posTrx())
+                        && event.currentTrxNo() == null
+                        && request.originalPosTrx().equals(event.originalPosTrx())
+                        && request.originalAttemptSeq() == event.originalAttemptSeq()
+                        && ResultCode.RETRY_LATER.name().equals(event.resultCode())
+                        && CancelResultStatus.RETRY_LATER.name().equals(event.statusSnapshot())
+                        && "cancel result reused by original".equals(event.note())
+        ));
     }
 
     /**
@@ -248,6 +294,16 @@ class PaymentCancelServiceImplIdempotencyTest {
         assertEquals(request.originalPosTrx(), response.originalPosTrx());
         assertEquals(request.originalAttemptSeq(), response.originalAttemptSeq());
         verifyExistingOriginalCancelRepliedWithoutVan(request);
+        verify(paymentEventLogRecorder).record(argThat(event ->
+                event.eventType() == PaymentEventType.CANCEL_REUSED_BY_ORIGINAL
+                        && request.posTrx().equals(event.posTrx())
+                        && event.currentTrxNo() == null
+                        && request.originalPosTrx().equals(event.originalPosTrx())
+                        && request.originalAttemptSeq() == event.originalAttemptSeq()
+                        && ResultCode.CANCEL_DECLINED.name().equals(event.resultCode())
+                        && "CANCEL_DECLINED".equals(event.declineCode())
+                        && "cancel result reused by original".equals(event.note())
+        ));
     }
 
     /**
@@ -295,6 +351,95 @@ class PaymentCancelServiceImplIdempotencyTest {
         assertEquals(ResultCode.CONFLICT, exception.getResultCode());
         assertEquals("POS_TRX_ALREADY_USED", exception.getMessage());
         verifySameCancelPosTrxConflictBlocked(request);
+        verify(paymentEventLogRecorder).recordAfterRollback(argThat(event ->
+                event.eventType() == PaymentEventType.CANCEL_CONFLICT
+                        && request.posTrx().equals(event.posTrx())
+                        && event.currentTrxNo() == null
+                        && request.originalPosTrx().equals(event.originalPosTrx())
+                        && request.originalAttemptSeq() == event.originalAttemptSeq()
+                        && ResultCode.CONFLICT.name().equals(event.resultCode())
+                        && CancelStatus.CANCELLED.name().equals(event.statusSnapshot())
+                        && "C998855".equals(event.approvalNo())
+                        && "POS_TRX_ALREADY_USED".equals(event.note())
+        ));
+    }
+
+    @Test
+    void cancel_originalNotApproved_shouldLogCancelNotAllowed() {
+        CancelRequest request = cancelRequest(
+                "2376-20260521-9991-3003",
+                "2376-20260521-9991-1003",
+                1
+        );
+
+        when(repository.findByPosTrx(request.posTrx())).thenReturn(Optional.empty());
+        when(repository.findOriginalAttempt(request.originalPosTrx(), request.originalAttemptSeq()))
+                .thenReturn(Optional.of(originalDeclinedAttempt(request.originalAttemptSeq())));
+
+        CancelResponse response = service.cancel(request);
+
+        assertEquals(CancelResultStatus.CANCEL_NOT_ALLOWED, response.cancelStatus());
+        verify(paymentEventLogRecorder).record(argThat(event ->
+                event.eventType() == PaymentEventType.CANCEL_NOT_ALLOWED
+                        && request.posTrx().equals(event.posTrx())
+                        && event.currentTrxNo() == null
+                        && request.originalPosTrx().equals(event.originalPosTrx())
+                        && request.originalAttemptSeq() == event.originalAttemptSeq()
+                        && ResultCode.CANCEL_NOT_ALLOWED.name().equals(event.resultCode())
+                        && PaymentFinalStatus.DECLINED.name().equals(event.statusSnapshot())
+                        && "ORIGINAL_NOT_APPROVED".equals(event.declineCode())
+                        && "original attempt is not approved".equals(event.note())
+        ));
+    }
+
+    @Test
+    void cancel_newRequest_vanCancelled_shouldLogPendingVanAndFinalizedEvents() {
+        CancelRequest request = cancelRequest(
+                "2376-20260521-9991-3004",
+                "2376-20260521-9991-1004",
+                1
+        );
+        PaymentAttempt originalAttempt = originalApprovedAttempt(request.originalAttemptSeq());
+        PaymentCancel pendingCancel = paymentCancel(
+                request.posTrx(),
+                request.originalPosTrx(),
+                request.originalAttemptSeq(),
+                CancelStatus.PENDING,
+                null,
+                null
+        );
+        PaymentCancel cancelledCancel = paymentCancel(
+                request.posTrx(),
+                request.originalPosTrx(),
+                request.originalAttemptSeq(),
+                CancelStatus.CANCELLED,
+                "C777777777",
+                null
+        );
+        VanCancelRequest vanRequest = vanCancelRequest(request);
+
+        when(repository.findByPosTrx(request.posTrx())).thenReturn(Optional.empty());
+        when(repository.findOriginalAttempt(request.originalPosTrx(), request.originalAttemptSeq()))
+                .thenReturn(Optional.of(originalAttempt));
+        when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(
+                request.originalPosTrx(),
+                request.originalAttemptSeq()
+        )).thenReturn(Optional.empty());
+        when(repository.insertPendingCancel(any(CancelInsertParam.class)))
+                .thenReturn(Optional.of(pendingCancel));
+        when(vanCancelAssembler.getVanCancelRequest(request, originalAttempt))
+                .thenReturn(vanRequest);
+        when(vanGateway.cancel(vanRequest))
+                .thenReturn(vanCancelResCancelled(request, "C777777777"));
+        when(repository.updateCancelResult(any(CancelResultUpdateParam.class)))
+                .thenReturn(Optional.of(cancelledCancel));
+
+        CancelResponse response = service.cancel(request);
+
+        assertEquals(CancelResultStatus.CANCELLED, response.cancelStatus());
+        verify(repository).insertPendingCancel(any(CancelInsertParam.class));
+        verify(vanGateway).cancel(eq(vanRequest));
+        verifyCancelNewRequestEvents();
     }
 
     /**
@@ -358,6 +503,19 @@ class PaymentCancelServiceImplIdempotencyTest {
         );
     }
 
+    private PaymentAttempt originalDeclinedAttempt(int attemptSeq) {
+        return new PaymentAttempt(
+                PaymentFinalStatus.DECLINED.name(),
+                null,
+                "05",
+                "42424242",
+                "4242",
+                attemptSeq,
+                20000,
+                "VAN-TRX-ORIGINAL"
+        );
+    }
+
     /**
      * cancel posTrx, original 식별자, 취소 상태를 조합할 수 있는 PaymentCancel 공통 fixture 생성 함수다.
      */
@@ -379,4 +537,71 @@ class PaymentCancelServiceImplIdempotencyTest {
         );
     }
 
+    private VanCancelRequest vanCancelRequest(CancelRequest request) {
+        return VanCancelRequest.builder()
+                .posTrx(request.posTrx())
+                .originalPosTrx(request.originalPosTrx())
+                .originalAttemptSeq(request.originalAttemptSeq())
+                .amount(20000)
+                .approvalNo("A151472400")
+                .vanTrxId("VAN-TRX-ORIGINAL")
+                .cardLast4("4242")
+                .build();
+    }
+
+    private VanCancelResponse vanCancelResCancelled(CancelRequest request, String cancelApprovalNo) {
+        return VanCancelResponse.builder()
+                .posTrx(request.posTrx())
+                .originalPosTrx(request.originalPosTrx())
+                .originalAttemptSeq(request.originalAttemptSeq())
+                .cancelStatus(CancelStatus.CANCELLED)
+                .cancelApprovalNo(cancelApprovalNo)
+                .declineCode(null)
+                .vanTrxId("VAN-TRX-CANCELLED")
+                .message("CANCELLED")
+                .respondedAt(LocalDateTime.now())
+                .build();
+    }
+
+    private void verifyCancelNewRequestEvents() {
+        ArgumentCaptor<PaymentEventLogInsertParam> captor =
+                ArgumentCaptor.forClass(PaymentEventLogInsertParam.class);
+
+        verify(paymentEventLogRecorder, times(4)).record(captor.capture());
+        List<PaymentEventLogInsertParam> events = captor.getAllValues();
+
+        // 신규 취소 성공 흐름은 pending 생성 -> VAN 요청 -> VAN 응답 -> DB 확정 순서가 중요하다.
+        assertEquals(PaymentEventType.CANCEL_PENDING_CREATED, events.get(0).eventType());
+        assertEquals(PaymentEventType.CANCEL_VAN_REQUESTED, events.get(1).eventType());
+        assertEquals(PaymentEventType.CANCEL_VAN_RESULT_RECEIVED, events.get(2).eventType());
+        assertEquals(PaymentEventType.CANCEL_FINALIZED, events.get(3).eventType());
+
+        PaymentEventLogInsertParam pendingCreated = events.get(0);
+        assertEquals(CancelStatus.PENDING.name(), pendingCreated.statusSnapshot());
+        assertEquals("cancel pending created", pendingCreated.note());
+
+        PaymentEventLogInsertParam vanRequested = events.get(1);
+        assertEquals(CancelStatus.PENDING.name(), vanRequested.statusSnapshot());
+        assertEquals("VAN cancel requested", vanRequested.note());
+
+        PaymentEventLogInsertParam vanResultReceived = events.get(2);
+        assertEquals(CancelStatus.CANCELLED.name(), vanResultReceived.statusSnapshot());
+        assertEquals("VAN-TRX-CANCELLED", vanResultReceived.vanTrxId());
+        assertEquals("C777777777", vanResultReceived.approvalNo());
+        Assertions.assertNull(vanResultReceived.declineCode());
+        assertEquals("VAN cancel result received", vanResultReceived.note());
+
+        PaymentEventLogInsertParam finalized = events.get(3);
+        assertEquals(ResultCode.OK.name(), finalized.resultCode());
+        assertEquals(CancelStatus.CANCELLED.name(), finalized.statusSnapshot());
+        assertEquals("C777777777", finalized.approvalNo());
+        assertEquals("cancel finalized", finalized.note());
+
+        events.forEach(event -> {
+            Assertions.assertEquals("2376-20260521-9991-3004", event.posTrx());
+            Assertions.assertNull(event.currentTrxNo());
+            Assertions.assertEquals("2376-20260521-9991-1004", event.originalPosTrx());
+            Assertions.assertEquals(1, event.originalAttemptSeq());
+        });
+    }
 }

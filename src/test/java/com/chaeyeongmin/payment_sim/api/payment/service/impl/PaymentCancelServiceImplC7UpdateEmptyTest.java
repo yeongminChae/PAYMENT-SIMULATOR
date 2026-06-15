@@ -10,6 +10,7 @@ import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
+import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanCancelAssembler;
@@ -35,6 +36,7 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
     private VanGateway vanGateway;
     private CancelRequestValidator validator;
     private VanCancelAssembler vanCancelAssembler;
+    private PaymentEventLogRecorder paymentEventLogRecorder;
 
     private CancelRequest baseReq;
 
@@ -44,12 +46,14 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
         vanGateway = mock(VanGateway.class);
         validator = mock(CancelRequestValidator.class);
         vanCancelAssembler = mock(VanCancelAssembler.class);
+        paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
 
         service = new PaymentCancelServiceImpl(
                 repository,
                 vanGateway,
                 validator,
-                vanCancelAssembler
+                vanCancelAssembler,
+                paymentEventLogRecorder
         );
 
         baseReq = new CancelRequest(
@@ -298,6 +302,5 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
                 .respondedAt(LocalDateTime.now())
                 .build();
     }
-
 
 }
