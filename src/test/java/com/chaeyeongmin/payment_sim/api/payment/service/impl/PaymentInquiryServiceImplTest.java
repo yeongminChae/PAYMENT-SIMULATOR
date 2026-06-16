@@ -55,6 +55,7 @@ class PaymentInquiryServiceImplTest {
     private static final String UT_Q7_001 = "UT-PAYMENT-INQUIRY-006"; // UNKNOWN -> VAN APPROVED -> Q6/Q7
     private static final String UT_Q7_002 = "UT-PAYMENT-INQUIRY-007"; // UNKNOWN -> VAN DECLINED -> Q6/Q7
     private static final String UT_Q8_001 = "UT-PAYMENT-INQUIRY-008"; // UNKNOWN -> VAN UNKNOWN -> Q8
+    private static final String UT_Q5_005 = "UT-2-INQ-UNKNOWN-005"; // UNKNOWN -> VAN FINAL -> update miss -> reread
 
     private PaymentInquiryService service;
     private PaymentInquiryRepository repository;
@@ -469,6 +470,176 @@ class PaymentInquiryServiceImplTest {
                 .findByPosTrxAndAttemptSeq(trx, attemptSeq);
         verify(assembler, times(1))
                 .getVanInquiryRequest(trx, attemptSeq, "1111", "VAN-TRX-0001");
+        verify(gateway, times(1))
+                .inquiry(vanInquiryReq);
+        verify(repository, times(1))
+                .updateUnknownToFinal(any(AttemptResultUpdateParam.class));
+    }
+
+    /**
+     * [UT_ID] UT-2-INQ-UNKNOWN-005
+     * <p>
+     * [시나리오] UT-2-INQ-UNKNOWN-005
+     * - Given: DB attempt finalStatus=UNKNOWN_TIMEOUT
+     * - And  : VAN inquiry 결과 finalStatus=APPROVED
+     * - And  : repository.updateUnknownToFinal(...) 결과가 Optional.empty()
+     * - And  : 같은 posTrx + attemptSeq 재조회 결과가 APPROVED
+     * - When : service.inquiry() 호출
+     * - Then : 재조회된 DB row 기준 APPROVED 응답을 반환한다
+     * - And  : VAN inquiry는 최초 1회만 호출되어야 한다
+     * <p>
+     * [흐름도]
+     * Q1 -> Q2 -> Q3(UNKNOWN_TIMEOUT) -> Q5(VAN APPROVED)
+     * -> Q6(update miss) -> Q6-0rows 재조회 -> Q9(DB 현재 상태 재응답)
+     */
+    @Test
+    void inquiry_unknownTimeout_vanApproved_updateMiss_rereadApproved_shouldReturnDbApproved() {
+        // given
+        String trx = baseReq.posTrx();
+        int attemptSeq = baseReq.attemptSeq();
+
+        PaymentAttempt latest = latestAttempt(
+                "UNKNOWN_TIMEOUT",
+                null,
+                "TIMEOUT",
+                attemptSeq,
+                "42424242",
+                "4242",
+                "VAN-TRX-UNKNOWN-0001"
+        );
+
+        PaymentAttempt rereadApproved = latestAttempt(
+                "APPROVED",
+                "DB-REREAD-APPROVAL-0001",
+                null,
+                attemptSeq,
+                "99999999",
+                "9999",
+                "DB-REREAD-VAN-TRX-0001"
+        );
+
+        VanInquiryRequest vanInquiryReq = VanInquiryRequest.builder()
+                .posTrx(trx)
+                .attemptSeq(attemptSeq)
+                .vanTrxId(null)
+                .cardLast4("4242")
+                .build();
+
+        VanInquiryResponse vanInquiryRes = vanInquiryResApproved(trx, attemptSeq);
+
+        when(repository.findByPosTrxAndAttemptSeq(trx, attemptSeq))
+                .thenReturn(Optional.of(latest), Optional.of(rereadApproved));
+
+        when(assembler.getVanInquiryRequest(trx, attemptSeq, "4242", "VAN-TRX-UNKNOWN-0001"))
+                .thenReturn(vanInquiryReq);
+
+        when(gateway.inquiry(vanInquiryReq))
+                .thenReturn(vanInquiryRes);
+
+        when(repository.updateUnknownToFinal(any(AttemptResultUpdateParam.class)))
+                .thenReturn(Optional.empty());
+
+        // when
+        InquiryResponse res = service.inquiry(baseReq);
+
+        // then
+        assertEquals(PaymentFinalStatus.APPROVED, res.finalStatus());
+        assertEquals(rereadApproved.approvalNo(), res.approvalNo());
+        assertEquals(rereadApproved.cardBin(), res.cardSummary().cardBin());
+        assertEquals(rereadApproved.cardLast4(), res.cardSummary().cardLast4());
+
+        // VAN 응답 승인번호가 아니라 update miss 이후 재조회된 DB row 기준인지 검증한다.
+        assertEquals("DB-REREAD-APPROVAL-0001", res.approvalNo());
+
+        verify(repository, times(2))
+                .findByPosTrxAndAttemptSeq(trx, attemptSeq);
+        verify(assembler, times(1))
+                .getVanInquiryRequest(trx, attemptSeq, "4242", "VAN-TRX-UNKNOWN-0001");
+        verify(gateway, times(1))
+                .inquiry(vanInquiryReq);
+        verify(repository, times(1))
+                .updateUnknownToFinal(any(AttemptResultUpdateParam.class));
+    }
+
+    /**
+     * [UT_ID] UT-2-INQ-UNKNOWN-005
+     * <p>
+     * [시나리오] UT-2-INQ-UNKNOWN-005
+     * - Given: DB attempt finalStatus=UNKNOWN_TIMEOUT
+     * - And  : VAN inquiry 결과 finalStatus=DECLINED
+     * - And  : repository.updateUnknownToFinal(...) 결과가 Optional.empty()
+     * - And  : 같은 posTrx + attemptSeq 재조회 결과가 DECLINED
+     * - When : service.inquiry() 호출
+     * - Then : 재조회된 DB row 기준 DECLINED 응답을 반환한다
+     * - And  : VAN inquiry는 최초 1회만 호출되어야 한다
+     * <p>
+     * [흐름도]
+     * Q1 -> Q2 -> Q3(UNKNOWN_TIMEOUT) -> Q5(VAN DECLINED)
+     * -> Q6(update miss) -> Q6-0rows 재조회 -> Q9(DB 현재 상태 재응답)
+     */
+    @Test
+    void inquiry_unknownTimeout_vanDeclined_updateMiss_rereadDeclined_shouldReturnDbDeclined() {
+        // given
+        String trx = baseReq.posTrx();
+        int attemptSeq = baseReq.attemptSeq();
+
+        PaymentAttempt latest = latestAttempt(
+                "UNKNOWN_TIMEOUT",
+                null,
+                "TIMEOUT",
+                attemptSeq,
+                "41111111",
+                "1111",
+                "VAN-TRX-UNKNOWN-0002"
+        );
+
+        PaymentAttempt rereadDeclined = latestAttempt(
+                "DECLINED",
+                null,
+                "DB_REREAD_DECLINED",
+                attemptSeq,
+                "88888888",
+                "8881",
+                "DB-REREAD-VAN-TRX-0002"
+        );
+
+        VanInquiryRequest vanInquiryReq = VanInquiryRequest.builder()
+                .posTrx(trx)
+                .attemptSeq(attemptSeq)
+                .vanTrxId(null)
+                .cardLast4("1111")
+                .build();
+
+        VanInquiryResponse vanInquiryRes = vanInquiryResDeclined(trx, attemptSeq);
+
+        when(repository.findByPosTrxAndAttemptSeq(trx, attemptSeq))
+                .thenReturn(Optional.of(latest), Optional.of(rereadDeclined));
+
+        when(assembler.getVanInquiryRequest(trx, attemptSeq, "1111", "VAN-TRX-UNKNOWN-0002"))
+                .thenReturn(vanInquiryReq);
+
+        when(gateway.inquiry(vanInquiryReq))
+                .thenReturn(vanInquiryRes);
+
+        when(repository.updateUnknownToFinal(any(AttemptResultUpdateParam.class)))
+                .thenReturn(Optional.empty());
+
+        // when
+        InquiryResponse res = service.inquiry(baseReq);
+
+        // then
+        assertEquals(PaymentFinalStatus.DECLINED, res.finalStatus());
+        assertEquals(rereadDeclined.declineCode(), res.declineCode());
+        assertEquals(rereadDeclined.cardBin(), res.cardSummary().cardBin());
+        assertEquals(rereadDeclined.cardLast4(), res.cardSummary().cardLast4());
+
+        // VAN 응답의 DO_NOT_HONOR("05")가 아니라 재조회된 DB row declineCode 기준인지 검증한다.
+        assertEquals("DB_REREAD_DECLINED", res.declineCode());
+
+        verify(repository, times(2))
+                .findByPosTrxAndAttemptSeq(trx, attemptSeq);
+        verify(assembler, times(1))
+                .getVanInquiryRequest(trx, attemptSeq, "1111", "VAN-TRX-UNKNOWN-0002");
         verify(gateway, times(1))
                 .inquiry(vanInquiryReq);
         verify(repository, times(1))
