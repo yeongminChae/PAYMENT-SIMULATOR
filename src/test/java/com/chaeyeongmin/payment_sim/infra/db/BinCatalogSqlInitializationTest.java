@@ -28,12 +28,12 @@ class BinCatalogSqlInitializationTest {
 
         assertEquals(15, rows.size());
 
-        assertRow(rows.get(0), "371111", "AMEX", "AMEX_TEST", "US", 6, "Y");
-        assertRow(rows.get(1), "411111", "VISA", "KB_CARD_TEST", "KR", 6, "Y");
-        assertRow(rows.get(4), "444444", "VISA", "LOTTE_CARD_TEST", "KR", 6, "Y");
-        assertRow(rows.get(5), "455555", "VISA", "WOORI_CARD_TEST", "KR", 6, "Y");
-        assertRow(rows.get(6), "499999", "VISA", "INACTIVE_CARD_TEST", "KR", 6, "N");
-        assertRow(rows.get(14), "633333", "LOCAL", "HANA_CARD_TEST", "KR", 6, "Y");
+        assertRow(rows.get(0), "37111111", "AMEX", "AMEX_TEST", "US", 8, "Y");
+        assertRow(rows.get(1), "41111111", "VISA", "KB_CARD_TEST", "KR", 8, "Y");
+        assertRow(rows.get(4), "44444444", "VISA", "LOTTE_CARD_TEST", "KR", 8, "Y");
+        assertRow(rows.get(5), "45555555", "VISA", "WOORI_CARD_TEST", "KR", 8, "Y");
+        assertRow(rows.get(6), "49999999", "VISA", "INACTIVE_CARD_TEST", "KR", 8, "N");
+        assertRow(rows.get(14), "63333333", "LOCAL", "HANA_CARD_TEST", "KR", 8, "Y");
     }
 
     private void assertRow(

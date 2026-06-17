@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS PAYMENT_ATTEMPT
 	POS_TRX      TEXT    NOT NULL, -- 포스TR(거래번호)
 	ATTEMPT_SEQ  INTEGER NOT NULL, -- 결제시도 순번(서버 발급/관리)
 	AMOUNT       INTEGER NOT NULL, -- 결제금액(>0)
-	CARD_BIN     TEXT    NULL,     -- BIN(최소정보)
+	CARD_BIN     TEXT    NULL,     -- 8자리 BIN(최소정보)
 	CARD_LAST4   TEXT    NULL,     -- 마지막 4자리
 	CARD_BRAND   TEXT    NULL,     -- VISA/MC 등
 	FINAL_STATUS TEXT    NULL,     -- NULL/APPROVED/DECLINED/UNKNOWN_TIMEOUT
@@ -123,7 +123,7 @@ CREATE INDEX IF NOT EXISTS IDX_PAYMENT_CANCEL_ORIGINAL_TRX
 -- ---------------------------------------------------------------------
 -- 5) BIN_CATALOG
 -- 목적: BIN(카드빈) 매핑/검증 기준 데이터.
---       "카드빈16" 컨셉은 BIN_LEN(6/8/16 등) 컬럼으로 반영.
+--       이 프로젝트의 카드 식별 기준은 8자리 BIN이다.
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS BIN_CATALOG
 (
@@ -131,7 +131,7 @@ CREATE TABLE IF NOT EXISTS BIN_CATALOG
 	BRAND      TEXT    NULL,                 -- VISA/MC 등
 	ISSUER     TEXT    NULL,                 -- 발급사(선택)
 	COUNTRY    TEXT    NULL,                 -- 국가(선택)
-	BIN_LEN    INTEGER NOT NULL,             -- 예: 6/8/16
+	BIN_LEN    INTEGER NOT NULL,             -- 8
 	ACTIVE_YN  TEXT    NOT NULL DEFAULT 'Y', -- Y/N
 	CREATED_AT TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
 	UPDATED_AT TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -144,7 +144,37 @@ CREATE INDEX IF NOT EXISTS IDX_BIN_CATALOG_ACTIVE
 	ON BIN_CATALOG (ACTIVE_YN);
 
 -- ---------------------------------------------------------------------
--- 6) PAYMENT_EVENT_LOG
+-- 6) PAYMENT_EXTERNAL_INFO
+-- 목적: 승인 attempt에 연결된 카드/VAN/대외거래 식별 정보.
+--       PAN 원문은 저장하지 않고 8자리 BIN, last4, masked card no만 저장한다.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS PAYMENT_EXTERNAL_INFO
+(
+	EXTERNAL_INFO_ID INTEGER PRIMARY KEY AUTOINCREMENT,
+	POS_TRX          TEXT    NOT NULL,
+	ATTEMPT_SEQ      INTEGER NOT NULL,
+	CARD_BIN         TEXT    NOT NULL, -- 8자리 BIN
+	CARD_LAST4       TEXT    NOT NULL,
+	MASKED_CARD_NO   TEXT    NOT NULL,
+	CARD_BRAND       TEXT    NOT NULL,
+	CARD_ISSUER      TEXT    NOT NULL,
+	CARD_COUNTRY     TEXT    NOT NULL,
+	VAN_PROVIDER     TEXT    NOT NULL,
+	CREATED_AT       TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	UPDATED_AT       TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+
+	UNIQUE (POS_TRX, ATTEMPT_SEQ),
+	FOREIGN KEY (POS_TRX, ATTEMPT_SEQ)
+		REFERENCES PAYMENT_ATTEMPT (POS_TRX, ATTEMPT_SEQ)
+		ON UPDATE RESTRICT
+		ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS IDX_PAYMENT_EXTERNAL_INFO_POS_TRX
+	ON PAYMENT_EXTERNAL_INFO (POS_TRX);
+
+-- ---------------------------------------------------------------------
+-- 7) PAYMENT_EVENT_LOG
 -- 목적: 승인/조회/취소 처리 과정의 중요 이벤트를 남기는 저널 테이블.
 --       전문 원문 저장은 하지 않고, 코드/요약만 기록한다.
 -- ---------------------------------------------------------------------

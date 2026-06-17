@@ -631,6 +631,7 @@ class PaymentFlowIntegrationTest {
         for (String approvePosTrx : APPROVE_POS_TRXS) {
             // PAYMENT_CANCEL이 PAYMENT_ATTEMPT를 FK로 참조하므로 자식 row를 먼저 삭제한 뒤 승인 row와 순번 row를 삭제한다.
             jdbcTemplate.update("DELETE FROM PAYMENT_CANCEL WHERE ORIGINAL_TRX_NO = ?", approvePosTrx);
+            jdbcTemplate.update("DELETE FROM PAYMENT_EXTERNAL_INFO WHERE POS_TRX = ?", approvePosTrx);
             jdbcTemplate.update("DELETE FROM PAYMENT_ATTEMPT WHERE POS_TRX = ?", approvePosTrx);
             jdbcTemplate.update("DELETE FROM PAYMENT_ATTEMPT_SEQ WHERE POS_TRX = ?", approvePosTrx);
         }

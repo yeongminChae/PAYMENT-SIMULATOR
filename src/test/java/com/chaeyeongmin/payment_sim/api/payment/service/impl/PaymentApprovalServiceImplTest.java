@@ -4,13 +4,16 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
 import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.ApproveRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.ApproveResponse;
+import com.chaeyeongmin.payment_sim.api.payment.service.BinCatalogService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveRequestValidator;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
+import com.chaeyeongmin.payment_sim.domain.model.CardIdentity;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
+import com.chaeyeongmin.payment_sim.infra.repository.PaymentExternalInfoRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdateParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentAttemptUpdatedRow;
@@ -49,6 +52,8 @@ class PaymentApprovalServiceImplTest {
     private ApproveRequestValidator validator;
     private VanApproveAssembler assembler;
     private PaymentEventLogRecorder paymentEventLogRecorder;
+    private BinCatalogService binCatalogService;
+    private PaymentExternalInfoRepository paymentExternalInfoRepository;
 
     // 기본 정상 요청 (필드 세팅은 각 테스트에서 수정해서 사용)
     private ApproveRequest baseReq;
@@ -60,13 +65,20 @@ class PaymentApprovalServiceImplTest {
         validator = mock(ApproveRequestValidator.class);
         assembler = mock(VanApproveAssembler.class);
         paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
+        binCatalogService = mock(BinCatalogService.class);
+        paymentExternalInfoRepository = mock(PaymentExternalInfoRepository.class);
 
         service = new PaymentApprovalServiceImpl(
                 repository,
                 gateway,
                 validator,
                 assembler,
-                paymentEventLogRecorder
+                paymentEventLogRecorder,
+                binCatalogService,
+                paymentExternalInfoRepository
+        );
+        when(binCatalogService.identify(anyString(), anyString())).thenAnswer(invocation ->
+                CardIdentity.unknown(invocation.getArgument(0), invocation.getArgument(1))
         );
 
         baseReq = new ApproveRequest(
@@ -465,7 +477,7 @@ class PaymentApprovalServiceImplTest {
                 // 테스트에서는 민감정보(PAN)도 더미로만 (로그/출력 금지)
                 .pan("4111111111111111")
                 .expiryYyMm("2812")
-                .cardBin("411111")
+                .cardBin("41111111")
                 .cardLast4("1111")
                 .build();
     }
@@ -474,7 +486,7 @@ class PaymentApprovalServiceImplTest {
         return VanApproveResponse.builder()
                 .posTrx(posTrx)
                 .attemptSeq(attemptSeq)
-                .cardBin("411111")
+                .cardBin("41111111")
                 .cardLast4("1111")
                 .vanResult(VanResult.APPROVED)
                 .finalStatus(PaymentFinalStatus.APPROVED)
@@ -490,7 +502,7 @@ class PaymentApprovalServiceImplTest {
         return VanApproveResponse.builder()
                 .posTrx(posTrx)
                 .attemptSeq(attemptSeq)
-                .cardBin("411111")
+                .cardBin("41111111")
                 .cardLast4("1111")
                 .vanResult(VanResult.DECLINED)
                 .finalStatus(PaymentFinalStatus.DECLINED)
@@ -507,7 +519,7 @@ class PaymentApprovalServiceImplTest {
         return VanApproveResponse.builder()
                 .posTrx(posTrx)
                 .attemptSeq(attemptSeq)
-                .cardBin("411111")
+                .cardBin("41111111")
                 .cardLast4("1111")
                 .vanResult(VanResult.TIMEOUT)
                 .finalStatus(PaymentFinalStatus.UNKNOWN_TIMEOUT) // 정책 enum에 맞춰 수정
@@ -531,7 +543,7 @@ class PaymentApprovalServiceImplTest {
                 PaymentFinalStatus.APPROVED,
                 "A123456789",
                 null,
-                "411111",
+                "41111111",
                 "1111",
                 "VAN-TRX-0001"
         );
@@ -544,7 +556,7 @@ class PaymentApprovalServiceImplTest {
                 PaymentFinalStatus.DECLINED,
                 null,
                 "05",           // declineCode는 여기 String이니까 "05"/"TIMEOUT" 같은 값
-                "411111",
+                "41111111",
                 "1111",
                 "VAN-TRX-0002"
         );
@@ -557,7 +569,7 @@ class PaymentApprovalServiceImplTest {
                 PaymentFinalStatus.UNKNOWN_TIMEOUT, // enum에 맞춰 수정
                 null,
                 "TIMEOUT",
-                "411111",
+                "41111111",
                 "1111",
                 null
         );

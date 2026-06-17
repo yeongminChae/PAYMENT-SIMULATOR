@@ -19,25 +19,25 @@ INSERT INTO BIN_CATALOG (
 	UPDATED_AT
 )
 VALUES
-	('411111', 'VISA',   'KB_CARD_TEST',       'KR', 6, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
-	('422222', 'VISA',   'SHINHAN_CARD_TEST',  'KR', 6, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
-	('433333', 'VISA',   'HYUNDAI_CARD_TEST',  'KR', 6, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
-	('444444', 'VISA',   'LOTTE_CARD_TEST',    'KR', 6, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
-	('455555', 'VISA',   'WOORI_CARD_TEST',    'KR', 6, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	('41111111', 'VISA',   'KB_CARD_TEST',       'KR', 8, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	('42222222', 'VISA',   'SHINHAN_CARD_TEST',  'KR', 8, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	('43333333', 'VISA',   'HYUNDAI_CARD_TEST',  'KR', 8, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	('44444444', 'VISA',   'LOTTE_CARD_TEST',    'KR', 8, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	('45555555', 'VISA',   'WOORI_CARD_TEST',    'KR', 8, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
 
-	('511111', 'MASTER', 'KB_CARD_TEST',       'KR', 6, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
-	('522222', 'MASTER', 'SHINHAN_CARD_TEST',  'KR', 6, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
-	('533333', 'MASTER', 'HYUNDAI_CARD_TEST',  'KR', 6, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
-	('544444', 'MASTER', 'LOTTE_CARD_TEST',    'KR', 6, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
-	('555555', 'MASTER', 'WOORI_CARD_TEST',    'KR', 6, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	('51111111', 'MASTER', 'KB_CARD_TEST',       'KR', 8, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	('52222222', 'MASTER', 'SHINHAN_CARD_TEST',  'KR', 8, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	('53333333', 'MASTER', 'HYUNDAI_CARD_TEST',  'KR', 8, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	('54444444', 'MASTER', 'LOTTE_CARD_TEST',    'KR', 8, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	('55555555', 'MASTER', 'WOORI_CARD_TEST',    'KR', 8, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
 
-	('611111', 'LOCAL',  'BC_CARD_TEST',       'KR', 6, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
-	('622222', 'LOCAL',  'NH_CARD_TEST',       'KR', 6, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
-	('633333', 'LOCAL',  'HANA_CARD_TEST',     'KR', 6, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	('61111111', 'LOCAL',  'BC_CARD_TEST',       'KR', 8, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	('62222222', 'LOCAL',  'NH_CARD_TEST',       'KR', 8, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	('63333333', 'LOCAL',  'HANA_CARD_TEST',     'KR', 8, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
 
-	('371111', 'AMEX',   'AMEX_TEST',          'US', 6, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	('37111111', 'AMEX',   'AMEX_TEST',          'US', 8, 'Y', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
 
-	('499999', 'VISA',   'INACTIVE_CARD_TEST', 'KR', 6, 'N', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'))
+	('49999999', 'VISA',   'INACTIVE_CARD_TEST', 'KR', 8, 'N', STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'), STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'))
 ON CONFLICT(BIN) DO UPDATE SET
 	BRAND = excluded.BRAND,
 	ISSUER = excluded.ISSUER,

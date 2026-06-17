@@ -6,17 +6,17 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.ApproveRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.ApproveResponse;
 import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
+import com.chaeyeongmin.payment_sim.api.payment.service.BinCatalogService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveRequestValidator;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
+import com.chaeyeongmin.payment_sim.domain.model.CardIdentity;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
-import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptInsertParam;
-import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdateParam;
-import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentEventLogInsertParam;
-import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentAttemptUpdatedRow;
+import com.chaeyeongmin.payment_sim.infra.repository.PaymentExternalInfoRepository;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.*;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanApproveAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveResponse;
@@ -56,6 +56,8 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
     private final ApproveRequestValidator validator;
     private final VanApproveAssembler vanApproveAssembler;
     private final PaymentEventLogRecorder paymentEventLogRecorder;
+    private final BinCatalogService binCatalogService;
+    private final PaymentExternalInfoRepository paymentExternalInfoRepository;
 
     @Transactional
     @Override
@@ -143,6 +145,12 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         int attemptSeq = repository.insertAttemptSeq(trx);
 
         CardInput card = request.getCard();
+        String cardBin = card.bin8();
+        String cardLast4 = card.last4();
+        // BIN_CATALOG 기반 식별은 8자리 BIN만 사용한다.
+        // active BIN이면 catalog 값을, 미등록/비활성이면 UNKNOWN 값을 저장한다.
+        CardIdentity cardIdentity = binCatalogService.identify(cardBin, cardLast4);
+        LocalDateTime createdAt = LocalDateTime.now();
 
         // A3-1: PAYMENT_ATTEMPT row 생성.
         // - 이 row는 VAN 호출 전 "처리중 상태"를 남기는 기준점이다.
@@ -152,11 +160,27 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
                 trx,
                 attemptSeq,
                 request.getAmount(),
-                card.bin8(),
-                card.last4(),
-                null,
-                LocalDateTime.now()
+                cardIdentity.cardBin(),
+                cardIdentity.cardLast4(),
+                cardIdentity.brand(),
+                createdAt
         ));
+
+        // PAYMENT_EXTERNAL_INFO는 attempt와 1:1로 연결되는 카드/VAN/대외 식별 상세다.
+        // PAYMENT_ATTEMPT.CARD_BIN과 같은 8자리 BIN을 저장하고, PAN 원문은 저장하지 않는다.
+        paymentExternalInfoRepository.insert(new PaymentExternalInfoInsertParam(
+                trx,
+                attemptSeq,
+                cardIdentity.cardBin(),
+                cardIdentity.cardLast4(),
+                maskedCardNo(cardIdentity.cardBin(), cardIdentity.cardLast4()),
+                cardIdentity.brand(),
+                cardIdentity.issuer(),
+                cardIdentity.country(),
+                cardIdentity.vanProvider(),
+                createdAt
+        ));
+
         insertApproveEvent(
                 PaymentEventType.APPROVE_ATTEMPT_CREATED,
                 trx,
@@ -172,7 +196,10 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         // 요청 카드정보에서 만든 응답용 카드 요약.
         // - 이후 update miss 등으로 DB row를 응답 소스로 쓰기 어려운 방어 분기에서 fallback으로 사용한다.
         // - 민감정보 없이 BIN/last4만 담기 때문에 로그/응답에 노출 가능한 최소 정보다.
-        CardSummary summaryFromReq = getCardSummary(card.bin8(), card.last4());
+        CardSummary summaryFromReq = getCardSummary(
+                cardIdentity.cardBin(),
+                cardIdentity.cardLast4()
+        );
 
         // A5: VAN 승인 요청 DTO 구성.
         // - 내부 API 요청(ApproveRequest)을 그대로 VAN에 넘기지 않고, VAN 계약에 맞는 DTO로 변환한다.
@@ -403,6 +430,11 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
      */
     private CardSummary getCardSummary(String cardBin, String cardLast4) {
         return new CardSummary(cardBin, cardLast4, null);
+    }
+
+    /** 저장 정책: 앞 8자리 BIN + 별표 6개 + 마지막 4자리. */
+    private String maskedCardNo(String cardBin, String cardLast4) {
+        return cardBin + "******" + cardLast4;
     }
 
     /**
