@@ -16,6 +16,7 @@ import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentExternalInfoRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdateParam;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentExternalInfoInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentAttemptUpdatedRow;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanApproveAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveRequest;
@@ -25,11 +26,15 @@ import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanResult;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.*;
 
@@ -444,7 +449,147 @@ class PaymentApprovalServiceImplTest {
         verify(repository).findLatestByPosTrxAndAttemptSeq(trx, attemptSeq);
     }
 
+    /**
+     * [UT_ID] UT-2-BIN-CATALOG-004
+     *
+     * <p>
+     * 승인 신규 attempt 저장 시 PAYMENT_ATTEMPT와 PAYMENT_EXTERNAL_INFO에 같은 8자리 BIN을 저장하고,
+     * PAYMENT_EXTERNAL_INFO에는 BIN_CATALOG 식별 결과와 maskedCardNo를 함께 저장한다.
+     */
+    @Test
+    void approve_newAttempt_shouldPersistPaymentExternalInfoWithCardIdentitySnapshot() {
+        String trx = baseReq.getPosTrx();
+        int attemptSeq = 1;
+        VanApproveRequest vanReq = vanApproveReq(trx, attemptSeq, 10000);
+
+        when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.empty());
+        when(repository.insertAttemptSeq(trx)).thenReturn(attemptSeq);
+        when(binCatalogService.identify("41111111", "1111"))
+                .thenReturn(new CardIdentity("41111111", "1111", "VISA", "KB_CARD_TEST", "KR", "MOCK_VAN"));
+        when(assembler.getVanApproveRequest(trx, attemptSeq, baseReq)).thenReturn(vanReq);
+        when(gateway.approve(eq(vanReq))).thenReturn(vanApproveResApproved(trx, attemptSeq));
+        when(repository.updateAttemptResult(any())).thenReturn(Optional.of(updatedRowApproved(trx, attemptSeq)));
+
+        service.approve(baseReq);
+
+        ArgumentCaptor<AttemptInsertParam> attemptCaptor = ArgumentCaptor.forClass(AttemptInsertParam.class);
+        ArgumentCaptor<PaymentExternalInfoInsertParam> externalInfoCaptor =
+                ArgumentCaptor.forClass(PaymentExternalInfoInsertParam.class);
+
+        verify(repository).insertAttempt(attemptCaptor.capture());
+        verify(paymentExternalInfoRepository).insert(externalInfoCaptor.capture());
+
+        AttemptInsertParam attempt = attemptCaptor.getValue();
+        PaymentExternalInfoInsertParam externalInfo = externalInfoCaptor.getValue();
+
+        assertEquals("41111111", attempt.cardBin());
+        assertEquals(attempt.cardBin(), externalInfo.cardBin());
+        assertEquals("1111", attempt.cardLast4());
+        assertEquals(attempt.cardLast4(), externalInfo.cardLast4());
+        assertEquals("41111111******1111", externalInfo.maskedCardNo());
+        assertEquals("VISA", attempt.cardBrand());
+        assertEquals("VISA", externalInfo.cardBrand());
+        assertEquals("KB_CARD_TEST", externalInfo.cardIssuer());
+        assertEquals("KR", externalInfo.cardCountry());
+        assertEquals("MOCK_VAN", externalInfo.vanProvider());
+    }
+
+    /**
+     * [UT_ID] UT-2-BIN-CATALOG-005
+     *
+     * <p>
+     * BIN 식별 결과는 PAYMENT_EXTERNAL_INFO에만 저장하고 외부 승인 응답 DTO에는 확장 노출하지 않는다.
+     */
+    @Test
+    void approve_newAttempt_shouldNotExposeBinCatalogIdentityInApproveResponse() {
+        String trx = baseReq.getPosTrx();
+        int attemptSeq = 1;
+        VanApproveRequest vanReq = vanApproveReq(trx, attemptSeq, 10000);
+
+        when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.empty());
+        when(repository.insertAttemptSeq(trx)).thenReturn(attemptSeq);
+        when(binCatalogService.identify("41111111", "1111"))
+                .thenReturn(new CardIdentity("41111111", "1111", "VISA", "KB_CARD_TEST", "KR", "MOCK_VAN"));
+        when(assembler.getVanApproveRequest(trx, attemptSeq, baseReq)).thenReturn(vanReq);
+        when(gateway.approve(eq(vanReq))).thenReturn(vanApproveResApproved(trx, attemptSeq));
+        when(repository.updateAttemptResult(any())).thenReturn(Optional.of(updatedRowApproved(trx, attemptSeq)));
+
+        ApproveResponse response = service.approve(baseReq);
+
+        assertEquals("41111111", response.cardSummary().cardBin());
+        assertEquals("1111", response.cardSummary().cardLast4());
+        assertNull(response.cardSummary().cardBrand());
+        assertResponseFieldDoesNotExist("issuer");
+        assertResponseFieldDoesNotExist("country");
+        assertResponseFieldDoesNotExist("vanProvider");
+    }
+
+    /**
+     * [UT_ID] UT-2-BIN-CATALOG-006
+     *
+     * <p>
+     * 기존 attempt 재응답 경로에서는 신규 승인 attempt를 만들지 않으므로
+     * PAYMENT_EXTERNAL_INFO도 새로 저장하지 않는다.
+     */
+    @Test
+    void approve_existingAttemptReuse_shouldNotCreatePaymentExternalInfo() {
+        String trx = baseReq.getPosTrx();
+        PaymentAttempt latest = latestAttempt(
+                "APPROVED",
+                "A123456789",
+                null,
+                1
+        );
+        when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.of(latest));
+
+        ApproveResponse response = service.approve(baseReq);
+
+        assertEquals(PaymentFinalStatus.APPROVED, response.finalStatus());
+        verify(paymentExternalInfoRepository, never()).insert(any(PaymentExternalInfoInsertParam.class));
+        verify(binCatalogService, never()).identify(anyString(), anyString());
+    }
+
+    /**
+     * [UT_ID] UT-2-BIN-CATALOG-006
+     *
+     * <p>
+     * 기존 attempt 충돌 경로도 신규 승인 attempt 생성 전에 차단되므로
+     * PAYMENT_EXTERNAL_INFO를 새로 저장하지 않는다.
+     */
+    @Test
+    void approve_existingAttemptConflict_shouldNotCreatePaymentExternalInfo() {
+        String trx = baseReq.getPosTrx();
+        ApproveRequest conflictRequest = new ApproveRequest(
+                trx,
+                20000,
+                new CardInput("4111111111111111", "2812")
+        );
+        PaymentAttempt latest = latestAttempt(
+                "APPROVED",
+                "A123456789",
+                null,
+                1
+        );
+        when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.of(latest));
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.approve(conflictRequest)
+        );
+
+        assertEquals(ResultCode.CONFLICT, exception.getResultCode());
+        verify(paymentExternalInfoRepository, never()).insert(any(PaymentExternalInfoInsertParam.class));
+        verify(binCatalogService, never()).identify(anyString(), anyString());
+    }
+
     // 테스트용 객체 생성 메소드
+
+    private void assertResponseFieldDoesNotExist(String fieldName) {
+        boolean exists = Arrays.stream(ApproveResponse.class.getRecordComponents())
+                .anyMatch(component -> component.getName().equals(fieldName));
+
+        assertFalse(exists);
+    }
 
     // status만 바꿔서 새 record를 생성
     // MVP2 승인 멱등 정책에서는 기존 DB row와 재요청 payload의 amount/cardBin/cardLast4가 모두 같아야 재응답한다.
