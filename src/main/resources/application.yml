@@ -13,6 +13,7 @@ spring:
     init:
       mode: always
       schema-locations: classpath:db/schema.sql
+      data-locations: classpath:db/data.sql
       # SQLite는 ALTER TABLE ADD COLUMN IF NOT EXISTS를 지원하지 않는다.
       # schema.sql을 기존 DB에도 재실행하므로, 이미 추가된 컬럼의 duplicate 오류는 통과시킨다.
       continue-on-error: true

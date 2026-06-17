@@ -4,14 +4,17 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
 import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.ApproveRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.ApproveResponse;
+import com.chaeyeongmin.payment_sim.api.payment.service.BinCatalogService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveRequestValidator;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
+import com.chaeyeongmin.payment_sim.domain.model.CardIdentity;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
+import com.chaeyeongmin.payment_sim.infra.repository.PaymentExternalInfoRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdateParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentEventLogInsertParam;
@@ -34,6 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyInt;
+import static org.mockito.Mockito.anyString;
 import static org.mockito.Mockito.argThat;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
@@ -50,6 +54,8 @@ class PaymentApprovalServiceImplIdempotencyTest {
     private ApproveRequestValidator validator;
     private VanApproveAssembler vanApproveAssembler;
     private PaymentEventLogRecorder paymentEventLogRecorder;
+    private BinCatalogService binCatalogService;
+    private PaymentExternalInfoRepository paymentExternalInfoRepository;
 
     @BeforeEach
     void setUp() {
@@ -58,13 +64,20 @@ class PaymentApprovalServiceImplIdempotencyTest {
         validator = mock(ApproveRequestValidator.class);
         vanApproveAssembler = mock(VanApproveAssembler.class);
         paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
+        binCatalogService = mock(BinCatalogService.class);
+        paymentExternalInfoRepository = mock(PaymentExternalInfoRepository.class);
 
         service = new PaymentApprovalServiceImpl(
                 repository,
                 vanGateway,
                 validator,
                 vanApproveAssembler,
-                paymentEventLogRecorder
+                paymentEventLogRecorder,
+                binCatalogService,
+                paymentExternalInfoRepository
+        );
+        when(binCatalogService.identify(anyString(), anyString())).thenAnswer(invocation ->
+                CardIdentity.unknown(invocation.getArgument(0), invocation.getArgument(1))
         );
     }
 

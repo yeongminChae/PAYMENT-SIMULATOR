@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.chaeyeongmin.payment_sim.infra.mybatis.mapper.PaymentExternalInfoMapper">
+    <!--
+      승인 신규 attempt 생성 직후 카드/VAN/대외 식별 상세를 저장한다.
+      PAN 원문은 저장하지 않고, 8자리 BIN/last4/maskedCardNo만 저장한다.
+    -->
+    <insert id="insert">
+        INSERT INTO PAYMENT_EXTERNAL_INFO (POS_TRX,
+                                           ATTEMPT_SEQ,
+                                           CARD_BIN,
+                                           CARD_LAST4,
+                                           MASKED_CARD_NO,
+                                           CARD_BRAND,
+                                           CARD_ISSUER,
+                                           CARD_COUNTRY,
+                                           VAN_PROVIDER,
+                                           CREATED_AT,
+                                           UPDATED_AT)
+        VALUES (#{externalInfo.posTrx},
+                #{externalInfo.attemptSeq},
+                #{externalInfo.cardBin},
+                #{externalInfo.cardLast4},
+                #{externalInfo.maskedCardNo},
+                #{externalInfo.cardBrand},
+                #{externalInfo.cardIssuer},
+                #{externalInfo.cardCountry},
+                #{externalInfo.vanProvider},
+                #{externalInfo.createdAt},
+                CURRENT_TIMESTAMP);
+    </insert>
+</mapper>
