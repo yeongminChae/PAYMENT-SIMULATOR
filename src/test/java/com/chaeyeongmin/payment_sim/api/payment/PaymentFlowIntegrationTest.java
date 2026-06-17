@@ -56,6 +56,8 @@ class PaymentFlowIntegrationTest {
     private static final String APPROVE_POS_TRX_IT_APP_006 = "2376-20260601-9991-1006";
     // IT-APP-007 동일 원거래 재취소 검증용 원거래 번호다.
     private static final String APPROVE_POS_TRX_IT_APP_007 = "2376-20260601-9991-1017";
+    // IT-APP-008 active 8자리 BIN 기반 PAYMENT_EXTERNAL_INFO 저장 검증용 거래 번호다.
+    private static final String APPROVE_POS_TRX_IT_APP_008 = "2376-20260601-9991-1008";
 
     // 취소 요청 거래번호도 시나리오별로 분리한다. IT-APP-007은 재취소 요청 자체도 두 번 구분한다.
     // IT-APP-005에서 원거래를 취소할 때 사용하는 현재 취소 거래번호다.
@@ -74,7 +76,8 @@ class PaymentFlowIntegrationTest {
             APPROVE_POS_TRX_IT_APP_004,
             APPROVE_POS_TRX_IT_APP_005,
             APPROVE_POS_TRX_IT_APP_006,
-            APPROVE_POS_TRX_IT_APP_007
+            APPROVE_POS_TRX_IT_APP_007,
+            APPROVE_POS_TRX_IT_APP_008
     );
 
     private static final List<String> CANCEL_POS_TRXS = List.of(
@@ -176,6 +179,46 @@ class PaymentFlowIntegrationTest {
         assertNotNull(attemptRow.get("VAN_TRX_ID"));
         // count = 1은 거절 attempt가 정확히 한 row로 저장되었다는 의미다.
         assertEquals(1, countPaymentAttempt(APPROVE_POS_TRX_IT_APP_002, attemptSeq));
+    }
+
+    @Test
+    @DisplayName("IT-APP-008 active 8자리 BIN 승인 요청 -> PAYMENT_EXTERNAL_INFO 저장 확인")
+    void approveWithActiveBin_shouldPersistPaymentExternalInfoSnapshot() throws Exception {
+        // 41111111은 BIN_CATALOG seed에서 active 상태로 등록된 테스트 BIN이다.
+        // last4=1111은 VAN 시뮬레이터 규칙상 DECLINED지만, external info 스냅샷은 신규 attempt 저장 시점에 생성된다.
+        JsonNode approveResponse = approveDeclined(APPROVE_POS_TRX_IT_APP_008);
+
+        assertEquals("DECLINED", approveResponse.path("result_code").asText());
+
+        JsonNode approveData = approveResponse.path("data");
+        int attemptSeq = approveData.path("attemptSeq").asInt();
+        JsonNode cardSummary = approveData.path("cardSummary");
+
+        assertEquals("41111111", cardSummary.path("cardBin").asText());
+        assertEquals("1111", cardSummary.path("cardLast4").asText());
+        // 이번 PR의 응답 정책은 "필드 자체 제거"가 아니라 BIN_CATALOG 식별 brand 값을 응답에 세팅하지 않는 것이다.
+        assertNotEquals("VISA", textOrNull(cardSummary, "cardBrand"));
+        assertTrue(cardSummary.path("issuer").isMissingNode());
+        assertTrue(cardSummary.path("country").isMissingNode());
+        assertTrue(cardSummary.path("vanProvider").isMissingNode());
+
+        Map<String, Object> attemptRow =
+                findPaymentAttempt(APPROVE_POS_TRX_IT_APP_008, attemptSeq);
+        Map<String, Object> externalInfoRow =
+                findPaymentExternalInfo(APPROVE_POS_TRX_IT_APP_008, attemptSeq);
+
+        assertEquals(APPROVE_POS_TRX_IT_APP_008, externalInfoRow.get("POS_TRX"));
+        assertEquals(attemptSeq, ((Number) externalInfoRow.get("ATTEMPT_SEQ")).intValue());
+        assertEquals("41111111", attemptRow.get("CARD_BIN"));
+        assertEquals(attemptRow.get("CARD_BIN"), externalInfoRow.get("CARD_BIN"));
+        assertEquals("1111", externalInfoRow.get("CARD_LAST4"));
+        assertEquals("41111111******1111", externalInfoRow.get("MASKED_CARD_NO"));
+        assertEquals("VISA", externalInfoRow.get("CARD_BRAND"));
+        assertEquals("KB_CARD_TEST", externalInfoRow.get("CARD_ISSUER"));
+        assertEquals("KR", externalInfoRow.get("CARD_COUNTRY"));
+        assertEquals("MOCK_VAN", externalInfoRow.get("VAN_PROVIDER"));
+
+        assertExternalInfoDoesNotContainPan(externalInfoRow, "4111111111111111");
     }
 
     @Test
@@ -580,6 +623,7 @@ class PaymentFlowIntegrationTest {
                         POS_TRX,
                         ATTEMPT_SEQ,
                         AMOUNT,
+                        CARD_BIN,
                         CARD_LAST4,
                         FINAL_STATUS,
                         APPROVAL_NO,
@@ -592,6 +636,34 @@ class PaymentFlowIntegrationTest {
                 posTrx,
                 attemptSeq
         );
+    }
+
+    private Map<String, Object> findPaymentExternalInfo(String posTrx, int attemptSeq) {
+        return jdbcTemplate.queryForMap(
+                """
+                    SELECT
+                        POS_TRX,
+                        ATTEMPT_SEQ,
+                        CARD_BIN,
+                        CARD_LAST4,
+                        MASKED_CARD_NO,
+                        CARD_BRAND,
+                        CARD_ISSUER,
+                        CARD_COUNTRY,
+                        VAN_PROVIDER
+                    FROM PAYMENT_EXTERNAL_INFO
+                    WHERE POS_TRX = ?
+                      AND ATTEMPT_SEQ = ?
+                """,
+                posTrx,
+                attemptSeq
+        );
+    }
+
+    private void assertExternalInfoDoesNotContainPan(Map<String, Object> externalInfoRow, String pan) {
+        externalInfoRow.values().stream()
+                .map(value -> Objects.toString(value, ""))
+                .forEach(value -> assertFalse(value.contains(pan)));
     }
 
     // 취소 API가 저장한 PAYMENT_CANCEL row를 원거래 복합 식별키로 조회해 검증한다.
