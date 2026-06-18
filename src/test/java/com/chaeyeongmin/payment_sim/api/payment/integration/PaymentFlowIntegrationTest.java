@@ -1,4 +1,4 @@
-package com.chaeyeongmin.payment_sim.api.payment;
+package com.chaeyeongmin.payment_sim.api.payment.integration;
 
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
