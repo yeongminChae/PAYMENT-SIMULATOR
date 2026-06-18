@@ -22,6 +22,14 @@ public class PaymentCancelRepositoryImpl implements PaymentCancelRepository {
         return mapper.findOriginalAttempt(posTrx, attemptSeq);
     }
 
+    /**
+     * cancel posTrx 중복 방어용 단건 조회를 MyBatis mapper에 위임한다.
+     */
+    @Override
+    public Optional<PaymentCancel> findByPosTrx(String posTrx) {
+        return mapper.findByPosTrx(posTrx);
+    }
+
     @Override
     public Optional<PaymentCancel> findByOriginalPosTrxAndOriginalAttemptSeq(
             String originalPosTrx,

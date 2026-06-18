@@ -2,6 +2,8 @@ package com.chaeyeongmin.payment_sim.api.payment.validate;
 
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.InquiryRequest;
 import com.chaeyeongmin.payment_sim.api.payment.validate.enums.InquiryValidationError;
+import com.chaeyeongmin.payment_sim.common.api.ResultCode;
+import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -14,8 +16,8 @@ public class InquiryRequestValidator {
         InquiryValidationError error = validateAndGetError(request);
 
         if (error != null) {
-            // TODO: 추후 BusinessException + result_code 표준으로 교체 예정
-            throw new IllegalArgumentException(error.code());
+            // 수동 검증 실패는 INVALID 업무 예외로 통일한다.
+            throw new BusinessException(ResultCode.INVALID, error.code());
         }
 
     }

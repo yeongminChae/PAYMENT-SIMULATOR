@@ -1,16 +1,19 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.impl;
 
+import com.chaeyeongmin.payment_sim.api.payment.dto.enums.CancelResultStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.CancelRequestValidator;
+import com.chaeyeongmin.payment_sim.api.payment.validate.enums.CancelValidationError;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
+import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanCancelAssembler;
@@ -47,6 +50,7 @@ class PaymentCancelServiceImplTest {
     private VanGateway vanGateway;
     private CancelRequestValidator validator;
     private VanCancelAssembler vanCancelAssembler;
+    private PaymentEventLogRecorder paymentEventLogRecorder;
 
     private CancelRequest baseReq;
 
@@ -56,12 +60,14 @@ class PaymentCancelServiceImplTest {
         vanGateway = mock(VanGateway.class);
         validator = mock(CancelRequestValidator.class);
         vanCancelAssembler = mock(VanCancelAssembler.class);
+        paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
 
         service = new PaymentCancelServiceImpl(
                 repository,
                 vanGateway,
                 validator,
-                vanCancelAssembler
+                vanCancelAssembler,
+                paymentEventLogRecorder
         );
 
         baseReq = new CancelRequest(
@@ -85,19 +91,24 @@ class PaymentCancelServiceImplTest {
      */
     @Test
     void cancel_C2_invalid_shouldThrow_andNoCalls() {
-        // given
-        doThrow(new IllegalArgumentException("INVALID"))
+        doThrow(new BusinessException(
+                ResultCode.INVALID,
+                CancelValidationError.INVALID_REQUEST.code()
+        ))
                 .when(validator)
                 .validate(baseReq);
 
-        // when + then
-        assertThrows(
-                IllegalArgumentException.class,
+        BusinessException exception = assertThrows(
+                BusinessException.class,
                 () -> service.cancel(baseReq)
         );
 
-        // then
+        assertEquals(ResultCode.INVALID, exception.getResultCode());
+        assertEquals(CancelValidationError.INVALID_REQUEST.code(), exception.getMessage());
+
+        verify(validator).validate(baseReq);
         verifyNoInteractions(repository, vanGateway, vanCancelAssembler);
+
     }
 
     /**
@@ -163,7 +174,7 @@ class PaymentCancelServiceImplTest {
         CancelResponse res = service.cancel(baseReq);
 
         // then
-        assertEquals("CANCEL_NOT_ALLOWED", res.cancelStatus());
+        assertEquals(CancelResultStatus.CANCEL_NOT_ALLOWED, res.cancelStatus());
         assertEquals("ORIGINAL_NOT_APPROVED", res.declineCode());
 
         verify(validator).validate(baseReq);
@@ -203,7 +214,7 @@ class PaymentCancelServiceImplTest {
         CancelResponse res = service.cancel(baseReq);
 
         // then
-        assertEquals(CancelStatus.PENDING.name(), res.cancelStatus());
+        assertEquals(CancelResultStatus.RETRY_LATER, res.cancelStatus());
         verify(repository, never()).insertPendingCancel(any());
         verifyNoInteractions(vanGateway, vanCancelAssembler);
 
@@ -217,7 +228,7 @@ class PaymentCancelServiceImplTest {
      * - And  : 기존 PAYMENT_CANCEL row 상태가 CANCELLED
      * - When : service.cancel() 호출
      * - Then : 기존 DB 취소 결과를 재응답한다
-     * - And  : MVP 1차에서는 ALREADY_CANCELLED 별도 상태가 아니라 CANCELLED 재응답으로 처리한다
+     * - And  : 기존 CANCELLED row는 신규 취소 성공이 아니라 ALREADY_CANCELLED로 응답한다
      * - And  : C5 insert/VAN cancel 호출이 없어야 한다
      * <p>
      * [흐름도]
@@ -239,7 +250,7 @@ class PaymentCancelServiceImplTest {
         CancelResponse res = service.cancel(baseReq);
 
         // then
-        assertEquals(CancelStatus.CANCELLED.name(), res.cancelStatus());
+        assertEquals(CancelResultStatus.ALREADY_CANCELLED, res.cancelStatus());
         assertEquals("A137515458", res.cancelApprovalNo());
 
         verify(repository, never()).insertPendingCancel(any());
@@ -275,7 +286,7 @@ class PaymentCancelServiceImplTest {
         CancelResponse res = service.cancel(baseReq);
 
         // then
-        assertEquals(CancelStatus.CANCEL_DECLINED.name(), res.cancelStatus());
+        assertEquals(CancelResultStatus.CANCEL_DECLINED, res.cancelStatus());
         assertEquals("05", res.declineCode());
 
         verify(repository, never()).insertPendingCancel(any());
@@ -326,7 +337,7 @@ class PaymentCancelServiceImplTest {
         CancelResponse res = service.cancel(baseReq);
 
         // then
-        assertEquals(CancelStatus.CANCELLED.name(), res.cancelStatus());
+        assertEquals(CancelResultStatus.CANCELLED, res.cancelStatus());
         assertEquals(cancelledCancel().cancelApprovalNo(), res.cancelApprovalNo());
 
         verify(repository).insertPendingCancel(any());
@@ -392,7 +403,7 @@ class PaymentCancelServiceImplTest {
         CancelResponse res = service.cancel(baseReq);
 
         // then
-        assertEquals(CancelStatus.CANCEL_DECLINED.name(), res.cancelStatus());
+        assertEquals(CancelResultStatus.CANCEL_DECLINED, res.cancelStatus());
         assertEquals(updatedCancel.declineCode(), res.declineCode());
 
         verify(repository).findOriginalAttempt(originalPosTrx, originalAttemptSeq);
@@ -454,7 +465,7 @@ class PaymentCancelServiceImplTest {
         CancelResponse res = service.cancel(baseReq);
 
         // then
-        assertEquals(CancelStatus.PENDING.name(), res.cancelStatus());
+        assertEquals(CancelResultStatus.RETRY_LATER, res.cancelStatus());
         assertEquals(pendingCancel.declineCode(), res.declineCode());
         verify(repository, never()).updateCancelResult(any());
 
@@ -499,7 +510,7 @@ class PaymentCancelServiceImplTest {
         CancelResponse res = service.cancel(baseReq);
 
         // then
-        assertEquals(CancelStatus.CANCELLED.name(), res.cancelStatus());
+        assertEquals(CancelResultStatus.ALREADY_CANCELLED, res.cancelStatus());
         assertEquals(rereadCancel.cancelApprovalNo(), res.cancelApprovalNo());
 
         verify(repository, times(2))
@@ -556,7 +567,7 @@ class PaymentCancelServiceImplTest {
                 baseReq.posTrx(),
                 baseReq.originalPosTrx(),
                 baseReq.originalAttemptSeq(),
-                status.name(),
+                status,
                 cancelApprovalNo,
                 declineCode
         );
@@ -615,5 +626,4 @@ class PaymentCancelServiceImplTest {
                 .respondedAt(LocalDateTime.now())
                 .build();
     }
-
 }

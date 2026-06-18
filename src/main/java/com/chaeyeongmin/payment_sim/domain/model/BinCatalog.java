@@ -1,5 +1,11 @@
 package com.chaeyeongmin.payment_sim.domain.model;
 
-public class BinCatalog {
-    // TODO: 테이블 정의서 기준 필드로 채우기
+public record BinCatalog(
+        String bin,
+        String brand,
+        String issuer,
+        String country,
+        int binLen,
+        String activeYn
+) {
 }

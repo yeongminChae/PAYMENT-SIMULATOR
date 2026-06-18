@@ -1,5 +1,8 @@
-package com.chaeyeongmin.payment_sim.api.payment;
+package com.chaeyeongmin.payment_sim.api.payment.integration;
 
+import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
+import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
+import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -53,6 +56,8 @@ class PaymentFlowIntegrationTest {
     private static final String APPROVE_POS_TRX_IT_APP_006 = "2376-20260601-9991-1006";
     // IT-APP-007 동일 원거래 재취소 검증용 원거래 번호다.
     private static final String APPROVE_POS_TRX_IT_APP_007 = "2376-20260601-9991-1017";
+    // IT-APP-008 active 8자리 BIN 기반 PAYMENT_EXTERNAL_INFO 저장 검증용 거래 번호다.
+    private static final String APPROVE_POS_TRX_IT_APP_008 = "2376-20260601-9991-1008";
 
     // 취소 요청 거래번호도 시나리오별로 분리한다. IT-APP-007은 재취소 요청 자체도 두 번 구분한다.
     // IT-APP-005에서 원거래를 취소할 때 사용하는 현재 취소 거래번호다.
@@ -71,7 +76,8 @@ class PaymentFlowIntegrationTest {
             APPROVE_POS_TRX_IT_APP_004,
             APPROVE_POS_TRX_IT_APP_005,
             APPROVE_POS_TRX_IT_APP_006,
-            APPROVE_POS_TRX_IT_APP_007
+            APPROVE_POS_TRX_IT_APP_007,
+            APPROVE_POS_TRX_IT_APP_008
     );
 
     private static final List<String> CANCEL_POS_TRXS = List.of(
@@ -92,6 +98,9 @@ class PaymentFlowIntegrationTest {
     // JdbcTemplate은 API 호출 뒤 SQLite에 저장된 row를 SQL로 직접 확인하고 정리할 때 사용한다.
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private PaymentCancelRepository paymentCancelRepository;
 
     // @BeforeEach는 각 테스트 실행 직전에 호출된다. 이전 실행이 남긴 DB 데이터가 현재 테스트에 영향을 주지 않게 한다.
     @BeforeEach
@@ -149,7 +158,7 @@ class PaymentFlowIntegrationTest {
         // 이 테스트가 통과하면 승인 거절도 유실되지 않고 후속 조회·취소 판단에 사용할 수 있다.
         JsonNode approveResponse = approveDeclined(APPROVE_POS_TRX_IT_APP_002);
 
-        assertEquals("OK", approveResponse.path("result_code").asText());
+        assertEquals("DECLINED", approveResponse.path("result_code").asText());
 
         JsonNode approveData = approveResponse.path("data");
         int attemptSeq = approveData.path("attemptSeq").asInt();
@@ -173,13 +182,53 @@ class PaymentFlowIntegrationTest {
     }
 
     @Test
+    @DisplayName("IT-APP-008 active 8자리 BIN 승인 요청 -> PAYMENT_EXTERNAL_INFO 저장 확인")
+    void approveWithActiveBin_shouldPersistPaymentExternalInfoSnapshot() throws Exception {
+        // 41111111은 BIN_CATALOG seed에서 active 상태로 등록된 테스트 BIN이다.
+        // last4=1111은 VAN 시뮬레이터 규칙상 DECLINED지만, external info 스냅샷은 신규 attempt 저장 시점에 생성된다.
+        JsonNode approveResponse = approveDeclined(APPROVE_POS_TRX_IT_APP_008);
+
+        assertEquals("DECLINED", approveResponse.path("result_code").asText());
+
+        JsonNode approveData = approveResponse.path("data");
+        int attemptSeq = approveData.path("attemptSeq").asInt();
+        JsonNode cardSummary = approveData.path("cardSummary");
+
+        assertEquals("41111111", cardSummary.path("cardBin").asText());
+        assertEquals("1111", cardSummary.path("cardLast4").asText());
+        // 이번 PR의 응답 정책은 "필드 자체 제거"가 아니라 BIN_CATALOG 식별 brand 값을 응답에 세팅하지 않는 것이다.
+        assertNotEquals("VISA", textOrNull(cardSummary, "cardBrand"));
+        assertTrue(cardSummary.path("issuer").isMissingNode());
+        assertTrue(cardSummary.path("country").isMissingNode());
+        assertTrue(cardSummary.path("vanProvider").isMissingNode());
+
+        Map<String, Object> attemptRow =
+                findPaymentAttempt(APPROVE_POS_TRX_IT_APP_008, attemptSeq);
+        Map<String, Object> externalInfoRow =
+                findPaymentExternalInfo(APPROVE_POS_TRX_IT_APP_008, attemptSeq);
+
+        assertEquals(APPROVE_POS_TRX_IT_APP_008, externalInfoRow.get("POS_TRX"));
+        assertEquals(attemptSeq, ((Number) externalInfoRow.get("ATTEMPT_SEQ")).intValue());
+        assertEquals("41111111", attemptRow.get("CARD_BIN"));
+        assertEquals(attemptRow.get("CARD_BIN"), externalInfoRow.get("CARD_BIN"));
+        assertEquals("1111", externalInfoRow.get("CARD_LAST4"));
+        assertEquals("41111111******1111", externalInfoRow.get("MASKED_CARD_NO"));
+        assertEquals("VISA", externalInfoRow.get("CARD_BRAND"));
+        assertEquals("KB_CARD_TEST", externalInfoRow.get("CARD_ISSUER"));
+        assertEquals("KR", externalInfoRow.get("CARD_COUNTRY"));
+        assertEquals("MOCK_VAN", externalInfoRow.get("VAN_PROVIDER"));
+
+        assertExternalInfoDoesNotContainPan(externalInfoRow, "4111111111111111");
+    }
+
+    @Test
     @DisplayName("IT-APP-003 승인 UNKNOWN_TIMEOUT -> Inquiry 재조회 후 UNKNOWN 유지")
     void approveUnknownTimeout_thenInquiry_shouldKeepUnknownTimeout() throws Exception {
         // given + when: UNKNOWN_TIMEOUT 유도용 카드로 approve API를 호출한다.
         JsonNode approveResponse = approveUnknownTimeout(APPROVE_POS_TRX_IT_APP_003);
 
         // then: Approve 응답이 UNKNOWN_TIMEOUT인지 확인한다.
-        assertEquals("OK", approveResponse.path("result_code").asText());
+        assertEquals("UNKNOWN_TIMEOUT", approveResponse.path("result_code").asText());
 
         JsonNode approveData = approveResponse.path("data");
         int attemptSeq = approveData.path("attemptSeq").asInt();
@@ -208,7 +257,7 @@ class PaymentFlowIntegrationTest {
         JsonNode inquiryResponse = inquiry(APPROVE_POS_TRX_IT_APP_003, attemptSeq);
 
         // then: MVP 1차 정책상 inquiry 이후에도 UNKNOWN_TIMEOUT을 유지한다.
-        assertEquals("OK", inquiryResponse.path("result_code").asText());
+        assertEquals("UNKNOWN_TIMEOUT", inquiryResponse.path("result_code").asText());
 
         JsonNode inquiryData = inquiryResponse.path("data");
         assertEquals("UNKNOWN_TIMEOUT", inquiryData.path("finalStatus").asText());
@@ -287,6 +336,12 @@ class PaymentFlowIntegrationTest {
         assertNotNull(cancelRow.get("CANCEL_APPROVAL_NO"));
         assertNull(cancelRow.get("DECLINE_CODE"));
 
+        PaymentCancel paymentCancel = paymentCancelRepository
+                .findByOriginalPosTrxAndOriginalAttemptSeq(APPROVE_POS_TRX_IT_APP_005, attemptSeq)
+                .orElseThrow();
+
+        assertEquals(CancelStatus.CANCELLED, paymentCancel.cancelStatus());
+
     }
 
     @Test
@@ -305,7 +360,7 @@ class PaymentFlowIntegrationTest {
                 attemptSeq
         );
 
-        assertEquals("OK", cancelResponse.path("result_code").asText());
+        assertEquals("CANCEL_NOT_ALLOWED", cancelResponse.path("result_code").asText());
 
         JsonNode cancelData = cancelResponse.path("data");
         assertEquals("CANCEL_NOT_ALLOWED", cancelData.path("cancelStatus").asText());
@@ -339,10 +394,11 @@ class PaymentFlowIntegrationTest {
         Map<String, Object> cancelRow = findPaymentCancel(APPROVE_POS_TRX_IT_APP_007, attemptSeq);
 
         assertEquals(FIRST_CANCEL_POS_TRX_IT_APP_007, cancelRow.get("CURRENT_TRX_NO"));
+        assertEquals("CANCELLED", cancelRow.get("CANCEL_STATUS"));
         assertEquals("OK", firstCancelResponse.path("result_code").asText());
-        assertEquals("OK", secondCancelResponse.path("result_code").asText());
+        assertEquals("ALREADY_CANCELLED", secondCancelResponse.path("result_code").asText());
         assertEquals("CANCELLED", firstCancelData.path("cancelStatus").asText());
-        assertEquals("CANCELLED", secondCancelData.path("cancelStatus").asText());
+        assertEquals("ALREADY_CANCELLED", secondCancelData.path("cancelStatus").asText());
         assertNotNull(firstCancelApprovalNo);
         // 두 번째 요청에도 첫 취소 승인번호를 돌려주는지 확인해 기존 cancel row 재응답 동작을 검증한다.
         assertEquals(firstCancelApprovalNo, textOrNull(secondCancelData, "cancelApprovalNo"));
@@ -567,6 +623,7 @@ class PaymentFlowIntegrationTest {
                         POS_TRX,
                         ATTEMPT_SEQ,
                         AMOUNT,
+                        CARD_BIN,
                         CARD_LAST4,
                         FINAL_STATUS,
                         APPROVAL_NO,
@@ -579,6 +636,34 @@ class PaymentFlowIntegrationTest {
                 posTrx,
                 attemptSeq
         );
+    }
+
+    private Map<String, Object> findPaymentExternalInfo(String posTrx, int attemptSeq) {
+        return jdbcTemplate.queryForMap(
+                """
+                    SELECT
+                        POS_TRX,
+                        ATTEMPT_SEQ,
+                        CARD_BIN,
+                        CARD_LAST4,
+                        MASKED_CARD_NO,
+                        CARD_BRAND,
+                        CARD_ISSUER,
+                        CARD_COUNTRY,
+                        VAN_PROVIDER
+                    FROM PAYMENT_EXTERNAL_INFO
+                    WHERE POS_TRX = ?
+                      AND ATTEMPT_SEQ = ?
+                """,
+                posTrx,
+                attemptSeq
+        );
+    }
+
+    private void assertExternalInfoDoesNotContainPan(Map<String, Object> externalInfoRow, String pan) {
+        externalInfoRow.values().stream()
+                .map(value -> Objects.toString(value, ""))
+                .forEach(value -> assertFalse(value.contains(pan)));
     }
 
     // 취소 API가 저장한 PAYMENT_CANCEL row를 원거래 복합 식별키로 조회해 검증한다.
@@ -618,6 +703,7 @@ class PaymentFlowIntegrationTest {
         for (String approvePosTrx : APPROVE_POS_TRXS) {
             // PAYMENT_CANCEL이 PAYMENT_ATTEMPT를 FK로 참조하므로 자식 row를 먼저 삭제한 뒤 승인 row와 순번 row를 삭제한다.
             jdbcTemplate.update("DELETE FROM PAYMENT_CANCEL WHERE ORIGINAL_TRX_NO = ?", approvePosTrx);
+            jdbcTemplate.update("DELETE FROM PAYMENT_EXTERNAL_INFO WHERE POS_TRX = ?", approvePosTrx);
             jdbcTemplate.update("DELETE FROM PAYMENT_ATTEMPT WHERE POS_TRX = ?", approvePosTrx);
             jdbcTemplate.update("DELETE FROM PAYMENT_ATTEMPT_SEQ WHERE POS_TRX = ?", approvePosTrx);
         }

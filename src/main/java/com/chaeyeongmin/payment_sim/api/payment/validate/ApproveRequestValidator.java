@@ -2,6 +2,8 @@ package com.chaeyeongmin.payment_sim.api.payment.validate;
 
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.ApproveRequest;
 import com.chaeyeongmin.payment_sim.api.payment.validate.enums.ApproveValidationError;
+import com.chaeyeongmin.payment_sim.common.api.ResultCode;
+import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.common.policy.CardValidationPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -14,15 +16,11 @@ public class ApproveRequestValidator {
 
     public void validate(ApproveRequest request) {
 
-        // 승인 요청 검증의 단일 진입점.
-        // - 실패 시: ApproveValidationError.code()를 메시지로 예외를 던져 상위(서비스/컨트롤러)에서 공통 처리하게 한다.
-        // - 성공 시: 아무것도 하지 않고 통과한다(예외 없음).
+        // 수동 검증 실패는 INVALID 업무 예외로 통일해 공통 예외 처리에서 같은 응답 형태로 내려준다.
         ApproveValidationError error = validateAndGetError(request);
 
-        if (error != null) {
-            // TODO: 추후 BusinessException + result_code 표준으로 교체 예정
-            throw new IllegalArgumentException(error.code());
-        }
+        if (error != null) throw new BusinessException(ResultCode.INVALID, error.code());
+
     }
 
     /**
@@ -31,7 +29,7 @@ public class ApproveRequestValidator {
      * <p>
      * 반환 규칙:
      * - null  : OK (검증 통과)
-     * - error : 해당 error.code()를 예외 메시지로 사용할 수 있음
+     * - error : 해당 error.code()를 BusinessException 메시지로 사용
      * <p>
      * 주의:
      * - 여기서는 "첫 번째로 발견된 오류"만 반환한다. (에러 누적/리스트 반환 안 함)
@@ -49,7 +47,7 @@ public class ApproveRequestValidator {
         if (request.getAmount() <= 0)
             return ApproveValidationError.INVALID_AMOUNT;
 
-        // 카드 입력은 별도 함수에서 상세 검증(형식/만료/Luhn)
+        // 카드 검증 실패는 PAN/expiry 원문 대신 INVALID_CARD 코드만 외부로 전달한다.
         if (cardValidationPolicy.isValidCard(request.getCard()) == false)
             return ApproveValidationError.INVALID_CARD;
 
