@@ -176,7 +176,8 @@ class Mvp2PaymentFlowIntegrationTest {
         JsonNode cancelResponse = cancel(
                 CANCEL_POS_TRX_IT_2_CANCEL_SUCCESS,
                 APPROVE_POS_TRX_IT_2_CANCEL_SUCCESS,
-                attemptSeq
+                attemptSeq,
+                "4242424242424242"
         );
 
         assertEquals("OK", cancelResponse.path("result_code").asText());
@@ -209,12 +210,14 @@ class Mvp2PaymentFlowIntegrationTest {
         JsonNode firstCancelResponse = cancel(
                 FIRST_CANCEL_POS_TRX_IT_2_CANCEL_DUPLICATE,
                 APPROVE_POS_TRX_IT_2_CANCEL_DUPLICATE,
-                attemptSeq
+                attemptSeq,
+                "4242424242424242"
         );
         JsonNode secondCancelResponse = cancel(
                 SECOND_CANCEL_POS_TRX_IT_2_CANCEL_DUPLICATE,
                 APPROVE_POS_TRX_IT_2_CANCEL_DUPLICATE,
-                attemptSeq
+                attemptSeq,
+                "4242424242424242"
         );
 
         assertEquals("OK", firstCancelResponse.path("result_code").asText());
@@ -271,7 +274,8 @@ class Mvp2PaymentFlowIntegrationTest {
         JsonNode cancelResponse = cancel(
                 RETRY_CANCEL_POS_TRX_IT_2_CANCEL_CONFLICT,
                 APPROVE_POS_TRX_IT_2_CANCEL_CONFLICT,
-                attemptSeq
+                attemptSeq,
+                "4242424242424242"
         );
 
         assertEquals("RETRY_LATER", cancelResponse.path("result_code").asText());
@@ -421,16 +425,22 @@ class Mvp2PaymentFlowIntegrationTest {
         );
     }
 
-    private JsonNode cancel(String posTrx, String originalPosTrx, int originalAttemptSeq) throws Exception {
+    private JsonNode cancel(
+            String posTrx,
+            String originalPosTrx,
+            int originalAttemptSeq,
+            String cardNo
+    ) throws Exception {
         return postJson(
                 "/api/v1/payments/cancel",
                 """
                 {
                   "posTrx": "%s",
                   "originalPosTrx": "%s",
-                  "originalAttemptSeq": %d
+                  "originalAttemptSeq": %d,
+                  "cardNo": "%s"
                 }
-                """.formatted(posTrx, originalPosTrx, originalAttemptSeq)
+                """.formatted(posTrx, originalPosTrx, originalAttemptSeq, cardNo)
         );
     }
 

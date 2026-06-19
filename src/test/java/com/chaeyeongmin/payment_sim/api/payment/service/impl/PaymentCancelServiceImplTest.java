@@ -73,7 +73,8 @@ class PaymentCancelServiceImplTest {
         baseReq = new CancelRequest(
                 "2376-20260519-9991-2001",
                 "2376-20260519-9991-1001",
-                1
+                1,
+                "4242424242424242"
         );
     }
 

@@ -93,7 +93,8 @@ class PaymentCancelServiceImplIdempotencyTest {
         CancelRequest request = cancelRequest(
                 "2376-20260521-9991-3001",
                 "2376-20260521-9991-1001",
-                1
+                1,
+                "4242424242424242"
         );
         PaymentCancel existing = paymentCancel(
                 "2376-20260521-9991-3001",
@@ -150,7 +151,8 @@ class PaymentCancelServiceImplIdempotencyTest {
         CancelRequest request = cancelRequest(
                 "2376-20260521-9991-3002",
                 "2376-20260521-9991-1001",
-                1
+                1,
+                "4242424242424242"
         );
         PaymentCancel existing = paymentCancel(
                 "2376-20260521-9991-3001",
@@ -210,7 +212,8 @@ class PaymentCancelServiceImplIdempotencyTest {
         CancelRequest request = cancelRequest(
                 "2376-20260521-9991-3002",
                 "2376-20260521-9991-1001",
-                1
+                1,
+                "4242424242424242"
         );
         PaymentCancel existing = paymentCancel(
                 "2376-20260521-9991-3001",
@@ -269,7 +272,8 @@ class PaymentCancelServiceImplIdempotencyTest {
         CancelRequest request = cancelRequest(
                 "2376-20260521-9991-3002",
                 "2376-20260521-9991-1001",
-                1
+                1,
+                "4242424242424242"
         );
         PaymentCancel existing = paymentCancel(
                 "2376-20260521-9991-3001",
@@ -330,7 +334,8 @@ class PaymentCancelServiceImplIdempotencyTest {
         CancelRequest request = cancelRequest(
                 "2376-20260521-9991-3001",
                 "2376-20260521-9991-1002",
-                1
+                1,
+                "4242424242424242"
         );
         PaymentCancel existing = paymentCancel(
                 "2376-20260521-9991-3001",
@@ -372,7 +377,8 @@ class PaymentCancelServiceImplIdempotencyTest {
         CancelRequest request = cancelRequest(
                 "2376-20260521-9991-3003",
                 "2376-20260521-9991-1003",
-                1
+                1,
+                "4242424242424242"
         );
 
         when(repository.findByPosTrx(request.posTrx())).thenReturn(Optional.empty());
@@ -403,7 +409,8 @@ class PaymentCancelServiceImplIdempotencyTest {
         CancelRequest request = cancelRequest(
                 "2376-20260521-9991-3004",
                 "2376-20260521-9991-1004",
-                1
+                1,
+                "4242424242424242"
         );
         PaymentAttempt originalAttempt = originalApprovedAttempt(request.originalAttemptSeq());
         PaymentCancel pendingCancel = paymentCancel(
@@ -489,8 +496,13 @@ class PaymentCancelServiceImplIdempotencyTest {
     /**
      * 테스트 시나리오별 cancel posTrx와 original 식별자를 받아 취소 요청 DTO를 만든다.
      */
-    private CancelRequest cancelRequest(String posTrx, String originalPosTrx, int originalAttemptSeq) {
-        return new CancelRequest(posTrx, originalPosTrx, originalAttemptSeq);
+    private CancelRequest cancelRequest(
+            String posTrx,
+            String originalPosTrx,
+            int originalAttemptSeq,
+            String cardNo
+    ) {
+        return new CancelRequest(posTrx, originalPosTrx, originalAttemptSeq, cardNo);
     }
 
     /**
