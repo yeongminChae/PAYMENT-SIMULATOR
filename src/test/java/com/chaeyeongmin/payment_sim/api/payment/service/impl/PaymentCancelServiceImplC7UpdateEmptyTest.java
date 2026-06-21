@@ -8,6 +8,7 @@ import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.CancelRequestValidator;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
+import com.chaeyeongmin.payment_sim.domain.policy.CancelCardMatchPolicy;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
 import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
@@ -53,13 +54,15 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
                 vanGateway,
                 validator,
                 vanCancelAssembler,
-                paymentEventLogRecorder
+                paymentEventLogRecorder,
+                new CancelCardMatchPolicy()
         );
 
         baseReq = new CancelRequest(
                 "2376-20260519-9991-2001",
                 "2376-20260519-9991-1001",
-                1
+                1,
+                "4242424242424242"
         );
     }
 

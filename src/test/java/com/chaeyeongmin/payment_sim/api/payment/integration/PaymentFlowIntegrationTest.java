@@ -318,7 +318,8 @@ class PaymentFlowIntegrationTest {
         JsonNode cancelResponse = cancel(
                 CANCEL_POS_TRX_IT_APP_005,
                 APPROVE_POS_TRX_IT_APP_005,
-                attemptSeq
+                attemptSeq,
+                "4242424242424242"
         );
 
         assertEquals("OK", cancelResponse.path("result_code").asText());
@@ -357,7 +358,8 @@ class PaymentFlowIntegrationTest {
         JsonNode cancelResponse = cancel(
                 CANCEL_POS_TRX_IT_APP_006,
                 APPROVE_POS_TRX_IT_APP_006,
-                attemptSeq
+                attemptSeq,
+                "4111111111111111"
         );
 
         assertEquals("CANCEL_NOT_ALLOWED", cancelResponse.path("result_code").asText());
@@ -380,12 +382,14 @@ class PaymentFlowIntegrationTest {
         JsonNode firstCancelResponse = cancel(
                 FIRST_CANCEL_POS_TRX_IT_APP_007,
                 APPROVE_POS_TRX_IT_APP_007,
-                attemptSeq
+                attemptSeq,
+                "4242424242424242"
         );
         JsonNode secondCancelResponse = cancel(
                 SECOND_CANCEL_POS_TRX_IT_APP_007,
                 APPROVE_POS_TRX_IT_APP_007,
-                attemptSeq
+                attemptSeq,
+                "4242424242424242"
         );
 
         JsonNode firstCancelData = firstCancelResponse.path("data");
@@ -553,15 +557,17 @@ class PaymentFlowIntegrationTest {
     private JsonNode cancel(
             String posTrx,
             String originalPosTrx,
-            int originalAttemptSeq
+            int originalAttemptSeq,
+            String cardNo
     ) throws Exception {
         String requestBody = """
                 {
                   "posTrx": "%s",
                   "originalPosTrx": "%s",
-                  "originalAttemptSeq": %d
+                  "originalAttemptSeq": %d,
+                  "cardNo": "%s"
                 }
-                """.formatted(posTrx, originalPosTrx, originalAttemptSeq);
+                """.formatted(posTrx, originalPosTrx, originalAttemptSeq, cardNo);
 
         // approve helper와 같은 방식으로 Controller부터 실제 취소 처리 흐름을 실행한다.
         String responseBody = mockMvc.perform(post("/api/v1/payments/cancel")
