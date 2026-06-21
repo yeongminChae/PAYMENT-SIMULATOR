@@ -7,20 +7,15 @@ import org.springframework.stereotype.Component;
 import java.util.Objects;
 
 /**
- * 원승인 카드와 취소 요청 카드의 일치 여부를 판단하는 정책 골격.
+ * 원승인 카드와 취소 요청 카드의 일치 여부를 판단한다.
  * <p>
- * TODO(v2.1.0): 다음 PR에서 PaymentCancelServiceImpl의 C4 승인 상태 검증 이후,
- * C5 PENDING row 생성 이전에 연결한다.
- *
- * <p>
- * 카드 불일치 시 후보 정책:
- * - ResultCode.CANCEL_NOT_ALLOWED
- * - message: CARD_MISMATCH
+ * PAN 원문을 저장하거나 비교하지 않고, 원승인 attempt에 저장된 BIN 8자리와
+ * 마지막 4자리가 모두 같은 경우에만 동일한 카드로 판단한다.
  */
 @Component
 public class CancelCardMatchPolicy {
 
-    public boolean matches(
+    public boolean matchesOriginalCard(
             PaymentAttempt originalAttempt,
             CardNumber cancelCard
     ) {

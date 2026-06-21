@@ -10,6 +10,7 @@ import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
+import com.chaeyeongmin.payment_sim.domain.policy.CancelCardMatchPolicy;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
@@ -65,7 +66,8 @@ class PaymentCancelServiceImplIdempotencyTest {
                 vanGateway,
                 validator,
                 vanCancelAssembler,
-                paymentEventLogRecorder
+                paymentEventLogRecorder,
+                new CancelCardMatchPolicy()
         );
     }
 

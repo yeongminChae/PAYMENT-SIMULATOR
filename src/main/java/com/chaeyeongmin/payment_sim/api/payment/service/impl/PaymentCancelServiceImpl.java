@@ -9,8 +9,10 @@ import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.CancelRequestValidator;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
+import com.chaeyeongmin.payment_sim.domain.model.CardNumber;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
+import com.chaeyeongmin.payment_sim.domain.policy.CancelCardMatchPolicy;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
@@ -55,6 +57,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
     private final CancelRequestValidator validator;
     private final VanCancelAssembler vanCancelAssembler;
     private final PaymentEventLogRecorder paymentEventLogRecorder;
+    private final CancelCardMatchPolicy cancelCardMatchPolicy;
 
     @Transactional
     @Override
@@ -177,7 +180,12 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
             );
         }
 
-        // C4-2: 기존 취소 row 확인.
+        // C4-2: 취소 요청 카드와 원승인 카드의 동일성 검증.
+        // - 요청 형식 검증(C2)을 통과한 PAN에서 BIN 8자리와 마지막 4자리만 추출해 비교한다.
+        // - 카드가 다르면 취소 권한이 없는 요청이므로 PAYMENT_CANCEL row를 만들거나 VAN을 호출하지 않는다.
+        validateCardMatchesOriginalAttempt(originalAttempt, request.cardNo());
+
+        // C4-3: 기존 취소 row 확인.
         // - 원거래가 APPROVED여도 이미 취소 요청이 있었으면 VAN을 다시 호출하면 안 된다.
         // - 원거래 기준 unique 제약과 함께 "원승인 1건당 취소 1건" 정책을 보장한다.
         Optional<PaymentCancel> cancelOpt =
@@ -198,7 +206,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                     cancel.cancelStatus()
             );
 
-            // C4-2-1: 기존 cancel row 재응답.
+            // C4-3-1: 기존 cancel row 재응답.
             // - 기존 row가 있으면 현재 요청의 posTrx가 달라도 원거래 기준 기존 취소 상태를 우선한다.
             // - 이 분기에서는 외부 VAN 취소를 절대 다시 호출하지 않는다.
             CancelResponse response = getCancelResponseFromExistingCancel(request, cancel);
@@ -214,10 +222,11 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                     cancel.declineCode(),
                     "cancel result reused by original"
             );
+
             return response;
         }
 
-        // C4-2-2: 기존 cancel row가 없는 경우.
+        // C4-3-2: 기존 cancel row가 없는 경우.
         // - 원거래는 APPROVED이고, 기존 취소 row도 없으므로 신규 취소 진행 가능 상태다.
         // - 여기까지 통과하면 C5에서 먼저 PENDING row를 만든다.
         // - PENDING 선저장은 외부 VAN 호출 전에 "취소 시도 중"이라는 내부 락/흔적을 남기는 역할이다.
@@ -292,6 +301,17 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                 originalPosTrx,
                 originalAttemptSeq
         );
+
+    }
+
+    private void validateCardMatchesOriginalAttempt(
+            PaymentAttempt originalAttempt,
+            String cancelCardNo
+    ) {
+        CardNumber cancelCard = new CardNumber(cancelCardNo);
+
+        if (cancelCardMatchPolicy.matchesOriginalCard(originalAttempt, cancelCard) == false)
+            throw new BusinessException(ResultCode.CANCEL_NOT_ALLOWED, "CARD_MISMATCH");
 
     }
 

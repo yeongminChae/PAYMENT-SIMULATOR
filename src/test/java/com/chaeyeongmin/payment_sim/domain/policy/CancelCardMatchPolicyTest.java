@@ -12,7 +12,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 원승인 attempt에 저장된 최소 카드정보와 취소 요청 카드의 일치 여부만 검증한다.
- * 이 정책은 아직 PaymentCancelServiceImpl에 연결하지 않는다.
  */
 class CancelCardMatchPolicyTest {
 
@@ -35,7 +34,7 @@ class CancelCardMatchPolicyTest {
         CardNumber cancelCard = cancelCard(CARD_NO);
 
         // when
-        boolean matches = policy.matches(originalAttempt, cancelCard);
+        boolean matches = policy.matchesOriginalCard(originalAttempt, cancelCard);
 
         // then
         assertTrue(matches);
@@ -49,7 +48,7 @@ class CancelCardMatchPolicyTest {
         CardNumber cancelCard = cancelCard(CARD_NO);
 
         // when
-        boolean matches = policy.matches(originalAttempt, cancelCard);
+        boolean matches = policy.matchesOriginalCard(originalAttempt, cancelCard);
 
         // then
         assertFalse(matches);
@@ -63,7 +62,7 @@ class CancelCardMatchPolicyTest {
         CardNumber cancelCard = cancelCard(CARD_NO);
 
         // when
-        boolean matches = policy.matches(originalAttempt, cancelCard);
+        boolean matches = policy.matchesOriginalCard(originalAttempt, cancelCard);
 
         // then
         assertFalse(matches);
@@ -77,7 +76,7 @@ class CancelCardMatchPolicyTest {
         CardNumber cancelCard = cancelCard(CARD_NO);
 
         // when
-        boolean matches = policy.matches(originalAttempt, cancelCard);
+        boolean matches = policy.matchesOriginalCard(originalAttempt, cancelCard);
 
         // then
         assertFalse(matches);
@@ -91,7 +90,7 @@ class CancelCardMatchPolicyTest {
         CardNumber cancelCard = null;
 
         // when
-        boolean matches = policy.matches(originalAttempt, cancelCard);
+        boolean matches = policy.matchesOriginalCard(originalAttempt, cancelCard);
 
         // then
         assertFalse(matches);

@@ -46,12 +46,14 @@ class Mvp2PaymentFlowIntegrationTest {
     private static final String APPROVE_POS_TRX_IT_2_CANCEL_DUPLICATE = "2376-20260601-9991-1105";
     private static final String APPROVE_POS_TRX_IT_2_CANCEL_CONFLICT = "2376-20260601-9991-1106";
     private static final String APPROVE_POS_TRX_IT_2_BIN = "2376-20260601-9991-1107";
+    private static final String APPROVE_POS_TRX_IT_2_CANCEL_CARD_MISMATCH = "2376-20260601-9991-1108";
 
     private static final String CANCEL_POS_TRX_IT_2_CANCEL_SUCCESS = "2376-20260601-9991-2101";
     private static final String FIRST_CANCEL_POS_TRX_IT_2_CANCEL_DUPLICATE = "2376-20260601-9991-2102";
     private static final String SECOND_CANCEL_POS_TRX_IT_2_CANCEL_DUPLICATE = "2376-20260601-9991-2103";
     private static final String EXISTING_CANCEL_POS_TRX_IT_2_CANCEL_CONFLICT = "2376-20260601-9991-2104";
     private static final String RETRY_CANCEL_POS_TRX_IT_2_CANCEL_CONFLICT = "2376-20260601-9991-2105";
+    private static final String CANCEL_POS_TRX_IT_2_CANCEL_CARD_MISMATCH = "2376-20260601-9991-2106";
 
     private static final List<String> APPROVE_POS_TRXS = List.of(
             APPROVE_POS_TRX_IT_2_API_DECLINED,
@@ -60,7 +62,8 @@ class Mvp2PaymentFlowIntegrationTest {
             APPROVE_POS_TRX_IT_2_CANCEL_SUCCESS,
             APPROVE_POS_TRX_IT_2_CANCEL_DUPLICATE,
             APPROVE_POS_TRX_IT_2_CANCEL_CONFLICT,
-            APPROVE_POS_TRX_IT_2_BIN
+            APPROVE_POS_TRX_IT_2_BIN,
+            APPROVE_POS_TRX_IT_2_CANCEL_CARD_MISMATCH
     );
 
     private static final List<String> CANCEL_POS_TRXS = List.of(
@@ -68,7 +71,8 @@ class Mvp2PaymentFlowIntegrationTest {
             FIRST_CANCEL_POS_TRX_IT_2_CANCEL_DUPLICATE,
             SECOND_CANCEL_POS_TRX_IT_2_CANCEL_DUPLICATE,
             EXISTING_CANCEL_POS_TRX_IT_2_CANCEL_CONFLICT,
-            RETRY_CANCEL_POS_TRX_IT_2_CANCEL_CONFLICT
+            RETRY_CANCEL_POS_TRX_IT_2_CANCEL_CONFLICT,
+            CANCEL_POS_TRX_IT_2_CANCEL_CARD_MISMATCH
     );
 
     @Autowired
@@ -284,6 +288,40 @@ class Mvp2PaymentFlowIntegrationTest {
         assertEquals(
                 EXISTING_CANCEL_POS_TRX_IT_2_CANCEL_CONFLICT,
                 findPaymentCancel(APPROVE_POS_TRX_IT_2_CANCEL_CONFLICT, attemptSeq).get("CURRENT_TRX_NO")
+        );
+    }
+
+    @Test
+    @DisplayName("IT-2.1-CANCEL-CARD-002 APPROVED 원거래를 다른 카드로 Cancel 시 차단")
+    void cancelApprovedPaymentWithDifferentCard_shouldNotPersistCancelRow() throws Exception {
+        // Given:
+        // - Approve API에 4242424242424242 카드를 전달해 APPROVED 원거래를 만든다.
+        // - 원승인 attempt에는 cardBin=42424242, cardLast4=4242가 저장된다.
+        // - 해당 원거래를 대상으로 아직 생성된 PAYMENT_CANCEL row는 없다.
+        JsonNode approveResponse = approve(APPROVE_POS_TRX_IT_2_CANCEL_CARD_MISMATCH);
+        int attemptSeq = attemptSeq(approveResponse);
+
+        assertEquals("OK", approveResponse.path("result_code").asText());
+        assertEquals("APPROVED", approveResponse.path("data").path("finalStatus").asText());
+
+        // When:
+        // - 원승인 카드와 다른 유효 카드번호 4111111111111111로 Cancel API를 호출한다.
+        JsonNode cancelResponse = cancel(
+                CANCEL_POS_TRX_IT_2_CANCEL_CARD_MISMATCH,
+                APPROVE_POS_TRX_IT_2_CANCEL_CARD_MISMATCH,
+                attemptSeq,
+                "4111111111111111"
+        );
+
+        // Then:
+        // - 카드 불일치 요청은 CANCEL_NOT_ALLOWED/CARD_MISMATCH로 종료된다.
+        // - C5 PENDING insert 전에 차단되므로 PAYMENT_CANCEL row가 생성되지 않는다.
+        assertEquals("CANCEL_NOT_ALLOWED", cancelResponse.path("result_code").asText());
+        assertEquals("CARD_MISMATCH", cancelResponse.path("message").asText());
+        assertTrue(cancelResponse.path("data").isNull());
+        assertEquals(
+                0,
+                countPaymentCancelByOriginal(APPROVE_POS_TRX_IT_2_CANCEL_CARD_MISMATCH, attemptSeq)
         );
     }
 
