@@ -32,4 +32,27 @@ public record CancelRequest(
         @NotBlank
         String cardNo
 ) {
+
+    private static final String SHORT_CARD_MASK = "****";
+
+    /**
+     * 요청 객체가 문자열로 출력되더라도 카드번호 원문은 노출하지 않는다.
+     */
+    @Override
+    public String toString() {
+        return "CancelRequest[" +
+                "posTrx=" + posTrx +
+                ", originalPosTrx=" + originalPosTrx +
+                ", originalAttemptSeq=" + originalAttemptSeq +
+                ", cardNo=" + maskCardNo(cardNo) +
+                "]";
+    }
+
+    private static String maskCardNo(String cardNo) {
+        if (cardNo == null) return "null";
+        if (cardNo.length() <= 4) return SHORT_CARD_MASK;
+
+        return "*".repeat(cardNo.length() - 4)
+                + cardNo.substring(cardNo.length() - 4);
+    }
 }

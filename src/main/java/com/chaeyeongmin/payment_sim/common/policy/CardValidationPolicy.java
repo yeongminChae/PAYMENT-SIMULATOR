@@ -67,7 +67,7 @@ public class CardValidationPolicy {
         if (str == null || str.isEmpty()) return false;
 
         for (char c : str.toCharArray()) {
-            if (Character.isDigit(c) == false) return false;
+            if (c < '0' || c > '9') return false;
         }
         return true;
     }

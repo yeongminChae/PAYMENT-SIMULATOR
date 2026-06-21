@@ -78,6 +78,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // C4-1: cancel posTrx 사용 여부 확인.
         // - MVP2에서는 cancel posTrx를 1회용 취소 거래번호로 본다.
         // - 이미 사용된 cancel posTrx가 다시 들어오면 같은 original 여부와 관계없이 거래번호 중복으로 차단한다.
+        // - 카드가 원승인과 다르더라도 POS_TRX_ALREADY_USED가 CARD_MISMATCH보다 우선한다.
         // - 이 검사는 원거래 조회보다 먼저 수행한다.
         //   같은 cancel posTrx를 다른 original에 붙여 재사용하는 요청도 원거래 존재 여부와 무관하게 실패해야 하기 때문이다.
         Optional<PaymentCancel> existingCancelOpt = repository.findByPosTrx(posTrx);

@@ -115,6 +115,22 @@ class CancelRequestValidatorTest {
     }
 
     @Test
+    @DisplayName("[UT-2.1-CANCEL-CARD-001-8] 전각 숫자 cardNo이면 INVALID_CARD 예외가 발생한다")
+    void unicodeDigitCardNo_shouldThrowInvalidCard() {
+        // given
+        CancelRequest request = requestWithCardNo("４１１１１１１１１１１１１１１１");
+
+        // when
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> validator.validate(request)
+        );
+
+        // then
+        assertInvalidCard(exception);
+    }
+
+    @Test
     @DisplayName("[UT-2.1-CANCEL-CARD-001-5] cardNo가 16자리 숫자여도 Luhn 검증에 실패하면 INVALID_CARD 예외가 발생한다")
     void luhnFailCardNo_shouldThrowInvalidCard() {
         // given

@@ -3,6 +3,7 @@ package com.chaeyeongmin.payment_sim.domain.model;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
@@ -42,5 +43,29 @@ class CardNumberTest {
 
         // then
         assertEquals(CARD_LAST4, last4);
+    }
+
+    @Test
+    @DisplayName("문자열 출력 시 카드번호 원문을 숨기고 마지막 4자리만 노출한다")
+    void toString_shouldMaskRawCardNoAndExposeOnlyLast4() {
+        // given
+        CardNumber cardNumber = cardNumber();
+
+        // when
+        String actual = cardNumber.toString();
+
+        // then
+        assertThat(actual)
+                .doesNotContain(CARD_NO)
+                .contains("************" + CARD_LAST4);
+    }
+
+    @Test
+    @DisplayName("카드번호가 null이거나 짧아도 문자열 출력 시 원문을 노출하지 않는다")
+    void toString_nullOrShortCardNo_shouldMaskSafely() {
+        assertThat(new CardNumber(null).toString()).contains("value=null");
+        assertThat(new CardNumber("123").toString())
+                .doesNotContain("123")
+                .contains("value=****");
     }
 }

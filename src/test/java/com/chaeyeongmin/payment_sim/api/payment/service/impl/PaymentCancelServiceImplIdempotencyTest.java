@@ -131,6 +131,40 @@ class PaymentCancelServiceImplIdempotencyTest {
     }
 
     /**
+     * [시나리오] UT-2.1-CANCEL-CARD-013
+     * 이미 사용된 cancel posTrx와 원승인 카드가 다른 요청이 함께 들어오면
+     * 카드 비교로 진행하지 않고 cancel posTrx 중복 정책을 우선한다.
+     */
+    @Test
+    void cancel_usedCancelPosTrxWithDifferentCard_shouldPrioritizePosTrxConflict() {
+        CancelRequest request = cancelRequest(
+                "2376-20260521-9991-3001",
+                "2376-20260521-9991-1001",
+                1,
+                "4111111111111111"
+        );
+        PaymentCancel existing = paymentCancel(
+                request.posTrx(),
+                request.originalPosTrx(),
+                request.originalAttemptSeq(),
+                CancelStatus.CANCELLED,
+                "C123456789",
+                null
+        );
+
+        when(repository.findByPosTrx(request.posTrx())).thenReturn(Optional.of(existing));
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.cancel(request)
+        );
+
+        assertEquals(ResultCode.CONFLICT, exception.getResultCode());
+        assertEquals("POS_TRX_ALREADY_USED", exception.getMessage());
+        verifySameCancelPosTrxConflictBlocked(request);
+    }
+
+    /**
      * [시나리오] UT-2-CANCEL-IDEMP-002
      * 다른 cancel posTrx로 같은 original을 취소 요청했는데 기존 CANCELLED row가 있으면 ALREADY_CANCELLED를 재응답한다.
      *
