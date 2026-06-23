@@ -104,6 +104,7 @@ class CancelCardMatchPolicyTest {
                 null,
                 cardBin,
                 cardLast4,
+                "test-card-fingerprint",
                 1,
                 10000,
                 "2376-20260519-9991-1001-01"

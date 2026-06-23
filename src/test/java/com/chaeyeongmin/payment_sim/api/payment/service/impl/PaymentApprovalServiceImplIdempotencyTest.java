@@ -12,6 +12,7 @@ import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.CardIdentity;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
+import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentExternalInfoRepository;
@@ -56,6 +57,7 @@ class PaymentApprovalServiceImplIdempotencyTest {
     private PaymentEventLogRecorder paymentEventLogRecorder;
     private BinCatalogService binCatalogService;
     private PaymentExternalInfoRepository paymentExternalInfoRepository;
+    private CardFingerprintPolicy cardFingerprintPolicy;
 
     @BeforeEach
     void setUp() {
@@ -66,6 +68,7 @@ class PaymentApprovalServiceImplIdempotencyTest {
         paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
         binCatalogService = mock(BinCatalogService.class);
         paymentExternalInfoRepository = mock(PaymentExternalInfoRepository.class);
+        cardFingerprintPolicy = mock(CardFingerprintPolicy.class);
 
         service = new PaymentApprovalServiceImpl(
                 repository,
@@ -74,7 +77,8 @@ class PaymentApprovalServiceImplIdempotencyTest {
                 vanApproveAssembler,
                 paymentEventLogRecorder,
                 binCatalogService,
-                paymentExternalInfoRepository
+                paymentExternalInfoRepository,
+                cardFingerprintPolicy
         );
         when(binCatalogService.identify(anyString(), anyString())).thenAnswer(invocation ->
                 CardIdentity.unknown(invocation.getArgument(0), invocation.getArgument(1))
@@ -561,6 +565,7 @@ class PaymentApprovalServiceImplIdempotencyTest {
                 declineCode,
                 cardBin,
                 cardLast4,
+                "test-card-fingerprint",
                 attemptSeq,
                 amount,
                 "VAN-TRX-0001"

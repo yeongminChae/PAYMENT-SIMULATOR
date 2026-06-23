@@ -754,6 +754,7 @@ class PaymentInquiryServiceImplTest {
                 declineCode,
                 cardBin,
                 cardLast4,
+                "test-card-fingerprint",
                 attemptSeq,
                 10000,
                 vanTrxId

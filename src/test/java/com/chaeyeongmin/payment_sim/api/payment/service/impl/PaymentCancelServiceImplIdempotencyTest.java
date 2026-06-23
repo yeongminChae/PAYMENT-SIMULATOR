@@ -551,6 +551,7 @@ class PaymentCancelServiceImplIdempotencyTest {
                 null,
                 "42424242",
                 "4242",
+                "test-card-fingerprint",
                 attemptSeq,
                 20000,
                 "VAN-TRX-ORIGINAL"
@@ -564,6 +565,7 @@ class PaymentCancelServiceImplIdempotencyTest {
                 "05",
                 "42424242",
                 "4242",
+                "test-card-fingerprint",
                 attemptSeq,
                 20000,
                 "VAN-TRX-ORIGINAL"

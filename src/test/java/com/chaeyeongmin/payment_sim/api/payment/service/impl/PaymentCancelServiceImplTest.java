@@ -652,6 +652,7 @@ class PaymentCancelServiceImplTest {
                 null,
                 "42424242",
                 "4242",
+                "test-card-fingerprint",
                 1,
                 10000,
                 "2376-20260519-9991-1001-01"
@@ -665,6 +666,7 @@ class PaymentCancelServiceImplTest {
                 "05",
                 "41111111",
                 "1111",
+                "test-card-fingerprint",
                 1,
                 10000,
                 "2376-20260519-9991-1002-01"

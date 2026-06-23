@@ -36,6 +36,7 @@
                                      CARD_BIN,
                                      CARD_LAST4,
                                      CARD_BRAND,
+                                     CARD_FINGERPRINT,
                                      CREATED_AT,
                                      UPDATED_AT)
         VALUES (#{attempt.posTrx},
@@ -44,6 +45,7 @@
                 #{attempt.cardBin},
                 #{attempt.cardLast4},
                 #{attempt.cardBrand},
+                #{attempt.cardFingerprint},
                 #{attempt.createdAt},
                 CURRENT_TIMESTAMP);
     </insert>
@@ -61,6 +63,7 @@
                 A.DECLINE_CODE AS declineCode,
                 A.CARD_BIN AS cardBin,
                 A.CARD_LAST4 AS cardLast4,
+                A.CARD_FINGERPRINT as cardFingerprint,
                 A.ATTEMPT_SEQ AS attemptSeq,
                 A.AMOUNT AS amount,
                 A.VAN_TRX_ID AS vanTrxId
@@ -78,6 +81,7 @@
             A.DECLINE_CODE AS declineCode,
             A.CARD_BIN AS cardBin,
             A.CARD_LAST4 AS cardLast4,
+            A.CARD_FINGERPRINT as cardFingerprint,
             A.ATTEMPT_SEQ AS attemptSeq,
             A.AMOUNT AS amount,
             A.VAN_TRX_ID AS vanTrxId

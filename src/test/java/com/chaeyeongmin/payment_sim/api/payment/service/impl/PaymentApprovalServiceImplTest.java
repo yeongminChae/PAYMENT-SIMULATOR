@@ -11,6 +11,7 @@ import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.CardIdentity;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
+import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentExternalInfoRepository;
@@ -59,6 +60,7 @@ class PaymentApprovalServiceImplTest {
     private PaymentEventLogRecorder paymentEventLogRecorder;
     private BinCatalogService binCatalogService;
     private PaymentExternalInfoRepository paymentExternalInfoRepository;
+    private CardFingerprintPolicy cardFingerprintPolicy;
 
     // 기본 정상 요청 (필드 세팅은 각 테스트에서 수정해서 사용)
     private ApproveRequest baseReq;
@@ -72,6 +74,7 @@ class PaymentApprovalServiceImplTest {
         paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
         binCatalogService = mock(BinCatalogService.class);
         paymentExternalInfoRepository = mock(PaymentExternalInfoRepository.class);
+        cardFingerprintPolicy = mock(CardFingerprintPolicy.class);
 
         service = new PaymentApprovalServiceImpl(
                 repository,
@@ -80,7 +83,8 @@ class PaymentApprovalServiceImplTest {
                 assembler,
                 paymentEventLogRecorder,
                 binCatalogService,
-                paymentExternalInfoRepository
+                paymentExternalInfoRepository,
+                cardFingerprintPolicy
         );
         when(binCatalogService.identify(anyString(), anyString())).thenAnswer(invocation ->
                 CardIdentity.unknown(invocation.getArgument(0), invocation.getArgument(1))
@@ -607,6 +611,7 @@ class PaymentApprovalServiceImplTest {
                 declineCode,         // declineCode
                 "41111111",      // cardBin: baseReq.getCard().bin8()과 동일해야 멱등 재응답 payload로 인정된다.
                 "1111",        // cardLast4
+                "test-card-fingerprint",
                 attemptSeq,
                 10000,
                 "VAN-TRX-0001"

@@ -21,7 +21,8 @@ public record AttemptInsertParam(
         int amount,
         String cardBin,
         String cardLast4,
-        String cardBrand,      // 지금 없으면 null로
+        String cardBrand,      // 지금 없으면 null로,
+        String cardFingerprint,
 //        String requestId, TODO : [20260206] requestId 우선은 null로
         LocalDateTime createdAt
 ) {}

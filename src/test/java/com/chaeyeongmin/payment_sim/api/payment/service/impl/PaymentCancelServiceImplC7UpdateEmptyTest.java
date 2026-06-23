@@ -232,6 +232,7 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
                 null,
                 "42424242",
                 "4242",
+                "test-card-fingerprint",
                 1,
                 10000,
                 "2376-20260519-9991-1001-01"

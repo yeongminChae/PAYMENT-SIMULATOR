@@ -14,6 +14,7 @@ import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.CardIdentity;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
+import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentExternalInfoRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.*;
@@ -58,6 +59,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
     private final PaymentEventLogRecorder paymentEventLogRecorder;
     private final BinCatalogService binCatalogService;
     private final PaymentExternalInfoRepository paymentExternalInfoRepository;
+    private final CardFingerprintPolicy cardFingerprintPolicy;
 
     @Transactional
     @Override
@@ -163,6 +165,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
                 cardIdentity.cardBin(),
                 cardIdentity.cardLast4(),
                 cardIdentity.brand(),
+                cardFingerprintPolicy.generate(card.getPan()),
                 createdAt
         ));
 
