@@ -4,14 +4,14 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.enums.CancelResultStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
+import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.CancelRequestValidator;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
-import com.chaeyeongmin.payment_sim.domain.policy.CancelCardMatchPolicy;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
+import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
-import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanCancelAssembler;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
@@ -22,12 +22,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.Mockito.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 /**
  * C5 PENDING insert unique 충돌 복구 테스트.
@@ -41,6 +36,9 @@ import static org.mockito.Mockito.when;
  * - C5 충돌 경로에서는 VAN cancel을 호출하지 않는다.
  */
 class PaymentCancelServiceImplC5ConflictTest {
+
+    private static final CardFingerprintPolicy CARD_FINGERPRINT_POLICY =
+            new CardFingerprintPolicy("card-fingerprint-test-secret-key");
 
     private PaymentCancelService service;
     private PaymentCancelRepository repository;
@@ -65,7 +63,7 @@ class PaymentCancelServiceImplC5ConflictTest {
                 validator,
                 vanCancelAssembler,
                 paymentEventLogRecorder,
-                new CancelCardMatchPolicy()
+                CARD_FINGERPRINT_POLICY
         );
 
         baseReq = new CancelRequest(
@@ -260,7 +258,7 @@ class PaymentCancelServiceImplC5ConflictTest {
                 null,
                 "42424242",
                 "4242",
-                "test-card-fingerprint",
+                CARD_FINGERPRINT_POLICY.generate("4242424242424242"),
                 1,
                 10000,
                 "2376-20260519-9991-1001-01"

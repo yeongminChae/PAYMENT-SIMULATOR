@@ -16,6 +16,7 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
  * - declineCode : 거절/실패 사유 코드(확정 상태에서만 의미 있음)
  * - cardBin     : 카드 BIN(최소정보, 민감정보(PAN) 원문 저장 금지)
  * - cardLast4   : 카드 마지막 4자리(최소정보)
+ * - cardFingerprint : 동일 카드 식별을 위한 HMAC-SHA256 fingerprint(PAN 원문 아님)
  * - attempt     : attempt_seq (결제 시도 순번)
  * - amount      : 승인 금액
  * <p>
@@ -53,7 +54,6 @@ public record PaymentAttempt(
     }
 
 }
-
 
 
 

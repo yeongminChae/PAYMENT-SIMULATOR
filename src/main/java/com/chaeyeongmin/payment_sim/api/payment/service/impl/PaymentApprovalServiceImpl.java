@@ -157,7 +157,8 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         // A3-1: PAYMENT_ATTEMPT row 생성.
         // - 이 row는 VAN 호출 전 "처리중 상태"를 남기는 기준점이다.
         // - FINAL_STATUS를 null로 저장해서 PROCESSING을 표현한다.
-        // - PAN 원문은 저장하지 않고 BIN/last4 같은 최소 카드 정보만 저장한다.
+        // - PAN 원문은 저장하지 않는다.
+        // - 표시용 BIN/last4와 동일 카드 식별용 HMAC fingerprint만 저장한다.
         repository.insertAttempt(new AttemptInsertParam(
                 trx,
                 attemptSeq,

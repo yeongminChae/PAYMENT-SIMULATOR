@@ -9,12 +9,11 @@ import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.CancelRequestValidator;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
-import com.chaeyeongmin.payment_sim.domain.model.CardNumber;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
-import com.chaeyeongmin.payment_sim.domain.policy.CancelCardMatchPolicy;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
+import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
@@ -57,7 +56,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
     private final CancelRequestValidator validator;
     private final VanCancelAssembler vanCancelAssembler;
     private final PaymentEventLogRecorder paymentEventLogRecorder;
-    private final CancelCardMatchPolicy cancelCardMatchPolicy;
+    private final CardFingerprintPolicy cardFingerprintPolicy;
 
     @Transactional
     @Override
@@ -182,9 +181,10 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         }
 
         // C4-2: 취소 요청 카드와 원승인 카드의 동일성 검증.
-        // - 요청 형식 검증(C2)을 통과한 PAN에서 BIN 8자리와 마지막 4자리만 추출해 비교한다.
+        // - 요청 형식 검증(C2)을 통과한 PAN으로 fingerprint를 다시 생성한다.
+        // - 원승인 attempt에 저장된 fingerprint와 일치할 때만 취소를 허용한다.
         // - 카드가 다르면 취소 권한이 없는 요청이므로 PAYMENT_CANCEL row를 만들거나 VAN을 호출하지 않는다.
-        validateCardMatchesOriginalAttempt(originalAttempt, request.cardNo());
+        validateCardMatchesOriginalAttempt(originalAttempt, request);
 
         // C4-3: 기존 취소 row 확인.
         // - 원거래가 APPROVED여도 이미 취소 요청이 있었으면 VAN을 다시 호출하면 안 된다.
@@ -305,14 +305,27 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
 
     }
 
+    /**
+     * 취소 요청 PAN의 HMAC fingerprint를 생성해 원승인 attempt의 fingerprint와 비교한다.
+     * 원승인 fingerprint가 없거나 값이 다르면 안전하게 취소를 차단한다.
+     * PAN과 fingerprint 원문은 로그에 남기지 않는다.
+     */
     private void validateCardMatchesOriginalAttempt(
             PaymentAttempt originalAttempt,
-            String cancelCardNo
+            CancelRequest request
     ) {
-        CardNumber cancelCard = new CardNumber(cancelCardNo);
+        String cancelFingerprint = cardFingerprintPolicy.generate(request.cardNo());
+        String originalFingerprint = originalAttempt.cardFingerprint();
 
-        if (cancelCardMatchPolicy.matchesOriginalCard(originalAttempt, cancelCard) == false)
+        if (!cardFingerprintPolicy.matchesFingerprint(cancelFingerprint, originalFingerprint)) {
+            log.warn("[cancel][C4-2] card fingerprint mismatch. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, originalFingerprintPresent={}, reason=CARD_MISMATCH",
+                    request.posTrx(),
+                    request.originalPosTrx(),
+                    request.originalAttemptSeq(),
+                    originalFingerprint != null && !originalFingerprint.isBlank()
+            );
             throw new BusinessException(ResultCode.CANCEL_NOT_ALLOWED, "CARD_MISMATCH");
+        }
 
     }
 

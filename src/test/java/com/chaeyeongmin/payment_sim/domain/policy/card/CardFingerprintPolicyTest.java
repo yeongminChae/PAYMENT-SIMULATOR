@@ -56,4 +56,31 @@ class CardFingerprintPolicyTest {
         // then
         assertThat(fingerprint).doesNotContain(CARD_NO);
     }
+
+    @Test
+    @DisplayName("같은 카드에서 생성한 fingerprint는 일치한다")
+    void sameCardFingerprint_shouldMatch() {
+        String storedFingerprint = policy.generate(CARD_NO);
+        String candidateFingerprint = policy.generate(CARD_NO);
+
+        assertThat(policy.matchesFingerprint(candidateFingerprint, storedFingerprint)).isTrue();
+    }
+
+    @Test
+    @DisplayName("다른 카드에서 생성한 fingerprint는 일치하지 않는다")
+    void differentCardFingerprint_shouldNotMatch() {
+        String storedFingerprint = policy.generate(CARD_NO);
+        String candidateFingerprint = policy.generate("4111111111111111");
+
+        assertThat(policy.matchesFingerprint(candidateFingerprint, storedFingerprint)).isFalse();
+    }
+
+    @Test
+    @DisplayName("저장된 fingerprint가 없으면 일치하지 않는다")
+    void missingStoredFingerprint_shouldNotMatch() {
+        String candidateFingerprint = policy.generate(CARD_NO);
+
+        assertThat(policy.matchesFingerprint(candidateFingerprint, null)).isFalse();
+        assertThat(policy.matchesFingerprint(candidateFingerprint, " ")).isFalse();
+    }
 }

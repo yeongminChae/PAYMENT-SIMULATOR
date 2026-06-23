@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * 취소 요청 DTO의 cardNo 형식 검증만 다룬다.
- * 원승인 카드와 취소 카드의 일치 여부는 CancelCardMatchPolicyTest에서 검증한다.
+ * 원승인 카드와 취소 카드의 fingerprint 일치 여부는 CardFingerprintPolicyTest와 취소 서비스 테스트에서 검증한다.
  */
 class CancelRequestValidatorTest {
 

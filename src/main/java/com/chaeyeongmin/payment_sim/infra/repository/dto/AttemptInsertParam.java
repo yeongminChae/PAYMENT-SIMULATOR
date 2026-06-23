@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
  * - MyBatis 매퍼 파라미터로 그대로 바인딩 가능한 형태(불변 record)를 사용한다.
  *
  * 사용 예
- * - service에서 attemptSeq 발급 후, cardSummary(BIN/last4/brand)로 축약하여 본 record를 생성
+ * - service에서 attemptSeq 발급 후 BIN/last4/brand와 HMAC fingerprint로 축약하여 본 record를 생성
  * - repo.insertAttempt(param) 형태로 전달
  */
 public record AttemptInsertParam(

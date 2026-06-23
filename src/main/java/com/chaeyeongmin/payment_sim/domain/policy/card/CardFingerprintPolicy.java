@@ -59,18 +59,19 @@ public class CardFingerprintPolicy {
     }
 
     /**
-     * 요청 카드번호에서 fingerprint를 다시 생성해 저장된 값과 비교한다.
+     * 이미 생성된 두 fingerprint를 비교 시간 차이가 작도록 비교한다.
+     * 이 메서드는 PAN을 입력받아 fingerprint를 생성하지 않는다.
      */
-    boolean matches(String cardNo, String storedFingerprint) {
-        if (storedFingerprint == null || storedFingerprint.isBlank())
+    public boolean matchesFingerprint(String candidateFingerprint, String storedFingerprint) {
+        if (candidateFingerprint == null || candidateFingerprint.isBlank() ||
+                storedFingerprint == null || storedFingerprint.isBlank())
             return false;
 
-        String generatedFingerprint = generate(cardNo);
-        byte[] generatedBytes = generatedFingerprint.getBytes(StandardCharsets.UTF_8);
+        byte[] candidateBytes = candidateFingerprint.getBytes(StandardCharsets.UTF_8);
         byte[] storedBytes = storedFingerprint.getBytes(StandardCharsets.UTF_8);
 
         // 단순 문자열 비교보다 비교 시간 차이를 줄여 fingerprint 추측에 이용될 정보를 최소화한다.
-        return MessageDigest.isEqual(generatedBytes, storedBytes);
+        return MessageDigest.isEqual(candidateBytes, storedBytes);
     }
 
 }
