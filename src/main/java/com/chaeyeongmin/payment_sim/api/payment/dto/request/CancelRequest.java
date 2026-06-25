@@ -17,7 +17,8 @@ import jakarta.validation.constraints.Positive;
  * - 취소 API는 거래번호를 새로 발급하지 않는다.
  * - posTrx는 POS가 전달한 취소 거래번호를 그대로 사용한다.
  * - originalPosTrx + originalAttemptSeq로 원승인 attempt를 식별한다.
- * - cardNo 원문은 저장/로그/응답에 사용하지 않고, 추후 BIN 8자리와 last4 비교에만 사용한다.
+ * - cardNo 원문은 저장/로그/응답에 사용하지 않는다.
+ * - 서비스에서 HMAC fingerprint를 생성해 원승인 attempt의 cardFingerprint와 비교한다.
  */
 public record CancelRequest(
         @NotBlank

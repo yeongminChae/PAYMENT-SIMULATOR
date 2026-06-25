@@ -4,14 +4,14 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.enums.CancelResultStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
+import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.CancelRequestValidator;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
-import com.chaeyeongmin.payment_sim.domain.policy.CancelCardMatchPolicy;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
+import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
-import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanCancelAssembler;
@@ -31,6 +31,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 public class PaymentCancelServiceImplC7UpdateEmptyTest {
+
+    private static final CardFingerprintPolicy CARD_FINGERPRINT_POLICY =
+            new CardFingerprintPolicy("card-fingerprint-test-secret-key");
 
     private PaymentCancelService service;
     private PaymentCancelRepository repository;
@@ -55,7 +58,7 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
                 validator,
                 vanCancelAssembler,
                 paymentEventLogRecorder,
-                new CancelCardMatchPolicy()
+                CARD_FINGERPRINT_POLICY
         );
 
         baseReq = new CancelRequest(
@@ -68,7 +71,7 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
 
     /**
      * [시나리오] C7 update empty 이후 재조회 결과가 PENDING인 경우.
-     *
+     * <p>
      * - Given: 원거래는 APPROVED이고, C4 최초 기존 cancel row 조회는 empty다.
      * - And  : C5 PENDING insert는 성공한다.
      * - And  : VAN은 CANCELLED를 응답한다.
@@ -97,7 +100,7 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
 
     /**
      * [시나리오] C7 update empty 이후 재조회 결과가 CANCELLED인 경우.
-     *
+     * <p>
      * - Given: C5 PENDING insert 성공 후 VAN cancel 호출까지 완료됐다.
      * - And  : VAN은 CANCELLED를 응답했지만 C7 updateCancelResult는 Optional.empty를 반환한다.
      * - When : original 기준 재조회 결과가 CANCELLED다.
@@ -123,7 +126,7 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
 
     /**
      * [시나리오] C7 update empty 이후 재조회 결과가 CANCEL_DECLINED인 경우.
-     *
+     * <p>
      * - Given: C5 PENDING insert 성공 후 VAN cancel 호출까지 완료됐다.
      * - And  : VAN은 CANCEL_DECLINED를 응답했지만 C7 updateCancelResult는 Optional.empty를 반환한다.
      * - When : original 기준 재조회 결과가 CANCEL_DECLINED다.
@@ -149,7 +152,7 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
 
     /**
      * [시나리오] C7 update empty 이후 original 기준 재조회도 empty인 경우.
-     *
+     * <p>
      * - Given: C5 PENDING insert 성공 후 VAN cancel 호출까지 완료됐다.
      * - And  : C7 updateCancelResult는 Optional.empty를 반환한다.
      * - When : original 기준으로 다시 조회해도 PAYMENT_CANCEL row가 없다.
@@ -184,7 +187,7 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
         when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(
                 baseReq.originalPosTrx(),
                 baseReq.originalAttemptSeq())
-            )
+        )
                 .thenReturn(Optional.empty())
                 .thenReturn(recoveredCancel);
 
@@ -232,6 +235,7 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
                 null,
                 "42424242",
                 "4242",
+                CARD_FINGERPRINT_POLICY.generate("4242424242424242"),
                 1,
                 10000,
                 "2376-20260519-9991-1001-01"

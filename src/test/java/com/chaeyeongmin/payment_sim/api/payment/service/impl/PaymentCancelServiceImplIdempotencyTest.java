@@ -4,17 +4,17 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.enums.CancelResultStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
+import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.CancelRequestValidator;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
-import com.chaeyeongmin.payment_sim.domain.policy.CancelCardMatchPolicy;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
+import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
-import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentEventLogInsertParam;
@@ -31,20 +31,13 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.Mockito.any;
-import static org.mockito.Mockito.anyInt;
-import static org.mockito.Mockito.argThat;
-import static org.mockito.Mockito.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 class PaymentCancelServiceImplIdempotencyTest {
+
+    private static final CardFingerprintPolicy CARD_FINGERPRINT_POLICY =
+            new CardFingerprintPolicy("card-fingerprint-test-secret-key");
 
     private PaymentCancelService service;
     private PaymentCancelRepository repository;
@@ -67,24 +60,24 @@ class PaymentCancelServiceImplIdempotencyTest {
                 validator,
                 vanCancelAssembler,
                 paymentEventLogRecorder,
-                new CancelCardMatchPolicy()
+                CARD_FINGERPRINT_POLICY
         );
     }
 
     /**
      * [시나리오] UT-2-CANCEL-IDEMP-001
      * 기존 PAYMENT_CANCEL에 같은 cancel posTrx가 있으면 원거래 조회 전에 CONFLICT를 반환한다.
-     *
+     * <p>
      * Given:
      * - 기존 PAYMENT_CANCEL row가 존재한다.
      * - posTrx=2376-20260521-9991-3001이다.
      * - originalPosTrx=2376-20260521-9991-1001, originalAttemptSeq=1이다.
      * - cancelStatus=CANCELLED이다.
-     *
+     * <p>
      * When:
      * - 같은 cancel posTrx=2376-20260521-9991-3001로 취소 요청이 들어온다.
      * - originalPosTrx=2376-20260521-9991-1001, originalAttemptSeq=1이다.
-     *
+     * <p>
      * Then:
      * - BusinessException이 발생한다.
      * - ResultCode=CONFLICT, message=POS_TRX_ALREADY_USED를 검증한다.
@@ -167,16 +160,16 @@ class PaymentCancelServiceImplIdempotencyTest {
     /**
      * [시나리오] UT-2-CANCEL-IDEMP-002
      * 다른 cancel posTrx로 같은 original을 취소 요청했는데 기존 CANCELLED row가 있으면 ALREADY_CANCELLED를 재응답한다.
-     *
+     * <p>
      * Given:
      * - 현재 cancel posTrx=2376-20260521-9991-3002는 PAYMENT_CANCEL에 존재하지 않는다.
      * - 원승인 attempt는 APPROVED 상태로 존재한다.
      * - 같은 original에 대한 기존 PAYMENT_CANCEL row가 존재한다.
      * - 기존 cancel row는 posTrx=2376-20260521-9991-3001, cancelStatus=CANCELLED, cancelApprovalNo=C123456789이다.
-     *
+     * <p>
      * When:
      * - cancel posTrx=2376-20260521-9991-3002로 같은 original 취소 요청이 들어온다.
-     *
+     * <p>
      * Then:
      * - 응답 cancelStatus=ALREADY_CANCELLED, cancelApprovalNo=C123456789를 검증한다.
      * - 응답 originalPosTrx/originalAttemptSeq를 검증한다.
@@ -228,16 +221,16 @@ class PaymentCancelServiceImplIdempotencyTest {
     /**
      * [시나리오] UT-2-CANCEL-IDEMP-003
      * 다른 cancel posTrx로 같은 original을 취소 요청했는데 기존 PENDING row가 있으면 RETRY_LATER를 재응답한다.
-     *
+     * <p>
      * Given:
      * - 현재 cancel posTrx=2376-20260521-9991-3002는 PAYMENT_CANCEL에 존재하지 않는다.
      * - 원승인 attempt는 APPROVED 상태로 존재한다.
      * - 같은 original에 대한 기존 PAYMENT_CANCEL row가 존재한다.
      * - 기존 cancel row는 posTrx=2376-20260521-9991-3001, cancelStatus=PENDING, cancelApprovalNo=null이다.
-     *
+     * <p>
      * When:
      * - cancel posTrx=2376-20260521-9991-3002로 같은 original 취소 요청이 들어온다.
-     *
+     * <p>
      * Then:
      * - 응답 cancelStatus=RETRY_LATER, cancelApprovalNo=null을 검증한다.
      * - 응답 originalPosTrx/originalAttemptSeq를 검증한다.
@@ -288,16 +281,16 @@ class PaymentCancelServiceImplIdempotencyTest {
     /**
      * [시나리오] UT-2-CANCEL-IDEMP-004
      * 다른 cancel posTrx로 같은 original을 취소 요청했는데 기존 CANCEL_DECLINED row가 있으면 CANCEL_DECLINED를 재응답한다.
-     *
+     * <p>
      * Given:
      * - 현재 cancel posTrx=2376-20260521-9991-3002는 PAYMENT_CANCEL에 존재하지 않는다.
      * - 원승인 attempt는 APPROVED 상태로 존재한다.
      * - 같은 original에 대한 기존 PAYMENT_CANCEL row가 존재한다.
      * - 기존 cancel row는 posTrx=2376-20260521-9991-3001, cancelStatus=CANCEL_DECLINED, declineCode=CANCEL_DECLINED이다.
-     *
+     * <p>
      * When:
      * - cancel posTrx=2376-20260521-9991-3002로 같은 original 취소 요청이 들어온다.
-     *
+     * <p>
      * Then:
      * - 응답 cancelStatus=CANCEL_DECLINED, cancelApprovalNo=null, declineCode=CANCEL_DECLINED를 검증한다.
      * - 응답 originalPosTrx/originalAttemptSeq를 검증한다.
@@ -349,17 +342,17 @@ class PaymentCancelServiceImplIdempotencyTest {
     /**
      * [시나리오] UT-2-CANCEL-IDEMP-005
      * 같은 cancel posTrx를 다른 original에 재사용하면 원거래 조회 전에 CONFLICT를 반환한다.
-     *
+     * <p>
      * Given:
      * - 기존 PAYMENT_CANCEL row가 존재한다.
      * - 기존 row의 posTrx=2376-20260521-9991-3001이다.
      * - 기존 row의 originalPosTrx=2376-20260521-9991-1001, originalAttemptSeq=1이다.
      * - 기존 row의 cancelStatus=CANCELLED, cancelApprovalNo=C998855이다.
-     *
+     * <p>
      * When:
      * - 같은 cancel posTrx=2376-20260521-9991-3001로 취소 요청이 들어온다.
      * - 요청 originalPosTrx=2376-20260521-9991-1002, originalAttemptSeq=1로 기존 row와 다르다.
-     *
+     * <p>
      * Then:
      * - BusinessException이 발생한다.
      * - ResultCode=CONFLICT, message=POS_TRX_ALREADY_USED를 검증한다.
@@ -551,6 +544,7 @@ class PaymentCancelServiceImplIdempotencyTest {
                 null,
                 "42424242",
                 "4242",
+                CARD_FINGERPRINT_POLICY.generate("4242424242424242"),
                 attemptSeq,
                 20000,
                 "VAN-TRX-ORIGINAL"
@@ -564,6 +558,7 @@ class PaymentCancelServiceImplIdempotencyTest {
                 "05",
                 "42424242",
                 "4242",
+                CARD_FINGERPRINT_POLICY.generate("4242424242424242"),
                 attemptSeq,
                 20000,
                 "VAN-TRX-ORIGINAL"

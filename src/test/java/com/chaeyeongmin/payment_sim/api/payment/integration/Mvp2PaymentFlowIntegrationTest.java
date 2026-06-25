@@ -1,5 +1,6 @@
 package com.chaeyeongmin.payment_sim.api.payment.integration;
 
+import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -84,6 +85,9 @@ class Mvp2PaymentFlowIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private CardFingerprintPolicy cardFingerprintPolicy;
+
     @BeforeEach
     void cleanBefore() {
         cleanupTestData();
@@ -142,6 +146,7 @@ class Mvp2PaymentFlowIntegrationTest {
                 attemptSeq,
                 "42424242",
                 "4242",
+                "4242424242424242",
                 "UNKNOWN_TIMEOUT",
                 null,
                 "TIMEOUT",
@@ -264,6 +269,7 @@ class Mvp2PaymentFlowIntegrationTest {
                 attemptSeq,
                 "42424242",
                 "4242",
+                "4242424242424242",
                 "APPROVED",
                 "A000000001",
                 null,
@@ -292,11 +298,11 @@ class Mvp2PaymentFlowIntegrationTest {
     }
 
     @Test
-    @DisplayName("IT-2.1-CANCEL-CARD-002 APPROVED 원거래를 다른 카드로 Cancel 시 차단")
-    void cancelApprovedPaymentWithDifferentCard_shouldNotPersistCancelRow() throws Exception {
+    @DisplayName("IT-2.1-CANCEL-CARD-002 취소 카드 fingerprint 불일치 시 CANCEL_NOT_ALLOWED")
+    void cancelCardFingerprintMismatch_shouldReturnCancelNotAllowedWithoutPersistingCancelRow() throws Exception {
         // Given:
         // - Approve API에 4242424242424242 카드를 전달해 APPROVED 원거래를 만든다.
-        // - 원승인 attempt에는 cardBin=42424242, cardLast4=4242가 저장된다.
+        // - 원승인 attempt에는 승인 요청 카드의 fingerprint가 저장된다.
         // - 해당 원거래를 대상으로 아직 생성된 PAYMENT_CANCEL row는 없다.
         JsonNode approveResponse = approve(APPROVE_POS_TRX_IT_2_CANCEL_CARD_MISMATCH);
         int attemptSeq = attemptSeq(approveResponse);
@@ -598,6 +604,7 @@ class Mvp2PaymentFlowIntegrationTest {
             int attemptSeq,
             String cardBin,
             String cardLast4,
+            String cardNo,
             String finalStatus,
             String approvalNo,
             String declineCode,
@@ -611,18 +618,20 @@ class Mvp2PaymentFlowIntegrationTest {
                     AMOUNT,
                     CARD_BIN,
                     CARD_LAST4,
+                    CARD_FINGERPRINT,
                     FINAL_STATUS,
                     APPROVAL_NO,
                     DECLINE_CODE,
                     VAN_TRX_ID
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 posTrx,
                 attemptSeq,
                 10000,
                 cardBin,
                 cardLast4,
+                cardFingerprintPolicy.generate(cardNo),
                 finalStatus,
                 approvalNo,
                 declineCode,

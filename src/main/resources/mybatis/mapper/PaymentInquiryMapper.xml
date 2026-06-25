@@ -13,6 +13,7 @@
                A.DECLINE_CODE,
                A.CARD_BIN,
                A.CARD_LAST4,
+                A.CARD_FINGERPRINT as cardFingerprint,
                A.ATTEMPT_SEQ,
                A.AMOUNT,
                A.VAN_TRX_ID AS vanTrxId

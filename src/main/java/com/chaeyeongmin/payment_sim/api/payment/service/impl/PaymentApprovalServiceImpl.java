@@ -14,6 +14,7 @@ import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.CardIdentity;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
+import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentExternalInfoRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.*;
@@ -58,6 +59,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
     private final PaymentEventLogRecorder paymentEventLogRecorder;
     private final BinCatalogService binCatalogService;
     private final PaymentExternalInfoRepository paymentExternalInfoRepository;
+    private final CardFingerprintPolicy cardFingerprintPolicy;
 
     @Transactional
     @Override
@@ -155,7 +157,8 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         // A3-1: PAYMENT_ATTEMPT row 생성.
         // - 이 row는 VAN 호출 전 "처리중 상태"를 남기는 기준점이다.
         // - FINAL_STATUS를 null로 저장해서 PROCESSING을 표현한다.
-        // - PAN 원문은 저장하지 않고 BIN/last4 같은 최소 카드 정보만 저장한다.
+        // - PAN 원문은 저장하지 않는다.
+        // - 표시용 BIN/last4와 동일 카드 식별용 HMAC fingerprint만 저장한다.
         repository.insertAttempt(new AttemptInsertParam(
                 trx,
                 attemptSeq,
@@ -163,6 +166,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
                 cardIdentity.cardBin(),
                 cardIdentity.cardLast4(),
                 cardIdentity.brand(),
+                cardFingerprintPolicy.generate(card.getPan()),
                 createdAt
         ));
 
@@ -516,15 +520,24 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
      * 승인 멱등 재응답이 가능한 "동일 payload"인지 판단한다.
      *
      * <p>
-     * PAN 원문은 저장하지 않기 때문에 현재 MVP2에서는 카드 비교를 cardBin/cardLast4로 제한한다.
+     * 신규 attempt는 cardFingerprint로 동일 카드를 판단한다.
+     * 기존 DB row에 cardFingerprint가 없는 legacy attempt만 cardBin/cardLast4로 fallback 비교한다.
      * 이 비교가 false면 APPROVED/PROCESSING/UNKNOWN_TIMEOUT 상태에서는 POS_TRX_ALREADY_USED로 차단한다.
      */
     private boolean isSameApprovalPayload(ApproveRequest request, PaymentAttempt latest) {
         CardInput reqCard = request.getCard();
 
-        return Objects.equals(latest.cardBin(), reqCard.bin8())
-                && Objects.equals(latest.cardLast4(), reqCard.last4())
-                && latest.amount() == request.getAmount();
+        if (latest.amount() != request.getAmount()) {
+            return false;
+        }
+
+        if (latest.cardFingerprint() == null || latest.cardFingerprint().isBlank()) {
+            return Objects.equals(latest.cardBin(), reqCard.bin8())
+                    && Objects.equals(latest.cardLast4(), reqCard.last4());
+        }
+
+        String requestFingerprint = cardFingerprintPolicy.generate(reqCard.getPan());
+        return cardFingerprintPolicy.matchesFingerprint(requestFingerprint, latest.cardFingerprint());
     }
 
 }

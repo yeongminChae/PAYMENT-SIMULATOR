@@ -24,7 +24,7 @@ import lombok.Setter;
  * <p>
  * 보안/운영 주의:
  * - card.pan(카드번호)는 민감정보(PAN)로 저장/로그 출력 금지
- * - 본 DTO는 검증용 입력이며, 저장 시에는 BIN/last4 등 최소정보만 저장할 것
+ * - 본 DTO는 검증용 입력이며, 저장 시에는 PAN 원문 대신 BIN/last4와 HMAC fingerprint만 저장할 것
  * <p>
  * 비고:
  * - attemptSeq는 클라이언트가 보내지 않음(서버가 승인 시도 번호를 발급)
