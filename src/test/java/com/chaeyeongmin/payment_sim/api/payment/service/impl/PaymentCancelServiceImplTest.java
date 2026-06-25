@@ -633,6 +633,56 @@ class PaymentCancelServiceImplTest {
         assertThat(exception.getMessage()).isEqualTo("CARD_MISMATCH");
     }
 
+    @Test
+    @DisplayName("legacy 원승인에 fingerprint가 없으면 BIN8과 last4가 같은 카드로 취소를 허용한다")
+    void cancel_legacyOriginalWithoutFingerprint_sameBinAndLast4_shouldProceedCancelFlow() {
+        PaymentAttempt legacyOriginalAttempt = originalApprovedAttemptWithoutFingerprint();
+
+        when(repository.findOriginalAttempt(baseReq.originalPosTrx(), baseReq.originalAttemptSeq()))
+                .thenReturn(Optional.of(legacyOriginalAttempt));
+        when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(baseReq.originalPosTrx(), baseReq.originalAttemptSeq()))
+                .thenReturn(Optional.empty());
+        when(repository.insertPendingCancel(any()))
+                .thenReturn(Optional.of(pendingCancel()));
+        when(vanCancelAssembler.getVanCancelRequest(baseReq, legacyOriginalAttempt))
+                .thenReturn(vanCancelRequest());
+        when(vanGateway.cancel(vanCancelRequest()))
+                .thenReturn(vanCancelResCancelled());
+        when(repository.updateCancelResult(any(CancelResultUpdateParam.class)))
+                .thenReturn(Optional.of(cancelledCancel()));
+
+        CancelResponse res = service.cancel(baseReq);
+
+        assertEquals(CancelResultStatus.CANCELLED, res.cancelStatus());
+        verify(repository).insertPendingCancel(any());
+        verify(vanGateway).cancel(vanCancelRequest());
+    }
+
+    @Test
+    @DisplayName("legacy 원승인에 fingerprint가 없고 BIN8 또는 last4가 다르면 CARD_MISMATCH로 거절한다")
+    void cancel_legacyOriginalWithoutFingerprint_differentBinOrLast4_shouldThrowCardMismatch() {
+        PaymentAttempt legacyOriginalAttempt = originalApprovedAttemptWithoutFingerprint();
+        CancelRequest request = new CancelRequest(
+                "2376-20260519-9991-2001-03",
+                baseReq.originalPosTrx(),
+                baseReq.originalAttemptSeq(),
+                "4111111111111111"
+        );
+
+        when(repository.findOriginalAttempt(request.originalPosTrx(), request.originalAttemptSeq()))
+                .thenReturn(Optional.of(legacyOriginalAttempt));
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.cancel(request)
+        );
+
+        assertThat(exception.getResultCode()).isEqualTo(ResultCode.CANCEL_NOT_ALLOWED);
+        assertThat(exception.getMessage()).isEqualTo("CARD_MISMATCH");
+        verify(repository, never()).insertPendingCancel(any());
+        verify(vanGateway, never()).cancel(any());
+    }
+
     /**
      * [UT_ID] UT-2.1-FP-005
      * Given
@@ -695,6 +745,20 @@ class PaymentCancelServiceImplTest {
                 "42424242",
                 "4242",
                 CARD_FINGERPRINT_POLICY.generate("4242424242424242"),
+                1,
+                10000,
+                "2376-20260519-9991-1001-01"
+        );
+    }
+
+    private PaymentAttempt originalApprovedAttemptWithoutFingerprint() {
+        return new PaymentAttempt(
+                PaymentFinalStatus.APPROVED.name(),
+                "A207076083",
+                null,
+                "42424242",
+                "4242",
+                null,
                 1,
                 10000,
                 "2376-20260519-9991-1001-01"

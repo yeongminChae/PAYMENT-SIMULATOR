@@ -9,6 +9,7 @@ import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.CancelRequestValidator;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
+import com.chaeyeongmin.payment_sim.domain.model.CardNumber;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
@@ -307,7 +308,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
 
     /**
      * 취소 요청 PAN의 HMAC fingerprint를 생성해 원승인 attempt의 fingerprint와 비교한다.
-     * 원승인 fingerprint가 없거나 값이 다르면 안전하게 취소를 차단한다.
+     * 원승인 fingerprint가 없는 legacy 거래는 저장된 BIN8/last4로 fallback 비교한다.
      * PAN과 fingerprint 원문은 로그에 남기지 않는다.
      */
     private void validateCardMatchesOriginalAttempt(
@@ -316,14 +317,49 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
     ) {
         String cancelFingerprint = cardFingerprintPolicy.generate(request.cardNo());
         String originalFingerprint = originalAttempt.cardFingerprint();
+        String cardBin = originalAttempt.cardBin();
+        String cardLast4 = originalAttempt.cardLast4();
 
-        if (!cardFingerprintPolicy.matchesFingerprint(cancelFingerprint, originalFingerprint)) {
+        if (originalFingerprint == null || originalFingerprint.isBlank()) {
+            CardNumber cancelCardNumber = new CardNumber(request.cardNo());
+            boolean legacyCardMatches =
+                    cardBin != null && cardBin.equals(cancelCardNumber.bin8()) &&
+                            cardLast4 != null && cardLast4.equals(cancelCardNumber.last4());
+
+            if (legacyCardMatches) {
+                log.warn("[cancel][C4-2] original attempt has no card fingerprint. legacy BIN8/last4 matched. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, cardBin={}, cardLast4={}",
+                        request.posTrx(),
+                        request.originalPosTrx(),
+                        request.originalAttemptSeq(),
+                        cardBin,
+                        cardLast4
+                );
+
+                return;
+            }
+
+            log.warn("[cancel][C4-2] original attempt has no card fingerprint. legacy BIN8/last4 mismatch. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, cardBin={}, cardLast4={}",
+                    request.posTrx(),
+                    request.originalPosTrx(),
+                    request.originalAttemptSeq(),
+                    cardBin,
+                    cardLast4
+            );
+
+            throw new BusinessException(ResultCode.CANCEL_NOT_ALLOWED, "CARD_MISMATCH");
+        }
+
+        if (cardFingerprintPolicy.matchesFingerprint(
+                cancelFingerprint,
+                originalFingerprint
+        ) == false) {
             log.warn("[cancel][C4-2] card fingerprint mismatch. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, originalFingerprintPresent={}, reason=CARD_MISMATCH",
                     request.posTrx(),
                     request.originalPosTrx(),
                     request.originalAttemptSeq(),
-                    originalFingerprint != null && !originalFingerprint.isBlank()
+                    originalFingerprint.isBlank() == false
             );
+
             throw new BusinessException(ResultCode.CANCEL_NOT_ALLOWED, "CARD_MISMATCH");
         }
 
