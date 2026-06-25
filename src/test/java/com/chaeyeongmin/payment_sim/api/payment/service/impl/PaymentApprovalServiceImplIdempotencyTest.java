@@ -83,6 +83,12 @@ class PaymentApprovalServiceImplIdempotencyTest {
         when(binCatalogService.identify(anyString(), anyString())).thenAnswer(invocation ->
                 CardIdentity.unknown(invocation.getArgument(0), invocation.getArgument(1))
         );
+        when(cardFingerprintPolicy.generate(anyString())).thenAnswer(invocation ->
+                "fp:" + invocation.getArgument(0)
+        );
+        when(cardFingerprintPolicy.matchesFingerprint(anyString(), anyString())).thenAnswer(invocation ->
+                invocation.getArgument(0).equals(invocation.getArgument(1))
+        );
     }
 
     /**
@@ -176,6 +182,64 @@ class PaymentApprovalServiceImplIdempotencyTest {
                         && ResultCode.CONFLICT.name().equals(event.resultCode())
                         && PaymentFinalStatus.APPROVED.name().equals(event.statusSnapshot())
                         && "POS_TRX_ALREADY_USED".equals(event.note())
+        ));
+    }
+
+    @Test
+    void approve_existingApproved_sameAmountSameBinLast4ButDifferentFingerprint_shouldThrowConflict_withoutVanAndInsert() {
+        String posTrx = "2376-20260521-9991-1001-fp";
+        ApproveRequest request = approveRequest(posTrx, 20000, "4242424211114242");
+
+        when(repository.findLatestByPosTrx(posTrx)).thenReturn(Optional.of(approvedAttempt(1, 20000)));
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.approve(request)
+        );
+
+        assertEquals(ResultCode.CONFLICT, exception.getResultCode());
+        assertEquals("POS_TRX_ALREADY_USED", exception.getMessage());
+        verifyNoNewApprovalAttempt(posTrx);
+        verify(paymentEventLogRecorder).recordAfterRollback(argThat(event ->
+                event.eventType() == PaymentEventType.APPROVE_CONFLICT
+                        && posTrx.equals(event.posTrx())
+                        && event.attemptSeq() == 1
+                        && ResultCode.CONFLICT.name().equals(event.resultCode())
+                        && PaymentFinalStatus.APPROVED.name().equals(event.statusSnapshot())
+                        && "POS_TRX_ALREADY_USED".equals(event.note())
+        ));
+    }
+
+    @Test
+    void approve_legacyExistingApprovedWithoutFingerprint_sameAmountSameBinLast4_shouldReturnExistingApproved_withoutVanAndInsert() {
+        String posTrx = "2376-20260521-9991-1001-legacy";
+        ApproveRequest request = approveRequest(posTrx, 20000, "4242424211114242");
+        PaymentAttempt existing = attemptWithoutFingerprint(
+                PaymentFinalStatus.APPROVED.name(),
+                "A151472400",
+                null,
+                "42424242",
+                "4242",
+                1,
+                20000
+        );
+
+        when(repository.findLatestByPosTrx(posTrx)).thenReturn(Optional.of(existing));
+
+        ApproveResponse response = service.approve(request);
+
+        assertEquals(PaymentFinalStatus.APPROVED, response.finalStatus());
+        assertEquals("A151472400", response.approvalNo());
+        assertEquals("42424242", response.cardSummary().cardBin());
+        assertEquals("4242", response.cardSummary().cardLast4());
+        verifyNoNewApprovalAttempt(posTrx);
+        verify(paymentEventLogRecorder).record(argThat(event ->
+                event.eventType() == PaymentEventType.APPROVE_REUSED
+                        && posTrx.equals(event.posTrx())
+                        && event.attemptSeq() == 1
+                        && ResultCode.OK.name().equals(event.resultCode())
+                        && PaymentFinalStatus.APPROVED.name().equals(event.statusSnapshot())
+                        && "approval result reused by same posTrx and same payload".equals(event.note())
         ));
     }
 
@@ -565,7 +629,29 @@ class PaymentApprovalServiceImplIdempotencyTest {
                 declineCode,
                 cardBin,
                 cardLast4,
-                "test-card-fingerprint",
+                "fp:4242424242424242",
+                attemptSeq,
+                amount,
+                "VAN-TRX-0001"
+        );
+    }
+
+    private PaymentAttempt attemptWithoutFingerprint(
+            String finalStatus,
+            String approvalNo,
+            String declineCode,
+            String cardBin,
+            String cardLast4,
+            int attemptSeq,
+            int amount
+    ) {
+        return new PaymentAttempt(
+                finalStatus,
+                approvalNo,
+                declineCode,
+                cardBin,
+                cardLast4,
+                null,
                 attemptSeq,
                 amount,
                 "VAN-TRX-0001"
