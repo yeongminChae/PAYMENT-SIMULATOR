@@ -20,6 +20,7 @@ import java.util.HexFormat;
 public class CardFingerprintPolicy {
 
     private static final String HMAC_ALGORITHM = "HmacSHA256";
+    private static final int MIN_SECRET_KEY_BYTES = 32;
     private final String secretKey;
 
     public CardFingerprintPolicy(
@@ -27,6 +28,9 @@ public class CardFingerprintPolicy {
     ) {
         if (secretKey == null || secretKey.isBlank())
             throw new IllegalArgumentException("fingerprint secret must not be blank");
+
+        if (secretKey.getBytes(StandardCharsets.UTF_8).length < MIN_SECRET_KEY_BYTES)
+            throw new IllegalArgumentException("fingerprint secret must be at least 32 bytes");
 
         this.secretKey = secretKey;
     }

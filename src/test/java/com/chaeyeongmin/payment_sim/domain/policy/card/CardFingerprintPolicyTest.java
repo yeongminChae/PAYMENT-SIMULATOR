@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 카드 fingerprint가 PAN을 직접 노출하지 않으면서 동일 카드를 안정적으로 식별하는지 검증한다.
@@ -58,6 +59,14 @@ class CardFingerprintPolicyTest {
     }
 
     @Test
+    @DisplayName("fingerprint는 64자리 hex 문자열이다")
+    void fingerprint_shouldBe64HexCharacters() {
+        String fingerprint = policy.generate(CARD_NO);
+
+        assertThat(fingerprint).matches("^[0-9a-f]{64}$");
+    }
+
+    @Test
     @DisplayName("같은 카드에서 생성한 fingerprint는 일치한다")
     void sameCardFingerprint_shouldMatch() {
         String storedFingerprint = policy.generate(CARD_NO);
@@ -82,5 +91,21 @@ class CardFingerprintPolicyTest {
 
         assertThat(policy.matchesFingerprint(candidateFingerprint, null)).isFalse();
         assertThat(policy.matchesFingerprint(candidateFingerprint, " ")).isFalse();
+    }
+
+    @Test
+    @DisplayName("secret key가 blank이면 생성자에서 거절한다")
+    void blankSecretKey_shouldThrowIllegalArgumentException() {
+        assertThatThrownBy(() -> new CardFingerprintPolicy(" "))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("fingerprint secret must not be blank");
+    }
+
+    @Test
+    @DisplayName("secret key가 32바이트 미만이면 생성자에서 거절한다")
+    void shortSecretKey_shouldThrowIllegalArgumentException() {
+        assertThatThrownBy(() -> new CardFingerprintPolicy("short-secret-key"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("fingerprint secret must be at least 32 bytes");
     }
 }
