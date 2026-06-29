@@ -6,6 +6,7 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
 import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
+import com.chaeyeongmin.payment_sim.api.payment.service.support.CancelResponseFactory;
 import com.chaeyeongmin.payment_sim.api.payment.validate.CancelRequestValidator;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
@@ -66,7 +67,8 @@ class PaymentCancelServiceImplC5ConflictTest {
                 validator,
                 vanCancelAssembler,
                 paymentEventLogRecorder,
-                CANCEL_CARD_VERIFICATION_POLICY
+                CANCEL_CARD_VERIFICATION_POLICY,
+                new CancelResponseFactory()
         );
 
         baseReq = new CancelRequest(
