@@ -14,6 +14,7 @@ import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
+import com.chaeyeongmin.payment_sim.domain.policy.cancel.CancelCardVerificationPolicy;
 import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
@@ -57,7 +58,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
     private final CancelRequestValidator validator;
     private final VanCancelAssembler vanCancelAssembler;
     private final PaymentEventLogRecorder paymentEventLogRecorder;
-    private final CardFingerprintPolicy cardFingerprintPolicy;
+    private final CancelCardVerificationPolicy cardVerificationPolicy;
 
     @Transactional
     @Override
@@ -185,7 +186,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // - 요청 형식 검증(C2)을 통과한 PAN으로 fingerprint를 다시 생성한다.
         // - 원승인 attempt에 저장된 fingerprint와 일치할 때만 취소를 허용한다.
         // - 카드가 다르면 취소 권한이 없는 요청이므로 PAYMENT_CANCEL row를 만들거나 VAN을 호출하지 않는다.
-        validateCardMatchesOriginalAttempt(originalAttempt, request);
+        cardVerificationPolicy.validateCardMatchesOriginalAttempt(originalAttempt, request);
 
         // C4-3: 기존 취소 row 확인.
         // - 원거래가 APPROVED여도 이미 취소 요청이 있었으면 VAN을 다시 호출하면 안 된다.
@@ -303,65 +304,6 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                 originalPosTrx,
                 originalAttemptSeq
         );
-
-    }
-
-    /**
-     * 취소 요청 PAN의 HMAC fingerprint를 생성해 원승인 attempt의 fingerprint와 비교한다.
-     * 원승인 fingerprint가 없는 legacy 거래는 저장된 BIN8/last4로 fallback 비교한다.
-     * PAN과 fingerprint 원문은 로그에 남기지 않는다.
-     */
-    private void validateCardMatchesOriginalAttempt(
-            PaymentAttempt originalAttempt,
-            CancelRequest request
-    ) {
-        String cancelFingerprint = cardFingerprintPolicy.generate(request.cardNo());
-        String originalFingerprint = originalAttempt.cardFingerprint();
-        String cardBin = originalAttempt.cardBin();
-        String cardLast4 = originalAttempt.cardLast4();
-
-        if (originalFingerprint == null || originalFingerprint.isBlank()) {
-            CardNumber cancelCardNumber = new CardNumber(request.cardNo());
-            boolean legacyCardMatches =
-                    cardBin != null && cardBin.equals(cancelCardNumber.bin8()) &&
-                            cardLast4 != null && cardLast4.equals(cancelCardNumber.last4());
-
-            if (legacyCardMatches) {
-                log.warn("[cancel][C4-2] original attempt has no card fingerprint. legacy BIN8/last4 matched. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, cardBin={}, cardLast4={}",
-                        request.posTrx(),
-                        request.originalPosTrx(),
-                        request.originalAttemptSeq(),
-                        cardBin,
-                        cardLast4
-                );
-
-                return;
-            }
-
-            log.warn("[cancel][C4-2] original attempt has no card fingerprint. legacy BIN8/last4 mismatch. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, cardBin={}, cardLast4={}",
-                    request.posTrx(),
-                    request.originalPosTrx(),
-                    request.originalAttemptSeq(),
-                    cardBin,
-                    cardLast4
-            );
-
-            throw new BusinessException(ResultCode.CANCEL_NOT_ALLOWED, "CARD_MISMATCH");
-        }
-
-        if (cardFingerprintPolicy.matchesFingerprint(
-                cancelFingerprint,
-                originalFingerprint
-        ) == false) {
-            log.warn("[cancel][C4-2] card fingerprint mismatch. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, originalFingerprintPresent={}, reason=CARD_MISMATCH",
-                    request.posTrx(),
-                    request.originalPosTrx(),
-                    request.originalAttemptSeq(),
-                    originalFingerprint.isBlank() == false
-            );
-
-            throw new BusinessException(ResultCode.CANCEL_NOT_ALLOWED, "CARD_MISMATCH");
-        }
 
     }
 
