@@ -4,8 +4,8 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.enums.CancelResultStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
-import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
+import com.chaeyeongmin.payment_sim.api.payment.service.support.CancelEventRecorder;
 import com.chaeyeongmin.payment_sim.api.payment.service.support.CancelResponseFactory;
 import com.chaeyeongmin.payment_sim.api.payment.validate.CancelRequestValidator;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
@@ -18,7 +18,6 @@ import com.chaeyeongmin.payment_sim.domain.policy.cancel.CancelCardVerificationP
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
-import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentEventLogInsertParam;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanCancelAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelResponse;
@@ -55,10 +54,10 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
     private final PaymentCancelRepository repository;
     private final VanGateway vanGateway;
     private final CancelRequestValidator validator;
-    private final VanCancelAssembler vanCancelAssembler;
-    private final PaymentEventLogRecorder paymentEventLogRecorder;
-    private final CancelCardVerificationPolicy cardVerificationPolicy;
-    private final CancelResponseFactory responseFactory;
+    private final VanCancelAssembler assembler;
+    private final CancelCardVerificationPolicy policy;
+    private final CancelResponseFactory factory;
+    private final CancelEventRecorder recorder;
 
     @Transactional
     @Override
@@ -95,7 +94,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
 
             // 여기서 차단되면 이후 original 기준 재응답 정책으로 내려가지 않는다.
             // cancel posTrx 자체가 이미 사용된 거래번호이므로, 같은 original 재요청도 허용하지 않는다.
-            insertCancelEvent(
+            recorder.recordCancelEvent(
                     PaymentEventType.CANCEL_CONFLICT,
                     posTrx,
                     originalPosTrx,
@@ -162,7 +161,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
             // C4-1 종료 응답.
             // - 이 결과는 DB의 cancel 상태가 아니라 "응답 전용 취소 불가 상태"다.
             // - 취소 row를 만들지 않으므로 후속 중복 취소 방지 대상도 아니다.
-            insertCancelEvent(
+            recorder.recordCancelEvent(
                     PaymentEventType.CANCEL_NOT_ALLOWED,
                     posTrx,
                     originalPosTrx,
@@ -186,7 +185,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // - 요청 형식 검증(C2)을 통과한 PAN으로 fingerprint를 다시 생성한다.
         // - 원승인 attempt에 저장된 fingerprint와 일치할 때만 취소를 허용한다.
         // - 카드가 다르면 취소 권한이 없는 요청이므로 PAYMENT_CANCEL row를 만들거나 VAN을 호출하지 않는다.
-        cardVerificationPolicy.validateCardMatchesOriginalAttempt(originalAttempt, request);
+        policy.validateCardMatchesOriginalAttempt(originalAttempt, request);
 
         // C4-3: 기존 취소 row 확인.
         // - 원거래가 APPROVED여도 이미 취소 요청이 있었으면 VAN을 다시 호출하면 안 된다.
@@ -212,8 +211,8 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
             // C4-3-1: 기존 cancel row 재응답.
             // - 기존 row가 있으면 현재 요청의 posTrx가 달라도 원거래 기준 기존 취소 상태를 우선한다.
             // - 이 분기에서는 외부 VAN 취소를 절대 다시 호출하지 않는다.
-            CancelResponse response = responseFactory.fromExistingCancel(request, cancel);
-            insertCancelEvent(
+            CancelResponse response = factory.fromExistingCancel(request, cancel);
+            recorder.recordCancelEvent(
                     PaymentEventType.CANCEL_REUSED_BY_ORIGINAL,
                     posTrx,
                     originalPosTrx,
@@ -277,7 +276,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                     insertedCancel.cancelStatus()
             );
 
-            insertCancelEvent(
+            recorder.recordCancelEvent(
                     PaymentEventType.CANCEL_PENDING_CREATED,
                     posTrx,
                     originalPosTrx,
@@ -332,9 +331,9 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // - CancelRequest에는 현취소 거래번호와 원거래 식별자가 있다.
         // - originalAttempt에는 원승인 금액/승인번호/카드요약 등 VAN 취소에 필요한 원거래 정보가 있다.
         // - assembler는 두 객체를 합쳐 VAN 계약에 맞는 취소 전문을 만든다.
-        VanCancelRequest vanCancelRequest = vanCancelAssembler.getVanCancelRequest(request, originalAttempt);
+        VanCancelRequest vanCancelRequest = assembler.getVanCancelRequest(request, originalAttempt);
 
-        insertCancelEvent(
+        recorder.recordCancelEvent(
                 PaymentEventType.CANCEL_VAN_REQUESTED,
                 posTrx,
                 originalPosTrx,
@@ -352,7 +351,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         VanCancelResponse vanCancelResponse = vanGateway.cancel(vanCancelRequest);
         CancelStatus vanFinalStatus = vanCancelResponse.cancelStatus();
         String responseDeclineCode = toDeclineCode(vanCancelResponse.declineCode());
-        insertCancelEvent(
+        recorder.recordCancelEvent(
                 PaymentEventType.CANCEL_VAN_RESULT_RECEIVED,
                 posTrx,
                 originalPosTrx,
@@ -392,7 +391,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                 if (updateCancelResult.isPresent()) {
                     PaymentCancel updatedCancel = updateCancelResult.get();
 
-                    insertCancelEvent(
+                    recorder.recordCancelEvent(
                             PaymentEventType.CANCEL_FINALIZED,
                             posTrx,
                             originalPosTrx,
@@ -431,7 +430,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                 if (updateCancelResult.isPresent()) {
                     PaymentCancel updatedCancel = updateCancelResult.get();
 
-                    insertCancelEvent(
+                    recorder.recordCancelEvent(
                             PaymentEventType.CANCEL_FINALIZED,
                             posTrx,
                             originalPosTrx,
@@ -524,7 +523,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // - 예: 같은 원거래 취소 요청 2개가 거의 동시에 들어온 경우.
         // - 한쪽 insert만 성공하고 다른 쪽은 여기로 내려온 뒤 기존 row를 재응답한다.
         if (reCancelOpt.isPresent())
-            return responseFactory.fromExistingCancel(request, reCancelOpt.get());
+            return factory.fromExistingCancel(request, reCancelOpt.get());
 
         // insert도 실패했고 재조회도 실패한 경우.
         // - 정상적인 unique 경합이라면 row가 보여야 하므로, 이 로그는 DB 반영/트랜잭션/매퍼 쪽 확인 신호다.
@@ -591,7 +590,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                 cancel.cancelStatus()
         );
 
-        return responseFactory.fromC7RecoveredCancel(cancel);
+        return factory.fromC7RecoveredCancel(cancel);
     }
 
     /**
@@ -620,52 +619,6 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
             case CANCEL_DECLINED -> ResultCode.CANCEL_DECLINED.name();
             case PENDING -> ResultCode.RETRY_LATER.name();
         };
-    }
-
-    /**
-     * 취소 이벤트 로그를 구조화 컬럼만으로 저장한다.
-     *
-     * <p>
-     * POS_TRX에는 항상 이번 요청의 cancel posTrx를 저장하고,
-     * 원승인 식별자는 ORIGINAL_* 컬럼에 분리해 저장한다.
-     * CURRENT_TRX_NO는 과거 취소 거래번호 용도로 쓰던 컬럼이지만,
-     * 신규 이벤트 정책에서는 승인/취소 모두 POS_TRX를 현재 요청 거래번호로 통일한다.
-     */
-    private void insertCancelEvent(
-            PaymentEventType eventType,
-            String posTrx,
-            String originalPosTrx,
-            int originalAttemptSeq,
-            String resultCode,
-            String statusSnapshot,
-            String vanTrxId,
-            String approvalNo,
-            String declineCode,
-            String note
-    ) {
-        PaymentEventLogInsertParam event = new PaymentEventLogInsertParam(
-                eventType,
-                posTrx,
-                null,
-                null,
-                originalPosTrx,
-                originalAttemptSeq,
-                resultCode,
-                statusSnapshot,
-                vanTrxId,
-                approvalNo,
-                declineCode,
-                null,
-                note
-        );
-
-        if (eventType == PaymentEventType.CANCEL_CONFLICT) {
-            // 충돌 이벤트는 이 메서드가 BusinessException으로 rollback된 뒤 listener가 기록한다.
-            paymentEventLogRecorder.recordAfterRollback(event);
-            return;
-        }
-
-        paymentEventLogRecorder.record(event);
     }
 
 }
