@@ -137,7 +137,6 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // C3-2: 원거래 존재.
         // - 이제 원거래의 최종 승인 상태를 보고 취소 가능 여부를 판단한다.
         PaymentAttempt originalAttempt = originalAttemptOpt.get();
-
         log.info("[cancel][C3] original attempt found. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, originalFinalStatus={}",
                 posTrx,
                 originalPosTrx,
@@ -185,7 +184,35 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // - 요청 형식 검증(C2)을 통과한 PAN으로 fingerprint를 다시 생성한다.
         // - 원승인 attempt에 저장된 fingerprint와 일치할 때만 취소를 허용한다.
         // - 카드가 다르면 취소 권한이 없는 요청이므로 PAYMENT_CANCEL row를 만들거나 VAN을 호출하지 않는다.
-        policy.validateCardMatchesOriginalAttempt(originalAttempt, request);
+        try {
+            policy.validateCardMatchesOriginalAttempt(originalAttempt, request);
+        } catch (BusinessException e) {
+            log.warn("[cancel][C4-2] card mismatch. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, reason={}",
+                    posTrx,
+                    originalPosTrx,
+                    originalAttemptSeq,
+                    e.getMessage()
+            );
+
+            recorder.recordAfterRollback(
+                    PaymentEventType.CANCEL_NOT_ALLOWED,
+                    posTrx,
+                    originalPosTrx,
+                    originalAttemptSeq,
+                    ResultCode.CANCEL_NOT_ALLOWED.name(),
+                    originalStatus.name(),
+                    null,
+                    null,
+                    "CARD_MISMATCH",
+                    "cancel request card does not match original attempt"
+            );
+
+            throw new BusinessException(
+                    ResultCode.CANCEL_NOT_ALLOWED,
+                    "CARD_MISMATCH"
+            );
+
+        }
 
         // C4-3: 기존 취소 row 확인.
         // - 원거래가 APPROVED여도 이미 취소 요청이 있었으면 VAN을 다시 호출하면 안 된다.

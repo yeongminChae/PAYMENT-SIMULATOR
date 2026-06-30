@@ -60,4 +60,36 @@ public class CancelEventRecorder {
         paymentEventLogRecorder.record(event);
     }
 
+    public void recordAfterRollback(
+            PaymentEventType eventType,
+            String posTrx,
+            String originalPosTrx,
+            int originalAttemptSeq,
+            String resultCode,
+            String statusSnapshot,
+            String vanTrxId,
+            String approvalNo,
+            String declineCode,
+            String note
+    ) {
+        PaymentEventLogInsertParam event = new PaymentEventLogInsertParam(
+                eventType,
+                posTrx,
+                null,
+                null,
+                originalPosTrx,
+                originalAttemptSeq,
+                resultCode,
+                statusSnapshot,
+                vanTrxId,
+                approvalNo,
+                declineCode,
+                null,
+                note
+        );
+
+        paymentEventLogRecorder.recordAfterRollback(event);
+
+    }
+
 }
