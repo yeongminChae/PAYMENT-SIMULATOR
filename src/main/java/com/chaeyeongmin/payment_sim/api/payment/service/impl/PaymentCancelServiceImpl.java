@@ -1,12 +1,13 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.impl;
 
-import com.chaeyeongmin.payment_sim.api.payment.dto.enums.CancelResultStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
 import com.chaeyeongmin.payment_sim.api.payment.service.support.CancelEventRecorder;
 import com.chaeyeongmin.payment_sim.api.payment.service.support.CancelResponseFactory;
+import com.chaeyeongmin.payment_sim.api.payment.service.support.PaymentResultCodeMapper;
+import com.chaeyeongmin.payment_sim.api.payment.service.support.VanDeclineCodeMapper;
 import com.chaeyeongmin.payment_sim.api.payment.validate.CancelRequestValidator;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
@@ -21,7 +22,6 @@ import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanCancelAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelResponse;
-import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -244,7 +244,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                     posTrx,
                     originalPosTrx,
                     originalAttemptSeq,
-                    resultCodeOf(response.cancelStatus()),
+                    PaymentResultCodeMapper.codeName(response.cancelStatus()),
                     response.cancelStatus().name(),
                     null,
                     cancel.cancelApprovalNo(),
@@ -377,13 +377,13 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // - 신규 취소 흐름에서 실제 외부 취소 시도는 여기서 1번만 수행한다.
         VanCancelResponse vanCancelResponse = vanGateway.cancel(vanCancelRequest);
         CancelStatus vanFinalStatus = vanCancelResponse.cancelStatus();
-        String responseDeclineCode = toDeclineCode(vanCancelResponse.declineCode());
+        String responseDeclineCode = VanDeclineCodeMapper.toCode(vanCancelResponse.declineCode());
         recorder.recordCancelEvent(
                 PaymentEventType.CANCEL_VAN_RESULT_RECEIVED,
                 posTrx,
                 originalPosTrx,
                 originalAttemptSeq,
-                resultCodeOf(vanFinalStatus),
+                PaymentResultCodeMapper.codeName(vanFinalStatus),
                 vanFinalStatus.name(),
                 vanCancelResponse.vanTrxId(),
                 vanCancelResponse.cancelApprovalNo(),
@@ -618,34 +618,6 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         );
 
         return factory.fromC7RecoveredCancel(cancel);
-    }
-
-    /**
-     * VAN decline enum을 내부 저장/응답용 문자열 코드로 바꾼다.
-     * <p>
-     * 취소 성공이나 PENDING에서는 declineCode가 없을 수 있으므로 null-safe 변환이 필요하다.
-     */
-    private String toDeclineCode(VanDeclineCode declineCode) {
-        if (declineCode == null) return null;
-        return declineCode.code();
-    }
-
-    private String resultCodeOf(CancelResultStatus status) {
-        return switch (status) {
-            case CANCELLED -> ResultCode.OK.name();
-            case ALREADY_CANCELLED -> ResultCode.ALREADY_CANCELLED.name();
-            case CANCEL_DECLINED -> ResultCode.CANCEL_DECLINED.name();
-            case CANCEL_NOT_ALLOWED -> ResultCode.CANCEL_NOT_ALLOWED.name();
-            case RETRY_LATER -> ResultCode.RETRY_LATER.name();
-        };
-    }
-
-    private String resultCodeOf(CancelStatus status) {
-        return switch (status) {
-            case CANCELLED -> ResultCode.OK.name();
-            case CANCEL_DECLINED -> ResultCode.CANCEL_DECLINED.name();
-            case PENDING -> ResultCode.RETRY_LATER.name();
-        };
     }
 
 }

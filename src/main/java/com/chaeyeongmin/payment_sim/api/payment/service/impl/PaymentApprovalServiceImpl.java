@@ -8,6 +8,10 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.response.ApproveResponse;
 import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.api.payment.service.BinCatalogService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
+import com.chaeyeongmin.payment_sim.api.payment.service.support.AttemptResultUpdateParamFactory;
+import com.chaeyeongmin.payment_sim.api.payment.service.support.CardSummaryFactory;
+import com.chaeyeongmin.payment_sim.api.payment.service.support.PaymentResultCodeMapper;
+import com.chaeyeongmin.payment_sim.api.payment.service.support.VanDeclineCodeMapper;
 import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveRequestValidator;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
@@ -21,7 +25,6 @@ import com.chaeyeongmin.payment_sim.infra.repository.dto.*;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanApproveAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveResponse;
-import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -98,7 +101,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
                             PaymentEventType.APPROVE_REUSED,
                             trx,
                             latest.attemptSeq(),
-                            resultCodeOf(status),
+                            PaymentResultCodeMapper.codeName(status),
                             status.name(),
                             latest.vanTrxId(),
                             latest.approvalNo(),
@@ -115,7 +118,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
                             latest.attemptSeq(),
                             latest.approvalNo(),
                             latest.declineCode(),
-                            getCardSummary(latest.cardBin(), latest.cardLast4())
+                            CardSummaryFactory.fromStoredCard(latest.cardBin(), latest.cardLast4())
                     );
                 }
 
@@ -200,7 +203,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         // 요청 카드정보에서 만든 응답용 카드 요약.
         // - 이후 update miss 등으로 DB row를 응답 소스로 쓰기 어려운 방어 분기에서 fallback으로 사용한다.
         // - 민감정보 없이 BIN/last4만 담기 때문에 로그/응답에 노출 가능한 최소 정보다.
-        CardSummary summaryFromReq = getCardSummary(
+        CardSummary summaryFromReq = CardSummaryFactory.fromStoredCard(
                 cardIdentity.cardBin(),
                 cardIdentity.cardLast4()
         );
@@ -231,11 +234,11 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
                 PaymentEventType.APPROVE_VAN_RESULT_RECEIVED,
                 trx,
                 attemptSeq,
-                resultCodeOf(vanApproveRes.finalStatus()),
+                PaymentResultCodeMapper.codeName(vanApproveRes.finalStatus()),
                 vanApproveRes.finalStatus().name(),
                 vanApproveRes.vanTrxId(),
                 vanApproveRes.approvalNo(),
-                toDeclineCode(vanApproveRes.declineCode()),
+                VanDeclineCodeMapper.toCode(vanApproveRes.declineCode()),
                 "VAN approve result received"
         );
 
@@ -244,7 +247,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         // - AttemptResultUpdateParam은 PAYMENT_ATTEMPT 테이블에 저장할 내부 확정 결과다.
         // - 조건부 update(FINAL_STATUS IS NULL)에 사용되므로 멱등성의 핵심 파라미터다.
         AttemptResultUpdateParam updateParam =
-                getAttemptResultUpdateParam(vanApproveRes, trx, attemptSeq);
+                AttemptResultUpdateParamFactory.fromVanApprove(vanApproveRes, trx, attemptSeq);
 
         // A7-1: VAN 결과 DB 확정 저장.
         // - 이번 요청이 최초 확정 저장에 성공하면 RETURNING row로 결과를 받는다.
@@ -266,7 +269,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
                     PaymentEventType.APPROVE_FINALIZED,
                     trx,
                     attemptSeq,
-                    resultCodeOf(row.finalStatus()),
+                    PaymentResultCodeMapper.codeName(row.finalStatus()),
                     row.finalStatus().name(),
                     row.vanTrxId(),
                     row.approvalNo(),
@@ -280,7 +283,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
                     attemptSeq,
                     row.approvalNo(),
                     row.declineCode(),
-                    getCardSummary(row.cardBin(), row.cardLast4())
+                    CardSummaryFactory.fromStoredCard(row.cardBin(), row.cardLast4())
             );
         }
 
@@ -314,7 +317,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
                         attemptSeq,
                         row.approvalNo(),
                         row.declineCode(),
-                        getCardSummary(row.cardBin(), row.cardLast4())
+                        CardSummaryFactory.fromStoredCard(row.cardBin(), row.cardLast4())
                 );
             }
 
@@ -355,49 +358,6 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
     }
 
     /**
-     * VAN 승인 응답을 PAYMENT_ATTEMPT update용 파라미터로 변환한다.
-     * <p>
-     * 왜 별도 함수인가?
-     * - VAN 응답 DTO는 외부 시스템의 응답 형태이고, DB update 파라미터는 내부 저장 정책이다.
-     * - 승인 성공/거절/타임아웃마다 저장해야 할 컬럼(approvalNo, declineCode, vanTrxId)이 다르다.
-     * - 서비스 본문에서는 "VAN 결과를 DB 확정값으로 바꾼다"는 의도만 보이게 하기 위해 분리했다.
-     */
-    private AttemptResultUpdateParam getAttemptResultUpdateParam(
-            VanApproveResponse vanApproveRes,
-            String trx,
-            int attemptSeq
-    ) {
-        String approvalNo = vanApproveRes.approvalNo();
-        String vanTrxId = vanApproveRes.vanTrxId();
-        String declineCode = toDeclineCode(vanApproveRes.declineCode());
-
-        return switch (vanApproveRes.finalStatus()) {
-            case APPROVED -> AttemptResultUpdateParam.approved(
-                    trx,
-                    attemptSeq,
-                    approvalNo,
-                    vanTrxId
-            );
-
-            case DECLINED -> AttemptResultUpdateParam.declined(
-                    trx,
-                    attemptSeq,
-                    declineCode,
-                    vanTrxId
-            );
-
-            case UNKNOWN_TIMEOUT,
-                 PROCESSING -> AttemptResultUpdateParam.unknownTimeout(
-                    trx,
-                    attemptSeq,
-                    declineCode,
-                    vanTrxId
-            );
-
-        };
-    }
-
-    /**
      * PaymentFinalStatus를 승인 API 응답 DTO로 변환한다.
      * <p>
      * 이 함수의 역할:
@@ -426,38 +386,9 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         };
     }
 
-    /**
-     * 저장/응답/로그에 사용할 수 있는 최소 카드 요약을 만든다.
-     * <p>
-     * PAN 전체나 만료일 같은 민감정보는 이 서비스 밖으로 들고 다니지 않는다.
-     * 현재는 BIN/last4만 채우고, brand는 BIN 카탈로그 연동 후 채울 수 있도록 null로 둔다.
-     */
-    private CardSummary getCardSummary(String cardBin, String cardLast4) {
-        return new CardSummary(cardBin, cardLast4, null);
-    }
-
     /** 저장 정책: 앞 8자리 BIN + 별표 6개 + 마지막 4자리. */
     private String maskedCardNo(String cardBin, String cardLast4) {
         return cardBin + "******" + cardLast4;
-    }
-
-    /**
-     * VAN decline enum을 내부 저장/응답용 문자열 코드로 바꾼다.
-     * <p>
-     * declineCode는 승인 성공 시 null일 수 있으므로 null-safe 변환이 필요하다.
-     */
-    private String toDeclineCode(VanDeclineCode declineCode) {
-        if (declineCode == null) return null;
-        return declineCode.code();
-    }
-
-    private String resultCodeOf(PaymentFinalStatus status) {
-        return switch (status) {
-            case APPROVED -> ResultCode.OK.name();
-            case DECLINED -> ResultCode.DECLINED.name();
-            case UNKNOWN_TIMEOUT -> ResultCode.UNKNOWN_TIMEOUT.name();
-            case PROCESSING -> ResultCode.RETRY_LATER.name();
-        };
     }
 
     /**
