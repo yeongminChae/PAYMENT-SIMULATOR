@@ -6,6 +6,8 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
 import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
+import com.chaeyeongmin.payment_sim.api.payment.service.support.CancelEventRecorder;
+import com.chaeyeongmin.payment_sim.api.payment.service.support.CancelResponseFactory;
 import com.chaeyeongmin.payment_sim.api.payment.validate.CancelRequestValidator;
 import com.chaeyeongmin.payment_sim.api.payment.validate.enums.CancelValidationError;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
@@ -13,6 +15,7 @@ import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
+import com.chaeyeongmin.payment_sim.domain.policy.cancel.CancelCardVerificationPolicy;
 import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
@@ -38,6 +41,8 @@ class PaymentCancelServiceImplTest {
 
     private static final CardFingerprintPolicy CARD_FINGERPRINT_POLICY =
             new CardFingerprintPolicy("card-fingerprint-test-secret-key");
+    private static final CancelCardVerificationPolicy CANCEL_CARD_VERIFICATION_POLICY =
+            new CancelCardVerificationPolicy(CARD_FINGERPRINT_POLICY);
 
     // ===== UT IDs (Cancel Flow) =====
     private static final String UT_C2_001 = "UT-PAYMENT-CANCEL-001"; // C2 invalid
@@ -73,8 +78,9 @@ class PaymentCancelServiceImplTest {
                 vanGateway,
                 validator,
                 vanCancelAssembler,
-                paymentEventLogRecorder,
-                CARD_FINGERPRINT_POLICY
+                CANCEL_CARD_VERIFICATION_POLICY,
+                new CancelResponseFactory(),
+                new CancelEventRecorder(paymentEventLogRecorder)
         );
 
         baseReq = new CancelRequest(

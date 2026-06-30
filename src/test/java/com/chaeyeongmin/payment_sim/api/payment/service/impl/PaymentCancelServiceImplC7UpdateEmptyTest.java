@@ -6,10 +6,13 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
 import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
+import com.chaeyeongmin.payment_sim.api.payment.service.support.CancelEventRecorder;
+import com.chaeyeongmin.payment_sim.api.payment.service.support.CancelResponseFactory;
 import com.chaeyeongmin.payment_sim.api.payment.validate.CancelRequestValidator;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
+import com.chaeyeongmin.payment_sim.domain.policy.cancel.CancelCardVerificationPolicy;
 import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
@@ -34,6 +37,8 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
 
     private static final CardFingerprintPolicy CARD_FINGERPRINT_POLICY =
             new CardFingerprintPolicy("card-fingerprint-test-secret-key");
+    private static final CancelCardVerificationPolicy CANCEL_CARD_VERIFICATION_POLICY =
+            new CancelCardVerificationPolicy(CARD_FINGERPRINT_POLICY);
 
     private PaymentCancelService service;
     private PaymentCancelRepository repository;
@@ -57,8 +62,9 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
                 vanGateway,
                 validator,
                 vanCancelAssembler,
-                paymentEventLogRecorder,
-                CARD_FINGERPRINT_POLICY
+                CANCEL_CARD_VERIFICATION_POLICY,
+                new CancelResponseFactory(),
+                new CancelEventRecorder(paymentEventLogRecorder)
         );
 
         baseReq = new CancelRequest(
