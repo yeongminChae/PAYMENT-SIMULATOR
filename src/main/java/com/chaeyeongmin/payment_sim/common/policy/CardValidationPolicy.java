@@ -39,7 +39,24 @@ public class CardValidationPolicy {
         if (mm < 1 || mm > 12) return false;
 
         // 만료 + Luhn 둘 다 통과해야 유효
-        return isNotExpired(yy + 2000, mm) && luhnAlgorithm(pan);
+        return isNotExpired(yy + 2000, mm) && isValidCardNo(pan);
+    }
+
+    /**
+     * 카드번호(PAN) 유효성 검사.
+     * <p>
+     * 검증 범위:
+     * - null 여부
+     * - 길이(16자리)
+     * - 숫자 형식
+     * - Luhn checksum 통과 여부
+     */
+    public boolean isValidCardNo(String cardNo) {
+        if (cardNo == null) return false;
+        if (cardNo.length() != 16) return false;
+        if (isNumeric(cardNo) == false) return false;
+
+        return luhnAlgorithm(cardNo);
     }
 
     /**
@@ -50,7 +67,7 @@ public class CardValidationPolicy {
         if (str == null || str.isEmpty()) return false;
 
         for (char c : str.toCharArray()) {
-            if (Character.isDigit(c) == false) return false;
+            if (c < '0' || c > '9') return false;
         }
         return true;
     }

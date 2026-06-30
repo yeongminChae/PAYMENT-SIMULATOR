@@ -5,6 +5,9 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.InquiryRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.InquiryResponse;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentInquiryService;
+import com.chaeyeongmin.payment_sim.api.payment.service.support.AttemptResultUpdateParamFactory;
+import com.chaeyeongmin.payment_sim.api.payment.service.support.CardSummaryFactory;
+import com.chaeyeongmin.payment_sim.api.payment.service.support.VanDeclineCodeMapper;
 import com.chaeyeongmin.payment_sim.api.payment.validate.InquiryRequestValidator;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
@@ -15,7 +18,6 @@ import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentAttemptUpdatedRo
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanInquiryAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResponse;
-import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -110,7 +112,7 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
         String approvalNo = attempt.approvalNo();
         String storedDeclineCode = attempt.declineCode();
         CardSummary cardSummary =
-                getCardSummary(attempt.cardBin(), attempt.cardLast4());
+                CardSummaryFactory.fromStoredCard(attempt.cardBin(), attempt.cardLast4());
 
         return switch (attemptFinalStatus) {
             case APPROVED -> InquiryResponse.approved(
@@ -181,7 +183,7 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
         // - 불필요한 외부 VAN 조회를 줄이고, 저장된 상태와 응답이 어긋나는 상황을 막기 위해서다.
         VanInquiryResponse vanInquiryResponse = vanGateway.inquiry(vanInquiryRequest);
         PaymentFinalStatus vanFinalStatus = vanInquiryResponse.finalStatus();
-        String responseDeclineCode = toDeclineCode(vanInquiryResponse.declineCode());
+        String responseDeclineCode = VanDeclineCodeMapper.toCode(vanInquiryResponse.declineCode());
 
         // Q5c/Q8: VAN 조회 결과도 여전히 미확정.
         // - 이 경우 DB 상태를 바꾸지 않는다. 이미 UNKNOWN_TIMEOUT으로 저장된 상태와 의미가 같기 때문이다.
@@ -202,7 +204,7 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
         // - 외부 응답을 바로 클라이언트에 내리지 않고, 먼저 DB의 UNKNOWN_TIMEOUT row를 최종 상태로 바꾼다.
         // - 그래야 다음 조회부터 DB에 실제 저장된 값만으로 같은 결과를 재응답할 수 있다.
         AttemptResultUpdateParam param =
-                getAttemptResultUpdateParam(vanInquiryResponse, posTrx, attemptSeq);
+                AttemptResultUpdateParamFactory.fromVanInquiry(vanInquiryResponse, posTrx, attemptSeq);
 
         // Q6: UNKNOWN_TIMEOUT -> 최종 상태 조건부 update.
         // - updateUnknownToFinal은 "아직 UNKNOWN_TIMEOUT인 row"만 바꾸는 멱등성 보호 장치다.
@@ -222,7 +224,7 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
                     attemptSeq,
                     finalizedRow.approvalNo(),
                     finalizedRow.declineCode(),
-                    getCardSummary(finalizedRow.cardBin(), finalizedRow.cardLast4())
+                    CardSummaryFactory.fromStoredCard(finalizedRow.cardBin(), finalizedRow.cardLast4())
             );
 
         }
@@ -292,7 +294,7 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
                     attemptSeq,
                     rereadAttempt.approvalNo(),
                     rereadAttempt.declineCode(),
-                    getCardSummary(rereadAttempt.cardBin(), rereadAttempt.cardLast4())
+                    CardSummaryFactory.fromStoredCard(rereadAttempt.cardBin(), rereadAttempt.cardLast4())
             );
 
         }
@@ -306,55 +308,9 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
         return InquiryResponse.unknownTimeout(
                 posTrx,
                 attemptSeq,
-                toDeclineCode(vanInquiryResponse.declineCode()),
+                VanDeclineCodeMapper.toCode(vanInquiryResponse.declineCode()),
                 fallbackCardSummary
         );
-
-    }
-
-    /**
-     * VAN 조회 응답을 PAYMENT_ATTEMPT update용 파라미터로 변환한다.
-     * <p>
-     * 객체 용도:
-     * - VanInquiryResponse: VAN 후속조회 결과
-     * - AttemptResultUpdateParam: DB의 UNKNOWN_TIMEOUT row를 최종 상태로 바꾸기 위한 내부 명령 객체
-     * <p>
-     * APPROVED/DECLINED는 각각 approvalNo/declineCode를 저장하고,
-     * UNKNOWN_TIMEOUT/PROCESSING은 내부 정책상 UNKNOWN_TIMEOUT 유지 파라미터로 맞춘다.
-     */
-    private AttemptResultUpdateParam getAttemptResultUpdateParam(
-            VanInquiryResponse vanInquiryResp,
-            String trx,
-            int attemptSeq
-    ) {
-        String approvalNo = vanInquiryResp.approvalNo();
-        String vanTrxId = vanInquiryResp.vanTrxId();
-        String declineCode = toDeclineCode(vanInquiryResp.declineCode());
-
-        return switch (vanInquiryResp.finalStatus()) {
-            case APPROVED -> AttemptResultUpdateParam.approved(
-                    trx,
-                    attemptSeq,
-                    approvalNo,
-                    vanTrxId
-            );
-
-            case DECLINED -> AttemptResultUpdateParam.declined(
-                    trx,
-                    attemptSeq,
-                    declineCode,
-                    vanTrxId
-            );
-
-            case UNKNOWN_TIMEOUT,
-                 PROCESSING -> AttemptResultUpdateParam.unknownTimeout(
-                    trx,
-                    attemptSeq,
-                    declineCode,
-                    vanTrxId
-            );
-
-        };
 
     }
 
@@ -411,26 +367,6 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
             );
 
         };
-    }
-
-    /**
-     * 저장/응답/로그에 사용할 수 있는 최소 카드 요약을 만든다.
-     * <p>
-     * inquiry는 DB에 저장된 BIN/last4만 사용한다.
-     * 카드 원문을 다시 요구하지 않아도 후속조회/응답을 구성할 수 있게 하기 위한 최소 정보다.
-     */
-    private CardSummary getCardSummary(String cardBin, String cardLast4) {
-        return new CardSummary(cardBin, cardLast4, null);
-    }
-
-    /**
-     * VAN decline enum을 내부 저장/응답용 문자열 코드로 바꾼다.
-     * <p>
-     * 승인 성공 또는 미응답성 결과에서는 declineCode가 null일 수 있으므로 null-safe로 처리한다.
-     */
-    private String toDeclineCode(VanDeclineCode declineCode) {
-        if (declineCode == null) return null;
-        return declineCode.code();
     }
 
 }

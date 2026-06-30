@@ -25,7 +25,7 @@ public interface PaymentAttemptRepository {
     /**
      * 발급된 attemptSeq를 포함한 "승인 시도" 레코드를 저장한다.
      * - validate 통과 이후에만 호출하는 것을 원칙으로 한다.
-     * - cardBin/cardLast4 등 민감정보 제외 최소 카드정보만 저장한다.
+     * - PAN 원문 대신 cardBin/cardLast4와 HMAC fingerprint를 저장한다.
      * - (POS_TRX, ATTEMPT_SEQ) UNIQUE 위반 시 예외로 중복 시도를 감지한다.
      */
     void insertAttempt(AttemptInsertParam attempt);

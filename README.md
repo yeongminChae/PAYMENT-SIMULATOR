@@ -263,8 +263,12 @@ Approve APPROVED
 ### 애플리케이션 실행
 
 ```bash
-./gradlew bootRun
+CARD_SECRET_KEY=local-dev-card-fingerprint-secret-key-32bytes ./gradlew bootRun
 ```
+
+* `CARD_SECRET_KEY`는 HMAC 기반 `cardFingerprint` 생성에 사용되는 secret key입니다.
+* 로컬 실행 시에는 32바이트 이상의 개발용 값을 환경변수로 지정해야 합니다.
+* 실제 운영 secret 값은 커밋하지 않습니다.
 
 ### 전체 테스트 실행
 

@@ -79,6 +79,7 @@
         A.DECLINE_CODE AS declineCode,
         A.CARD_BIN AS cardBin,
         A.CARD_LAST4 AS cardLast4,
+        A.CARD_FINGERPRINT as cardFingerprint,
         A.ATTEMPT_SEQ AS attemptSeq,
         A.AMOUNT AS amount,
         A.VAN_TRX_ID AS vanTrxId

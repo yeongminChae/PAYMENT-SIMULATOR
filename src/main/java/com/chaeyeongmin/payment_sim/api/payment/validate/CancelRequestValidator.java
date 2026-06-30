@@ -4,12 +4,15 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.validate.enums.CancelValidationError;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
+import com.chaeyeongmin.payment_sim.common.policy.CardValidationPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
 public class CancelRequestValidator {
+
+    private final CardValidationPolicy cardValidationPolicy;
 
     public void validate(CancelRequest request) {
 
@@ -37,8 +40,23 @@ public class CancelRequestValidator {
         if (request.originalAttemptSeq() <= 0)
             return CancelValidationError.INVALID_ORIGINAL_ATTEMPT_SEQ;
 
+        CancelValidationError invalidCard = getCardValidationError(request);
+        if (invalidCard != null) return invalidCard;
+
         return null; // OK
 
+    }
+
+    /**
+     * 카드번호 유효성 체크.
+     * - null/blank, 길이, 숫자, Luhn 실패는 INVALID_CARD로 통일한다.
+     */
+    private CancelValidationError getCardValidationError(CancelRequest request) {
+        String cardNo = request.cardNo();
+        if (cardValidationPolicy.isValidCardNo(cardNo) == false)
+            return CancelValidationError.INVALID_CARD;
+
+        return null;
     }
 
     /**

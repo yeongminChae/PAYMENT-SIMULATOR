@@ -1,5 +1,6 @@
 package com.chaeyeongmin.payment_sim.api.payment.integration;
 
+import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -46,12 +47,14 @@ class Mvp2PaymentFlowIntegrationTest {
     private static final String APPROVE_POS_TRX_IT_2_CANCEL_DUPLICATE = "2376-20260601-9991-1105";
     private static final String APPROVE_POS_TRX_IT_2_CANCEL_CONFLICT = "2376-20260601-9991-1106";
     private static final String APPROVE_POS_TRX_IT_2_BIN = "2376-20260601-9991-1107";
+    private static final String APPROVE_POS_TRX_IT_2_CANCEL_CARD_MISMATCH = "2376-20260601-9991-1108";
 
     private static final String CANCEL_POS_TRX_IT_2_CANCEL_SUCCESS = "2376-20260601-9991-2101";
     private static final String FIRST_CANCEL_POS_TRX_IT_2_CANCEL_DUPLICATE = "2376-20260601-9991-2102";
     private static final String SECOND_CANCEL_POS_TRX_IT_2_CANCEL_DUPLICATE = "2376-20260601-9991-2103";
     private static final String EXISTING_CANCEL_POS_TRX_IT_2_CANCEL_CONFLICT = "2376-20260601-9991-2104";
     private static final String RETRY_CANCEL_POS_TRX_IT_2_CANCEL_CONFLICT = "2376-20260601-9991-2105";
+    private static final String CANCEL_POS_TRX_IT_2_CANCEL_CARD_MISMATCH = "2376-20260601-9991-2106";
 
     private static final List<String> APPROVE_POS_TRXS = List.of(
             APPROVE_POS_TRX_IT_2_API_DECLINED,
@@ -60,7 +63,8 @@ class Mvp2PaymentFlowIntegrationTest {
             APPROVE_POS_TRX_IT_2_CANCEL_SUCCESS,
             APPROVE_POS_TRX_IT_2_CANCEL_DUPLICATE,
             APPROVE_POS_TRX_IT_2_CANCEL_CONFLICT,
-            APPROVE_POS_TRX_IT_2_BIN
+            APPROVE_POS_TRX_IT_2_BIN,
+            APPROVE_POS_TRX_IT_2_CANCEL_CARD_MISMATCH
     );
 
     private static final List<String> CANCEL_POS_TRXS = List.of(
@@ -68,7 +72,8 @@ class Mvp2PaymentFlowIntegrationTest {
             FIRST_CANCEL_POS_TRX_IT_2_CANCEL_DUPLICATE,
             SECOND_CANCEL_POS_TRX_IT_2_CANCEL_DUPLICATE,
             EXISTING_CANCEL_POS_TRX_IT_2_CANCEL_CONFLICT,
-            RETRY_CANCEL_POS_TRX_IT_2_CANCEL_CONFLICT
+            RETRY_CANCEL_POS_TRX_IT_2_CANCEL_CONFLICT,
+            CANCEL_POS_TRX_IT_2_CANCEL_CARD_MISMATCH
     );
 
     @Autowired
@@ -79,6 +84,9 @@ class Mvp2PaymentFlowIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private CardFingerprintPolicy cardFingerprintPolicy;
 
     @BeforeEach
     void cleanBefore() {
@@ -138,6 +146,7 @@ class Mvp2PaymentFlowIntegrationTest {
                 attemptSeq,
                 "42424242",
                 "4242",
+                "4242424242424242",
                 "UNKNOWN_TIMEOUT",
                 null,
                 "TIMEOUT",
@@ -176,7 +185,8 @@ class Mvp2PaymentFlowIntegrationTest {
         JsonNode cancelResponse = cancel(
                 CANCEL_POS_TRX_IT_2_CANCEL_SUCCESS,
                 APPROVE_POS_TRX_IT_2_CANCEL_SUCCESS,
-                attemptSeq
+                attemptSeq,
+                "4242424242424242"
         );
 
         assertEquals("OK", cancelResponse.path("result_code").asText());
@@ -209,12 +219,14 @@ class Mvp2PaymentFlowIntegrationTest {
         JsonNode firstCancelResponse = cancel(
                 FIRST_CANCEL_POS_TRX_IT_2_CANCEL_DUPLICATE,
                 APPROVE_POS_TRX_IT_2_CANCEL_DUPLICATE,
-                attemptSeq
+                attemptSeq,
+                "4242424242424242"
         );
         JsonNode secondCancelResponse = cancel(
                 SECOND_CANCEL_POS_TRX_IT_2_CANCEL_DUPLICATE,
                 APPROVE_POS_TRX_IT_2_CANCEL_DUPLICATE,
-                attemptSeq
+                attemptSeq,
+                "4242424242424242"
         );
 
         assertEquals("OK", firstCancelResponse.path("result_code").asText());
@@ -257,6 +269,7 @@ class Mvp2PaymentFlowIntegrationTest {
                 attemptSeq,
                 "42424242",
                 "4242",
+                "4242424242424242",
                 "APPROVED",
                 "A000000001",
                 null,
@@ -271,7 +284,8 @@ class Mvp2PaymentFlowIntegrationTest {
         JsonNode cancelResponse = cancel(
                 RETRY_CANCEL_POS_TRX_IT_2_CANCEL_CONFLICT,
                 APPROVE_POS_TRX_IT_2_CANCEL_CONFLICT,
-                attemptSeq
+                attemptSeq,
+                "4242424242424242"
         );
 
         assertEquals("RETRY_LATER", cancelResponse.path("result_code").asText());
@@ -280,6 +294,40 @@ class Mvp2PaymentFlowIntegrationTest {
         assertEquals(
                 EXISTING_CANCEL_POS_TRX_IT_2_CANCEL_CONFLICT,
                 findPaymentCancel(APPROVE_POS_TRX_IT_2_CANCEL_CONFLICT, attemptSeq).get("CURRENT_TRX_NO")
+        );
+    }
+
+    @Test
+    @DisplayName("IT-2.1-CANCEL-CARD-002 취소 카드 fingerprint 불일치 시 CANCEL_NOT_ALLOWED")
+    void cancelCardFingerprintMismatch_shouldReturnCancelNotAllowedWithoutPersistingCancelRow() throws Exception {
+        // Given:
+        // - Approve API에 4242424242424242 카드를 전달해 APPROVED 원거래를 만든다.
+        // - 원승인 attempt에는 승인 요청 카드의 fingerprint가 저장된다.
+        // - 해당 원거래를 대상으로 아직 생성된 PAYMENT_CANCEL row는 없다.
+        JsonNode approveResponse = approve(APPROVE_POS_TRX_IT_2_CANCEL_CARD_MISMATCH);
+        int attemptSeq = attemptSeq(approveResponse);
+
+        assertEquals("OK", approveResponse.path("result_code").asText());
+        assertEquals("APPROVED", approveResponse.path("data").path("finalStatus").asText());
+
+        // When:
+        // - 원승인 카드와 다른 유효 카드번호 4111111111111111로 Cancel API를 호출한다.
+        JsonNode cancelResponse = cancel(
+                CANCEL_POS_TRX_IT_2_CANCEL_CARD_MISMATCH,
+                APPROVE_POS_TRX_IT_2_CANCEL_CARD_MISMATCH,
+                attemptSeq,
+                "4111111111111111"
+        );
+
+        // Then:
+        // - 카드 불일치 요청은 CANCEL_NOT_ALLOWED/CARD_MISMATCH로 종료된다.
+        // - C5 PENDING insert 전에 차단되므로 PAYMENT_CANCEL row가 생성되지 않는다.
+        assertEquals("CANCEL_NOT_ALLOWED", cancelResponse.path("result_code").asText());
+        assertEquals("CARD_MISMATCH", cancelResponse.path("message").asText());
+        assertTrue(cancelResponse.path("data").isNull());
+        assertEquals(
+                0,
+                countPaymentCancelByOriginal(APPROVE_POS_TRX_IT_2_CANCEL_CARD_MISMATCH, attemptSeq)
         );
     }
 
@@ -421,16 +469,22 @@ class Mvp2PaymentFlowIntegrationTest {
         );
     }
 
-    private JsonNode cancel(String posTrx, String originalPosTrx, int originalAttemptSeq) throws Exception {
+    private JsonNode cancel(
+            String posTrx,
+            String originalPosTrx,
+            int originalAttemptSeq,
+            String cardNo
+    ) throws Exception {
         return postJson(
                 "/api/v1/payments/cancel",
                 """
                 {
                   "posTrx": "%s",
                   "originalPosTrx": "%s",
-                  "originalAttemptSeq": %d
+                  "originalAttemptSeq": %d,
+                  "cardNo": "%s"
                 }
-                """.formatted(posTrx, originalPosTrx, originalAttemptSeq)
+                """.formatted(posTrx, originalPosTrx, originalAttemptSeq, cardNo)
         );
     }
 
@@ -550,6 +604,7 @@ class Mvp2PaymentFlowIntegrationTest {
             int attemptSeq,
             String cardBin,
             String cardLast4,
+            String cardNo,
             String finalStatus,
             String approvalNo,
             String declineCode,
@@ -563,18 +618,20 @@ class Mvp2PaymentFlowIntegrationTest {
                     AMOUNT,
                     CARD_BIN,
                     CARD_LAST4,
+                    CARD_FINGERPRINT,
                     FINAL_STATUS,
                     APPROVAL_NO,
                     DECLINE_CODE,
                     VAN_TRX_ID
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 posTrx,
                 attemptSeq,
                 10000,
                 cardBin,
                 cardLast4,
+                cardFingerprintPolicy.generate(cardNo),
                 finalStatus,
                 approvalNo,
                 declineCode,

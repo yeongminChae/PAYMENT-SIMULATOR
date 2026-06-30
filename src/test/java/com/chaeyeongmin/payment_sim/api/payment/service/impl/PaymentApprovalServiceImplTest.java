@@ -11,6 +11,7 @@ import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.CardIdentity;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
+import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentExternalInfoRepository;
@@ -59,6 +60,7 @@ class PaymentApprovalServiceImplTest {
     private PaymentEventLogRecorder paymentEventLogRecorder;
     private BinCatalogService binCatalogService;
     private PaymentExternalInfoRepository paymentExternalInfoRepository;
+    private CardFingerprintPolicy cardFingerprintPolicy;
 
     // 기본 정상 요청 (필드 세팅은 각 테스트에서 수정해서 사용)
     private ApproveRequest baseReq;
@@ -72,6 +74,7 @@ class PaymentApprovalServiceImplTest {
         paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
         binCatalogService = mock(BinCatalogService.class);
         paymentExternalInfoRepository = mock(PaymentExternalInfoRepository.class);
+        cardFingerprintPolicy = mock(CardFingerprintPolicy.class);
 
         service = new PaymentApprovalServiceImpl(
                 repository,
@@ -80,10 +83,17 @@ class PaymentApprovalServiceImplTest {
                 assembler,
                 paymentEventLogRecorder,
                 binCatalogService,
-                paymentExternalInfoRepository
+                paymentExternalInfoRepository,
+                cardFingerprintPolicy
         );
         when(binCatalogService.identify(anyString(), anyString())).thenAnswer(invocation ->
                 CardIdentity.unknown(invocation.getArgument(0), invocation.getArgument(1))
+        );
+        when(cardFingerprintPolicy.generate(anyString())).thenAnswer(invocation ->
+                "fp:" + invocation.getArgument(0)
+        );
+        when(cardFingerprintPolicy.matchesFingerprint(anyString(), anyString())).thenAnswer(invocation ->
+                invocation.getArgument(0).equals(invocation.getArgument(1))
         );
 
         baseReq = new ApproveRequest(
@@ -495,6 +505,40 @@ class PaymentApprovalServiceImplTest {
     }
 
     /**
+     * [UT_ID] UT-2.1-FP-004
+     *
+     * <p>
+     * 승인 신규 attempt 저장 시 PAN 원문 대신 HMAC fingerprint를 PAYMENT_ATTEMPT insert 인자로 전달한다.
+     */
+    @Test
+    void approve_newAttempt_shouldPersistCardFingerprint() {
+        String trx = baseReq.getPosTrx();
+        int attemptSeq = 1;
+        String pan = baseReq.getCard().getPan();
+        String generatedFingerprint = "a".repeat(64);
+        VanApproveRequest vanReq = vanApproveReq(trx, attemptSeq, 10000);
+
+        when(cardFingerprintPolicy.generate(pan)).thenReturn(generatedFingerprint);
+        when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.empty());
+        when(repository.insertAttemptSeq(trx)).thenReturn(attemptSeq);
+        when(assembler.getVanApproveRequest(trx, attemptSeq, baseReq)).thenReturn(vanReq);
+        when(gateway.approve(eq(vanReq))).thenReturn(vanApproveResApproved(trx, attemptSeq));
+        when(repository.updateAttemptResult(any())).thenReturn(Optional.of(updatedRowApproved(trx, attemptSeq)));
+
+        service.approve(baseReq);
+
+        ArgumentCaptor<AttemptInsertParam> attemptCaptor = ArgumentCaptor.forClass(AttemptInsertParam.class);
+        verify(repository).insertAttempt(attemptCaptor.capture());
+
+        String storedFingerprint = attemptCaptor.getValue().cardFingerprint();
+        assertEquals(generatedFingerprint, storedFingerprint);
+        assertFalse(storedFingerprint.isBlank());
+        assertFalse(storedFingerprint.contains(pan));
+        assertFalse(pan.contains(storedFingerprint));
+        org.assertj.core.api.Assertions.assertThat(storedFingerprint).matches("^[0-9a-f]{64}$");
+    }
+
+    /**
      * [UT_ID] UT-2-BIN-CATALOG-005
      *
      * <p>
@@ -607,6 +651,7 @@ class PaymentApprovalServiceImplTest {
                 declineCode,         // declineCode
                 "41111111",      // cardBin: baseReq.getCard().bin8()과 동일해야 멱등 재응답 payload로 인정된다.
                 "1111",        // cardLast4
+                "fp:4111111111111111",
                 attemptSeq,
                 10000,
                 "VAN-TRX-0001"
