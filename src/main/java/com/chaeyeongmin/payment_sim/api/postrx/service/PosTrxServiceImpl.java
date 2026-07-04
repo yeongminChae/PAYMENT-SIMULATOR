@@ -1,12 +1,18 @@
 package com.chaeyeongmin.payment_sim.api.postrx.service;
 
-import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxEotRequest;
 import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxEotResponse;
 import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxIssueRequest;
 import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxIssueResponse;
+import com.chaeyeongmin.payment_sim.common.api.ResultCode;
+import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.infra.repository.PosTrxSequenceRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
 
 /**
  * PosTrxServiceImpl
@@ -25,12 +31,32 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class PosTrxServiceImpl implements PosTrxService {
 
+    private static final String INVALID_POS_TRX_ISSUE_REQUEST = "INVALID_POS_TRX_ISSUE_REQUEST";
+    private static final String POS_TRX_SEQUENCE_OUT_OF_RANGE = "POS_TRX_SEQUENCE_OUT_OF_RANGE";
+    private static final DateTimeFormatter BIZ_DATE_FORMATTER =
+            DateTimeFormatter.ofPattern("uuuuMMdd")
+                    .withResolverStyle(ResolverStyle.STRICT);
+
     private final PosTrxSequenceRepository posTrxSequenceRepository;
 
     @Override
     public PosTrxIssueResponse issue(PosTrxIssueRequest request) {
-        // TODO: POS_TRX_SEQUENCE 사용해서 pos_trx 발급
-        return new PosTrxIssueResponse(null);
+        validateIssueRequest(request);
+
+        String storeCd = request.storeCd();
+        String bizDate = request.bizDate();
+        String posNo = request.posNo();
+
+        long nextSeq = posTrxSequenceRepository.nextSeq(storeCd, bizDate, posNo);
+
+        if (nextSeq < 1 || nextSeq > 9999) {
+            throw new BusinessException(ResultCode.INTERNAL_ERROR, POS_TRX_SEQUENCE_OUT_OF_RANGE);
+        }
+
+        String posTrx = String.format("%s-%s-%s-%04d", storeCd, bizDate, posNo, nextSeq);
+
+        return new PosTrxIssueResponse(posTrx);
+
     }
 
     /**
@@ -41,43 +67,48 @@ public class PosTrxServiceImpl implements PosTrxService {
      * [20260125] 결함 수정 UT_ID_EOT_002, UT_ID_EOT_004
      */
     @Override
-    public PosTrxEotResponse eot(PosTrxEotRequest request) {
-
-        // [20260125] 결함 수정
-        // 결함 사항 : UT_ID_EOT_002 실패
-        // 수정 사항 : 입력 값, 유효성 체크 후, 예외 리턴 하게끔 수정
-        if (isIllegalValidation(request))
-            throw new IllegalArgumentException("입력 값 유효성 검사에 실패 했습니다.");
-
-        String storeCd = request.getStoreCd();
-        String bizDate = request.getBizDate();
-        String posNo = request.getPosNo();
-        long nextSeq = posTrxSequenceRepository.nextSeq(storeCd, bizDate, posNo);
-
-        // [20260125] 결함 수정
-        // 결함 사항 : UT_ID_EOT_004 실패
-        // 수정 사항 : repo.nextSeq(...) 결과가 포스TR 규격 범위를 벗어날 시, 예외 리턴
-        if (nextSeq < 1 || nextSeq > 9999)
-            throw new IllegalStateException("관리자 호출 필요, 사유 : 포스 TR은 1부터 9999 사이 값 이어야 합니다.");
+    public PosTrxEotResponse eot(PosTrxIssueRequest request) {
+        PosTrxIssueResponse issueResponse = issue(request);
 
         return new PosTrxEotResponse(
-                storeCd,
-                bizDate,
-                posNo,
-                // 최종 포스 TR 제작
-                String.format("%s-%s-%s-%04d", storeCd, bizDate, posNo, nextSeq)
+                request.storeCd(),
+                request.bizDate(),
+                request.posNo(),
+                issueResponse.getPos_trx()
         );
     }
 
-    private boolean isIllegalValidation(PosTrxEotRequest request) {
-        return request == null
-                || isNullOrBlank(request.getStoreCd())
-                || isNullOrBlank(request.getBizDate())
-                || isNullOrBlank(request.getPosNo());
+    private void validateIssueRequest(PosTrxIssueRequest request) {
+        if (request == null
+                || isNullOrBlank(request.storeCd())
+                || isNullOrBlank(request.bizDate())
+                || isNullOrBlank(request.posNo())
+                || isFourDigitNumber(request.storeCd()) == false
+                || isValidBizDate(request.bizDate()) == false
+                || isFourDigitNumber(request.posNo()) == false) {
+            throw new BusinessException(ResultCode.INVALID, INVALID_POS_TRX_ISSUE_REQUEST);
+        }
     }
 
     private boolean isNullOrBlank(String str) {
         return str == null || str.isBlank();
+    }
+
+    private boolean isFourDigitNumber(String value) {
+        return value != null && value.matches("\\d{4}");
+    }
+
+    private boolean isValidBizDate(String bizDate) {
+        if (bizDate == null || bizDate.matches("\\d{8}") == false) {
+            return false;
+        }
+
+        try {
+            LocalDate.parse(bizDate, BIZ_DATE_FORMATTER);
+            return true;
+        } catch (DateTimeParseException e) {
+            return false;
+        }
     }
 
 }

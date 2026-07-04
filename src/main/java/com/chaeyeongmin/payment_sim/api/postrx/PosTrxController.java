@@ -1,6 +1,5 @@
 package com.chaeyeongmin.payment_sim.api.postrx;
 
-import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxEotRequest;
 import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxEotResponse;
 import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxIssueRequest;
 import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxIssueResponse;
@@ -41,7 +40,7 @@ public class PosTrxController {
      * - 포스TR(거래번호) 발급 요청 API.
      */
     @PostMapping("/issue")
-    public ApiResponse<PosTrxIssueResponse> issue(@RequestBody PosTrxIssueRequest request) {
+    public ApiResponse<PosTrxIssueResponse> issue(@Valid @RequestBody PosTrxIssueRequest request) {
         return ApiResponse.ok(posTrxService.issue(request));
     }
 
@@ -50,11 +49,11 @@ public class PosTrxController {
      * - EOT(End Of Transaction) 시점에 "다음 포스TR(거래번호)"를 발급하는 API.
      */
     @PostMapping("/eot")
-    public ApiResponse<PosTrxEotResponse> eot(@Valid @RequestBody PosTrxEotRequest request) {
+    public ApiResponse<PosTrxEotResponse> eot(@Valid @RequestBody PosTrxIssueRequest request) {
 
         // 요청 로깅
         log.info("[EOT] req storeCd={} bizDate={} posNo={}",
-                request.getStoreCd(), request.getBizDate(), request.getPosNo());
+                request.storeCd(), request.bizDate(), request.posNo());
 
         PosTrxEotResponse res = posTrxService.eot(request);
 

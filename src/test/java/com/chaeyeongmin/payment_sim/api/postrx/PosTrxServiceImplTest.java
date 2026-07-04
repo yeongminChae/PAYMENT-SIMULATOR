@@ -1,9 +1,12 @@
 package com.chaeyeongmin.payment_sim.api.postrx;
 
-import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxEotRequest;
+import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxIssueRequest;
 import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxEotResponse;
+import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxIssueResponse;
 import com.chaeyeongmin.payment_sim.api.postrx.service.PosTrxService;
 import com.chaeyeongmin.payment_sim.api.postrx.service.PosTrxServiceImpl;
+import com.chaeyeongmin.payment_sim.common.api.ResultCode;
+import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.infra.repository.PosTrxSequenceRepository;
 
 import lombok.extern.slf4j.Slf4j;
@@ -18,7 +21,7 @@ import static org.mockito.Mockito.*;
 /**
  * PosTrxServiceImpl 단위 테스트(UT)
  * <p>
- * - 대상: PosTrxServiceImpl.eot()
+ * - 대상: PosTrxServiceImpl.issue(), PosTrxServiceImpl.eot()
  * - 범위: Mockito로 Repository를 Mock 처리하여 서비스 로직만 검증한다.
  */
 
@@ -30,6 +33,10 @@ class PosTrxServiceImplTest {
     private static final String UT_ID_EOT_002 = "UT-POS-TRX-EOT-002";
     private static final String UT_ID_EOT_003 = "UT-POS-TRX-EOT-003";
     private static final String UT_ID_EOT_004 = "UT-POS-TRX-EOT-004";
+    private static final String UT_ID_ISSUE_001 = "UT-POS-TRX-ISSUE-001";
+    private static final String UT_ID_ISSUE_002 = "UT-POS-TRX-ISSUE-002";
+    private static final String UT_ID_ISSUE_003 = "UT-POS-TRX-ISSUE-003";
+    private static final String UT_ID_ISSUE_004 = "UT-POS-TRX-ISSUE-004";
 
     private PosTrxSequenceRepository repo;
     private PosTrxService service;
@@ -39,6 +46,100 @@ class PosTrxServiceImplTest {
     void setUp() {
         repo = mock(PosTrxSequenceRepository.class);
         service = new PosTrxServiceImpl(repo);
+    }
+
+    /**
+     * [UT_ID] UT-POS-TRX-ISSUE-001
+     * <p>
+     * [시나리오]
+     * - Given: storeCd/bizDate/posNo가 정상으로 들어온다
+     * - When : issue() 호출
+     * - Then : 응답에 pos_trx(포스TR) 문자열이 규격대로 조립되어 내려온다
+     * - And  : 포스TR 마지막 4자리는 repo.nextSeq(...) 기반으로 0패딩되어 반영된다(예: 0007)
+     */
+    @Test
+    @DisplayName("[" + UT_ID_ISSUE_001 + "] ISSUE 호출 시 포스TR 발급 성공")
+    void issueTest1() {
+        // given
+        when(repo.nextSeq("2301", "20260121", "9999"))
+                .thenReturn(7L);
+
+        PosTrxIssueRequest req = new PosTrxIssueRequest("2301", "20260121", "9999");
+
+        // when
+        PosTrxIssueResponse res = service.issue(req);
+
+        // then
+        assertEquals("2301-20260121-9999-0007", res.getPos_trx());
+        verify(repo, times(1)).nextSeq("2301", "20260121", "9999");
+    }
+
+    /**
+     * [UT_ID] UT-POS-TRX-ISSUE-002
+     * <p>
+     * [시나리오]
+     * - Given: storeCd/bizDate/posNo 중 하나가 null 또는 blank로 들어온다
+     * - When : issue() 호출
+     * - Then : 서비스는 BusinessException(ResultCode.INVALID)을 던진다(입력 검증 실패)
+     * - And  : 입력 검증에서 차단되므로 repo.nextSeq(...)는 호출되지 않는다
+     */
+    @Test
+    @DisplayName("[" + UT_ID_ISSUE_002 + "] ISSUE 필수값 누락: storeCd/bizDate/posNo 중 하나가 null/blank")
+    void issueTest2() {
+        // given
+        PosTrxIssueRequest req = new PosTrxIssueRequest("2301", null, "9999");
+
+        // when + then
+        BusinessException exception = assertThrows(BusinessException.class, () -> service.issue(req));
+        assertEquals(ResultCode.INVALID, exception.getResultCode());
+        verifyNoInteractions(repo);
+    }
+
+    /**
+     * [UT_ID] UT-POS-TRX-ISSUE-003
+     * <p>
+     * [시나리오]
+     * - Given: repo.nextSeq(...) 호출 시 저장소 오류(예: DB 락/장애)로 RuntimeException이 발생한다
+     * - When : issue() 호출
+     * - Then : 서비스는 해당 예외를 상위로 전파한다
+     * - And  : repo.nextSeq(...)는 정확히 1회 호출된다
+     */
+    @Test
+    @DisplayName("[" + UT_ID_ISSUE_003 + "] ISSUE 레포지토리가 예외를 리턴 했을 경우")
+    void issueTest3() {
+        // given
+        when(repo.nextSeq("2301", "20260121", "9999"))
+                .thenThrow(new RuntimeException("DB 락 다운"));
+
+        PosTrxIssueRequest req = new PosTrxIssueRequest("2301", "20260121", "9999");
+
+        // when + then
+        assertThrows(RuntimeException.class, () -> service.issue(req));
+        verify(repo, times(1)).nextSeq("2301", "20260121", "9999");
+    }
+
+    /**
+     * [UT_ID] UT-POS-TRX-ISSUE-004
+     * <p>
+     * [시나리오]
+     * - Given: repo.nextSeq(...) 결과가 포스TR 규격 범위를 벗어난 값이다(예: -1 또는 10000 이상 등)
+     * - When : issue() 호출
+     * - Then : 서비스는 BusinessException(ResultCode.INTERNAL_ERROR)을 던진다(규격/정합성 검증 실패)
+     * - And  : repo.nextSeq(...)는 1회 호출되며, 서비스 레이어에서 결과값을 검증 후 예외 처리한다
+     */
+    @Test
+    @DisplayName("[" + UT_ID_ISSUE_004 + "] ISSUE 포스 TR 규격(0001~9999) 초과 시")
+    void issueTest4() {
+        // given
+        when(repo.nextSeq("2301", "20260121", "9999"))
+                .thenReturn(10000L);
+
+        PosTrxIssueRequest req = new PosTrxIssueRequest("2301", "20260121", "9999");
+
+        // when + then
+        BusinessException exception = assertThrows(BusinessException.class, () -> service.issue(req));
+        assertEquals(ResultCode.INTERNAL_ERROR, exception.getResultCode());
+        verify(repo, times(1)).nextSeq("2301", "20260121", "9999");
     }
 
     /**
@@ -57,7 +158,7 @@ class PosTrxServiceImplTest {
         when(repo.nextSeq("2301", "20260121", "9999"))
                 .thenReturn(22L);
 
-        PosTrxEotRequest req = new PosTrxEotRequest("2301", "20260121", "9999");
+        PosTrxIssueRequest req = new PosTrxIssueRequest("2301", "20260121", "9999");
 
         // when
         PosTrxEotResponse res = service.eot(req);
@@ -73,17 +174,18 @@ class PosTrxServiceImplTest {
      * [시나리오]
      * - Given: storeCd/bizDate/posNo 중 하나가 null 또는 blank로 들어온다
      * - When : eot() 호출
-     * - Then : 서비스는 IllegalArgumentException을 던진다(입력 검증 실패)
+     * - Then : 서비스는 BusinessException(ResultCode.INVALID)을 던진다(입력 검증 실패)
      * - And  : 입력 검증에서 차단되므로 repo.nextSeq(...)는 호출되지 않는다
      */
     @Test
     @DisplayName("[" + UT_ID_EOT_002 + "] 필수값 누락: storeCd/bizDate/posNo 중 하나가 null/blank")
     void eotTest2() {
         // given
-        PosTrxEotRequest req = new PosTrxEotRequest("  ", "20260121", "9999");
+        PosTrxIssueRequest req = new PosTrxIssueRequest("  ", "20260121", "9999");
 
         // when + then
-        assertThrows(IllegalArgumentException.class, () -> service.eot(req));
+        BusinessException exception = assertThrows(BusinessException.class, () -> service.eot(req));
+        assertEquals(ResultCode.INVALID, exception.getResultCode());
         verifyNoInteractions(repo);
     }
 
@@ -103,7 +205,7 @@ class PosTrxServiceImplTest {
         when(repo.nextSeq("2301", "20260121", "9999"))
                 .thenThrow(new RuntimeException("DB 락 다운"));
 
-        PosTrxEotRequest req = new PosTrxEotRequest("2301", "20260121", "9999");
+        PosTrxIssueRequest req = new PosTrxIssueRequest("2301", "20260121", "9999");
 
         // when + then
         assertThrows(RuntimeException.class, () -> service.eot(req));
@@ -116,7 +218,7 @@ class PosTrxServiceImplTest {
      * [시나리오]
      * - Given: repo.nextSeq(...) 결과가 포스TR 규격 범위를 벗어난 값이다(예: -1 또는 10000 이상 등)
      * - When : eot() 호출
-     * - Then : 서비스는 IllegalStateException을 던진다(규격/정합성 검증 실패)
+     * - Then : 서비스는 BusinessException(ResultCode.INTERNAL_ERROR)을 던진다(규격/정합성 검증 실패)
      * - And  : repo.nextSeq(...)는 1회 호출되며, 서비스 레이어에서 결과값을 검증 후 예외 처리한다
      */
     @Test
@@ -126,10 +228,11 @@ class PosTrxServiceImplTest {
         when(repo.nextSeq("2301", "20260121", "9999"))
                 .thenReturn(-1L);
 
-        PosTrxEotRequest req = new PosTrxEotRequest("2301", "20260121", "9999");
+        PosTrxIssueRequest req = new PosTrxIssueRequest("2301", "20260121", "9999");
 
         // when + then
-        assertThrows(IllegalStateException.class, () -> service.eot(req));
+        BusinessException exception = assertThrows(BusinessException.class, () -> service.eot(req));
+        assertEquals(ResultCode.INTERNAL_ERROR, exception.getResultCode());
         verify(repo, times(1)).nextSeq("2301", "20260121", "9999");
     }
 
