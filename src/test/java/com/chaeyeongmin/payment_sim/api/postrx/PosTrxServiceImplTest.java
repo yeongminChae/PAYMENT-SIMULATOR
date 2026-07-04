@@ -5,6 +5,8 @@ import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxEotResponse;
 import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxIssueResponse;
 import com.chaeyeongmin.payment_sim.api.postrx.service.PosTrxService;
 import com.chaeyeongmin.payment_sim.api.postrx.service.PosTrxServiceImpl;
+import com.chaeyeongmin.payment_sim.common.api.ResultCode;
+import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.infra.repository.PosTrxSequenceRepository;
 
 import lombok.extern.slf4j.Slf4j;
@@ -78,7 +80,7 @@ class PosTrxServiceImplTest {
      * [시나리오]
      * - Given: storeCd/bizDate/posNo 중 하나가 null 또는 blank로 들어온다
      * - When : issue() 호출
-     * - Then : 서비스는 IllegalArgumentException을 던진다(입력 검증 실패)
+     * - Then : 서비스는 BusinessException(ResultCode.INVALID)을 던진다(입력 검증 실패)
      * - And  : 입력 검증에서 차단되므로 repo.nextSeq(...)는 호출되지 않는다
      */
     @Test
@@ -88,7 +90,8 @@ class PosTrxServiceImplTest {
         PosTrxIssueRequest req = new PosTrxIssueRequest("2301", null, "9999");
 
         // when + then
-        assertThrows(IllegalArgumentException.class, () -> service.issue(req));
+        BusinessException exception = assertThrows(BusinessException.class, () -> service.issue(req));
+        assertEquals(ResultCode.INVALID, exception.getResultCode());
         verifyNoInteractions(repo);
     }
 
@@ -121,7 +124,7 @@ class PosTrxServiceImplTest {
      * [시나리오]
      * - Given: repo.nextSeq(...) 결과가 포스TR 규격 범위를 벗어난 값이다(예: -1 또는 10000 이상 등)
      * - When : issue() 호출
-     * - Then : 서비스는 IllegalStateException을 던진다(규격/정합성 검증 실패)
+     * - Then : 서비스는 BusinessException(ResultCode.INTERNAL_ERROR)을 던진다(규격/정합성 검증 실패)
      * - And  : repo.nextSeq(...)는 1회 호출되며, 서비스 레이어에서 결과값을 검증 후 예외 처리한다
      */
     @Test
@@ -134,7 +137,8 @@ class PosTrxServiceImplTest {
         PosTrxIssueRequest req = new PosTrxIssueRequest("2301", "20260121", "9999");
 
         // when + then
-        assertThrows(IllegalStateException.class, () -> service.issue(req));
+        BusinessException exception = assertThrows(BusinessException.class, () -> service.issue(req));
+        assertEquals(ResultCode.INTERNAL_ERROR, exception.getResultCode());
         verify(repo, times(1)).nextSeq("2301", "20260121", "9999");
     }
 
@@ -170,7 +174,7 @@ class PosTrxServiceImplTest {
      * [시나리오]
      * - Given: storeCd/bizDate/posNo 중 하나가 null 또는 blank로 들어온다
      * - When : eot() 호출
-     * - Then : 서비스는 IllegalArgumentException을 던진다(입력 검증 실패)
+     * - Then : 서비스는 BusinessException(ResultCode.INVALID)을 던진다(입력 검증 실패)
      * - And  : 입력 검증에서 차단되므로 repo.nextSeq(...)는 호출되지 않는다
      */
     @Test
@@ -180,7 +184,8 @@ class PosTrxServiceImplTest {
         PosTrxIssueRequest req = new PosTrxIssueRequest("  ", "20260121", "9999");
 
         // when + then
-        assertThrows(IllegalArgumentException.class, () -> service.eot(req));
+        BusinessException exception = assertThrows(BusinessException.class, () -> service.eot(req));
+        assertEquals(ResultCode.INVALID, exception.getResultCode());
         verifyNoInteractions(repo);
     }
 
@@ -213,7 +218,7 @@ class PosTrxServiceImplTest {
      * [시나리오]
      * - Given: repo.nextSeq(...) 결과가 포스TR 규격 범위를 벗어난 값이다(예: -1 또는 10000 이상 등)
      * - When : eot() 호출
-     * - Then : 서비스는 IllegalStateException을 던진다(규격/정합성 검증 실패)
+     * - Then : 서비스는 BusinessException(ResultCode.INTERNAL_ERROR)을 던진다(규격/정합성 검증 실패)
      * - And  : repo.nextSeq(...)는 1회 호출되며, 서비스 레이어에서 결과값을 검증 후 예외 처리한다
      */
     @Test
@@ -226,7 +231,8 @@ class PosTrxServiceImplTest {
         PosTrxIssueRequest req = new PosTrxIssueRequest("2301", "20260121", "9999");
 
         // when + then
-        assertThrows(IllegalStateException.class, () -> service.eot(req));
+        BusinessException exception = assertThrows(BusinessException.class, () -> service.eot(req));
+        assertEquals(ResultCode.INTERNAL_ERROR, exception.getResultCode());
         verify(repo, times(1)).nextSeq("2301", "20260121", "9999");
     }
 

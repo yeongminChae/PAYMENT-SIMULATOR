@@ -38,7 +38,7 @@ logging:
     root: INFO
 
     # 코드 로그(패키지명에 맞춰 조정)
-    com.chaeyoungmin.payment_sim: DEBUG
+    com.chaeyeongmin.payment_sim: DEBUG
 
     # MyBatis / SQL 로그
     org.mybatis: DEBUG
