@@ -1,6 +1,5 @@
 package com.chaeyeongmin.payment_sim.api.postrx.service;
 
-import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxEotRequest;
 import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxEotResponse;
 import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxIssueRequest;
 import com.chaeyeongmin.payment_sim.api.postrx.dto.PosTrxIssueResponse;
@@ -29,8 +28,24 @@ public class PosTrxServiceImpl implements PosTrxService {
 
     @Override
     public PosTrxIssueResponse issue(PosTrxIssueRequest request) {
-        // TODO: POS_TRX_SEQUENCE 사용해서 pos_trx 발급
-        return new PosTrxIssueResponse(null);
+        if (isIllegalValidation(request)) {
+            throw new IllegalArgumentException("입력 값 유효성 검사에 실패 했습니다.");
+        }
+
+        String storeCd = request.storeCd();
+        String bizDate = request.bizDate();
+        String posNo = request.posNo();
+
+        long nextSeq = posTrxSequenceRepository.nextSeq(storeCd, bizDate, posNo);
+
+        if (nextSeq < 1 || nextSeq > 9999) {
+            throw new IllegalStateException("관리자 호출 필요, 사유 : 포스 TR은 1부터 9999 사이 값 이어야 합니다.");
+        }
+
+        String posTrx = String.format("%s-%s-%s-%04d", storeCd, bizDate, posNo, nextSeq);
+
+        return new PosTrxIssueResponse(posTrx);
+
     }
 
     /**
@@ -41,39 +56,22 @@ public class PosTrxServiceImpl implements PosTrxService {
      * [20260125] 결함 수정 UT_ID_EOT_002, UT_ID_EOT_004
      */
     @Override
-    public PosTrxEotResponse eot(PosTrxEotRequest request) {
-
-        // [20260125] 결함 수정
-        // 결함 사항 : UT_ID_EOT_002 실패
-        // 수정 사항 : 입력 값, 유효성 체크 후, 예외 리턴 하게끔 수정
-        if (isIllegalValidation(request))
-            throw new IllegalArgumentException("입력 값 유효성 검사에 실패 했습니다.");
-
-        String storeCd = request.getStoreCd();
-        String bizDate = request.getBizDate();
-        String posNo = request.getPosNo();
-        long nextSeq = posTrxSequenceRepository.nextSeq(storeCd, bizDate, posNo);
-
-        // [20260125] 결함 수정
-        // 결함 사항 : UT_ID_EOT_004 실패
-        // 수정 사항 : repo.nextSeq(...) 결과가 포스TR 규격 범위를 벗어날 시, 예외 리턴
-        if (nextSeq < 1 || nextSeq > 9999)
-            throw new IllegalStateException("관리자 호출 필요, 사유 : 포스 TR은 1부터 9999 사이 값 이어야 합니다.");
+    public PosTrxEotResponse eot(PosTrxIssueRequest request) {
+        PosTrxIssueResponse issueResponse = issue(request);
 
         return new PosTrxEotResponse(
-                storeCd,
-                bizDate,
-                posNo,
-                // 최종 포스 TR 제작
-                String.format("%s-%s-%s-%04d", storeCd, bizDate, posNo, nextSeq)
+                request.storeCd(),
+                request.bizDate(),
+                request.posNo(),
+                issueResponse.getPos_trx()
         );
     }
 
-    private boolean isIllegalValidation(PosTrxEotRequest request) {
+    private boolean isIllegalValidation(PosTrxIssueRequest request) {
         return request == null
-                || isNullOrBlank(request.getStoreCd())
-                || isNullOrBlank(request.getBizDate())
-                || isNullOrBlank(request.getPosNo());
+                || isNullOrBlank(request.storeCd())
+                || isNullOrBlank(request.bizDate())
+                || isNullOrBlank(request.posNo());
     }
 
     private boolean isNullOrBlank(String str) {
