@@ -54,7 +54,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
     private final PaymentCancelRepository repository;
     private final VanGateway vanGateway;
     private final CancelRequestValidator validator;
-    private final VanCancelAssembler assembler;
+    private final VanCancelAssembler vanCancelAssembler;
     private final CancelCardVerificationPolicy policy;
     private final CancelResponseFactory factory;
     private final CancelEventRecorder recorder;
@@ -358,7 +358,13 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // - CancelRequest에는 현취소 거래번호와 원거래 식별자가 있다.
         // - originalAttempt에는 원승인 금액/승인번호/카드요약 등 VAN 취소에 필요한 원거래 정보가 있다.
         // - assembler는 두 객체를 합쳐 VAN 계약에 맞는 취소 전문을 만든다.
-        VanCancelRequest vanCancelRequest = assembler.getVanCancelRequest(request, originalAttempt);
+        VanCancelRequest vanCancelRequest =
+                vanCancelAssembler.assemble(
+                        request.posTrx(),
+                        request.originalPosTrx(),
+                        request.originalAttemptSeq(),
+                        originalAttempt
+                );
 
         recorder.recordCancelEvent(
                 PaymentEventType.CANCEL_VAN_REQUESTED,

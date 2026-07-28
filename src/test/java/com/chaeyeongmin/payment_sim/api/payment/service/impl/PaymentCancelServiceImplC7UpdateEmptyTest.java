@@ -202,7 +202,12 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
                 .thenReturn(Optional.of(pendingCancel()));
 
         // C6 VAN 요청 조립
-        when(vanCancelAssembler.getVanCancelRequest(any(), any()))
+        when(vanCancelAssembler.assemble(
+                anyString(),
+                anyString(),
+                anyInt(),
+                any(PaymentAttempt.class)
+        ))
                 .thenReturn(vanCancelRequest());
 
         // C6 VAN 취소 응답
@@ -219,7 +224,12 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
         // C5 conflict는 VAN 호출 전 insert 권한 획득에 실패한 흐름이고,
         // C7 update empty는 이미 VAN cancel을 1회 호출한 뒤 DB update 결과만 놓친 흐름이다.
         verify(vanCancelAssembler, times(1))
-                .getVanCancelRequest(any(), any());
+                .assemble(
+                        anyString(),
+                        anyString(),
+                        anyInt(),
+                        any(PaymentAttempt.class)
+                );
 
         verify(vanGateway, times(1))
                 .cancel(any(VanCancelRequest.class));

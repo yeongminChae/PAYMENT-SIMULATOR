@@ -1,6 +1,5 @@
 package com.chaeyeongmin.payment_sim.van.client.assembler;
 
-import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelRequest;
 import com.chaeyeongmin.payment_sim.van.client.policy.VanTraceIdPolicy;
@@ -12,14 +11,12 @@ import org.springframework.stereotype.Component;
 public class VanCancelAssembler {
     private final VanTraceIdPolicy vanTraceIdPolicy;
 
-    public VanCancelRequest getVanCancelRequest(
-            CancelRequest req,
+    public VanCancelRequest assemble(
+            String cancelPosTrx,
+            String originalPosTrx,
+            int originalAttemptSeq,
             PaymentAttempt originalAttempt
     ) {
-        String posTrx = req.posTrx();
-        String originalPosTrx = req.originalPosTrx();
-        int originalAttemptSeq = req.originalAttemptSeq();
-
         String vanTrxId = vanTraceIdPolicy.resolveVanTrxId(
                 originalPosTrx,
                 originalAttemptSeq,
@@ -27,7 +24,7 @@ public class VanCancelAssembler {
         );
 
         return VanCancelRequest.builder()
-                .posTrx(posTrx)
+                .posTrx(cancelPosTrx)
                 .originalPosTrx(originalPosTrx)
                 .originalAttemptSeq(originalAttemptSeq)
                 .amount(originalAttempt.amount())

@@ -475,8 +475,12 @@ class PaymentCancelServiceImplIdempotencyTest {
         )).thenReturn(Optional.empty());
         when(repository.insertPendingCancel(any(CancelInsertParam.class)))
                 .thenReturn(Optional.of(pendingCancel));
-        when(vanCancelAssembler.getVanCancelRequest(request, originalAttempt))
-                .thenReturn(vanRequest);
+        when(vanCancelAssembler.assemble(
+                eq(request.posTrx()),
+                eq(request.originalPosTrx()),
+                eq(request.originalAttemptSeq()),
+                eq(originalAttempt)
+        )).thenReturn(vanRequest);
         when(vanGateway.cancel(vanRequest))
                 .thenReturn(vanCancelResCancelled(request, "C777777777"));
         when(repository.updateCancelResult(any(CancelResultUpdateParam.class)))
@@ -508,7 +512,12 @@ class PaymentCancelServiceImplIdempotencyTest {
         verify(repository, never()).findByOriginalPosTrxAndOriginalAttemptSeq(any(), anyInt());
         verify(repository, never()).insertPendingCancel(any(CancelInsertParam.class));
         verify(vanGateway, never()).cancel(any(VanCancelRequest.class));
-        verify(vanCancelAssembler, never()).getVanCancelRequest(any(), any());
+        verify(vanCancelAssembler, never()).assemble(
+                anyString(),
+                anyString(),
+                anyInt(),
+                any(PaymentAttempt.class)
+        );
         verify(repository, never()).updateCancelResult(any(CancelResultUpdateParam.class));
     }
 
@@ -524,7 +533,12 @@ class PaymentCancelServiceImplIdempotencyTest {
         );
         verify(repository, never()).insertPendingCancel(any(CancelInsertParam.class));
         verify(vanGateway, never()).cancel(any(VanCancelRequest.class));
-        verify(vanCancelAssembler, never()).getVanCancelRequest(any(), any());
+        verify(vanCancelAssembler, never()).assemble(
+                anyString(),
+                anyString(),
+                anyInt(),
+                any(PaymentAttempt.class)
+        );
         verify(repository, never()).updateCancelResult(any(CancelResultUpdateParam.class));
     }
 

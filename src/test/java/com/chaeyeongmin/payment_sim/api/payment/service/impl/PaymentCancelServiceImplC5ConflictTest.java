@@ -253,7 +253,12 @@ class PaymentCancelServiceImplC5ConflictTest {
     private void assertNoVanCancelCall() {
         // C5 insert conflict 경로는 VAN 호출 권한을 얻지 못한 중복/경합 요청이다.
         // 따라서 VAN request 조립도, VAN cancel 호출도 없어야 한다.
-        verify(vanCancelAssembler, never()).getVanCancelRequest(any(), any());
+        verify(vanCancelAssembler, never()).assemble(
+                anyString(),
+                anyString(),
+                anyInt(),
+                any(PaymentAttempt.class)
+        );
         verify(vanGateway, never()).cancel(any());
     }
 

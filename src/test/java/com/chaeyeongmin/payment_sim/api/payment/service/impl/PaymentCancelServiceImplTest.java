@@ -345,8 +345,7 @@ class PaymentCancelServiceImplTest {
         when(repository.insertPendingCancel(any()))
                 .thenReturn(Optional.of(pendingCancel()));
 
-        when(vanCancelAssembler.getVanCancelRequest(baseReq, originalApprovedAttempt()))
-                .thenReturn(vanCancelRequest());
+        stubCancelAssemble(baseReq, originalApprovedAttempt(), vanCancelRequest());
 
         when(vanGateway.cancel(vanCancelRequest()))
                 .thenReturn(vanCancelResCancelled());
@@ -362,7 +361,7 @@ class PaymentCancelServiceImplTest {
         assertEquals(cancelledCancel().cancelApprovalNo(), res.cancelApprovalNo());
 
         verify(repository).insertPendingCancel(any());
-        verify(vanCancelAssembler).getVanCancelRequest(baseReq, originalApprovedAttempt());
+        verifyCancelAssemble(baseReq, originalApprovedAttempt());
         verify(vanGateway).cancel(vanCancelRequest());
         verify(repository).updateCancelResult(any());
     }
@@ -410,8 +409,7 @@ class PaymentCancelServiceImplTest {
                 .thenReturn(Optional.of(pendingCancel));
 
         // C6 VAN cancel request 조립
-        when(vanCancelAssembler.getVanCancelRequest(baseReq, originalAttempt))
-                .thenReturn(vanReq);
+        stubCancelAssemble(baseReq, originalAttempt, vanReq);
 
         // C6 VAN cancel 결과 CANCEL_DECLINED
         when(vanGateway.cancel(vanReq))
@@ -431,7 +429,7 @@ class PaymentCancelServiceImplTest {
         verify(repository).findOriginalAttempt(originalPosTrx, originalAttemptSeq);
         verify(repository).findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq);
         verify(repository).insertPendingCancel(any(CancelInsertParam.class));
-        verify(vanCancelAssembler).getVanCancelRequest(baseReq, originalAttempt);
+        verifyCancelAssemble(baseReq, originalAttempt);
         verify(vanGateway).cancel(vanReq);
         verify(repository).updateCancelResult(any(CancelResultUpdateParam.class));
 
@@ -478,8 +476,7 @@ class PaymentCancelServiceImplTest {
         when(repository.insertPendingCancel(any(CancelInsertParam.class)))
                 .thenReturn(Optional.of(pendingCancel));
 
-        when(vanCancelAssembler.getVanCancelRequest(baseReq, originalAttempt))
-                .thenReturn(vanReq);
+        stubCancelAssemble(baseReq, originalAttempt, vanReq);
 
         when(vanGateway.cancel(vanReq))
                 .thenReturn(vanRes);
@@ -540,7 +537,7 @@ class PaymentCancelServiceImplTest {
         verify(repository, times(2))
                 .findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq);
         verify(repository).insertPendingCancel(any(CancelInsertParam.class));
-        verify(vanCancelAssembler, never()).getVanCancelRequest(any(), any());
+        verifyCancelAssembleNever();
         verifyNoInteractions(vanGateway);
     }
 
@@ -650,8 +647,7 @@ class PaymentCancelServiceImplTest {
                 .thenReturn(Optional.empty());
         when(repository.insertPendingCancel(any()))
                 .thenReturn(Optional.of(pendingCancel()));
-        when(vanCancelAssembler.getVanCancelRequest(baseReq, legacyOriginalAttempt))
-                .thenReturn(vanCancelRequest());
+        stubCancelAssemble(baseReq, legacyOriginalAttempt, vanCancelRequest());
         when(vanGateway.cancel(vanCancelRequest()))
                 .thenReturn(vanCancelResCancelled());
         when(repository.updateCancelResult(any(CancelResultUpdateParam.class)))
@@ -721,8 +717,7 @@ class PaymentCancelServiceImplTest {
         when(repository.insertPendingCancel(any()))
                 .thenReturn(Optional.of(pendingCancel()));
 
-        when(vanCancelAssembler.getVanCancelRequest(baseReq, originalApprovedAttempt()))
-                .thenReturn(vanCancelRequest());
+        stubCancelAssemble(baseReq, originalApprovedAttempt(), vanCancelRequest());
 
         when(vanGateway.cancel(vanCancelRequest()))
                 .thenReturn(vanCancelResCancelled());
@@ -738,9 +733,40 @@ class PaymentCancelServiceImplTest {
         assertEquals(cancelledCancel().cancelApprovalNo(), res.cancelApprovalNo());
 
         verify(repository).insertPendingCancel(any());
-        verify(vanCancelAssembler).getVanCancelRequest(baseReq, originalApprovedAttempt());
+        verifyCancelAssemble(baseReq, originalApprovedAttempt());
         verify(vanGateway).cancel(vanCancelRequest());
         verify(repository).updateCancelResult(any());
+    }
+
+    private void stubCancelAssemble(
+            CancelRequest request,
+            PaymentAttempt originalAttempt,
+            VanCancelRequest vanCancelRequest
+    ) {
+        when(vanCancelAssembler.assemble(
+                eq(request.posTrx()),
+                eq(request.originalPosTrx()),
+                eq(request.originalAttemptSeq()),
+                eq(originalAttempt)
+        )).thenReturn(vanCancelRequest);
+    }
+
+    private void verifyCancelAssemble(CancelRequest request, PaymentAttempt originalAttempt) {
+        verify(vanCancelAssembler).assemble(
+                eq(request.posTrx()),
+                eq(request.originalPosTrx()),
+                eq(request.originalAttemptSeq()),
+                eq(originalAttempt)
+        );
+    }
+
+    private void verifyCancelAssembleNever() {
+        verify(vanCancelAssembler, never()).assemble(
+                anyString(),
+                anyString(),
+                anyInt(),
+                any(PaymentAttempt.class)
+        );
     }
 
     private PaymentAttempt originalApprovedAttempt() {
