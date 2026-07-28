@@ -1,12 +1,10 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.impl;
 
-import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
+import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.InquiryRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.InquiryResponse;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentInquiryService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.InquiryRequestValidator;
-import com.chaeyeongmin.payment_sim.api.payment.validate.enums.ApproveValidationError;
-import com.chaeyeongmin.payment_sim.api.payment.validate.enums.CancelValidationError;
 import com.chaeyeongmin.payment_sim.api.payment.validate.enums.InquiryValidationError;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;

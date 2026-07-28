@@ -1,6 +1,6 @@
 package com.chaeyeongmin.payment_sim.infra.repository.dto;
 
-import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
+import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 
 /**
  * [Repository DTO] PAYMENT_ATTEMPT 확정 업데이트(UPDATE ... RETURNING) 결과 row

@@ -1,7 +1,7 @@
 package com.chaeyeongmin.payment_sim.api.payment.dto.response;
 
 import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardSummary;
-import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
+import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 import lombok.Builder;
 
 /**

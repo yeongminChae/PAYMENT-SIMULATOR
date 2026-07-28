@@ -1,7 +1,7 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.support;
 
 import com.chaeyeongmin.payment_sim.api.payment.dto.enums.CancelResultStatus;
-import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
+import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 
