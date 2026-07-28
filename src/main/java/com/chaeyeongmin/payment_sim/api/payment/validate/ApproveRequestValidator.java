@@ -1,5 +1,6 @@
 package com.chaeyeongmin.payment_sim.api.payment.validate;
 
+import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.ApproveRequest;
 import com.chaeyeongmin.payment_sim.api.payment.validate.enums.ApproveValidationError;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
@@ -48,7 +49,8 @@ public class ApproveRequestValidator {
             return ApproveValidationError.INVALID_AMOUNT;
 
         // 카드 검증 실패는 PAN/expiry 원문 대신 INVALID_CARD 코드만 외부로 전달한다.
-        if (cardValidationPolicy.isValidCard(request.getCard()) == false)
+        CardInput card = request.getCard();
+        if (cardValidationPolicy.isValidCard(card.getPan(), card.getExpiryYyMm()) == false)
             return ApproveValidationError.INVALID_CARD;
 
         return null; // OK

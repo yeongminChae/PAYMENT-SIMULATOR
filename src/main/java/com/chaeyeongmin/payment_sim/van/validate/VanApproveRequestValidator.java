@@ -1,6 +1,5 @@
 package com.chaeyeongmin.payment_sim.van.validate;
 
-import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
 import com.chaeyeongmin.payment_sim.common.policy.CardValidationPolicy;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveRequest;
 import lombok.RequiredArgsConstructor;
@@ -37,8 +36,7 @@ public class VanApproveRequestValidator {
             return VanValidationError.INVALID_AMOUNT;
 
         // 카드 입력은 별도 함수에서 상세 검증(형식/만료/Luhn)
-        CardInput card = new CardInput(request.pan(), request.expiryYyMm());
-        if (cardValidationPolicy.isValidCard(card) == false)
+        if (cardValidationPolicy.isValidCard(request.pan(), request.expiryYyMm()) == false)
             return VanValidationError.INVALID_CARD;
 
         return null;
