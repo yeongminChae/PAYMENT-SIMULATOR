@@ -1,6 +1,5 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.impl;
 
-import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
@@ -16,6 +15,7 @@ import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
 import com.chaeyeongmin.payment_sim.domain.policy.cancel.CancelCardVerificationPolicy;
+import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
@@ -184,14 +184,15 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // - 요청 형식 검증(C2)을 통과한 PAN으로 fingerprint를 다시 생성한다.
         // - 원승인 attempt에 저장된 fingerprint와 일치할 때만 취소를 허용한다.
         // - 카드가 다르면 취소 권한이 없는 요청이므로 PAYMENT_CANCEL row를 만들거나 VAN을 호출하지 않는다.
-        try {
-            policy.validateCardMatchesOriginalAttempt(originalAttempt, request);
-        } catch (BusinessException e) {
-            log.warn("[cancel][C4-2] card mismatch. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, reason={}",
+        boolean cardMatches =
+                policy.matchesOriginalAttempt(originalAttempt, request.cardNo());
+
+        if (cardMatches == false) {
+            log.warn(
+                    "[cancel][C4-2] card mismatch. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, reason=CARD_MISMATCH",
                     posTrx,
                     originalPosTrx,
-                    originalAttemptSeq,
-                    e.getMessage()
+                    originalAttemptSeq
             );
 
             recorder.recordAfterRollback(
@@ -211,7 +212,6 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                     ResultCode.CANCEL_NOT_ALLOWED,
                     "CARD_MISMATCH"
             );
-
         }
 
         // C4-3: 기존 취소 row 확인.
