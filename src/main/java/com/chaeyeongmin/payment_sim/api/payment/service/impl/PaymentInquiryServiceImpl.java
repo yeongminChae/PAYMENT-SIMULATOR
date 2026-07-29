@@ -12,6 +12,7 @@ import com.chaeyeongmin.payment_sim.api.payment.validate.InquiryRequestValidator
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
+import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentInquiryRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdateParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentAttemptUpdatedRow;
@@ -42,7 +43,8 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class PaymentInquiryServiceImpl implements PaymentInquiryService {
 
-    private final PaymentInquiryRepository repository;
+    private final PaymentInquiryRepository paymentInquiryRepository;
+    private final PaymentAttemptRepository paymentAttemptRepository;
     private final VanGateway vanGateway;
     private final InquiryRequestValidator validator;
     private final VanInquiryAssembler vanInquiryAssembler;
@@ -64,7 +66,7 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
         // - inquiry는 특정 결제 시도 1건을 대상으로 한다.
         // - posTrx만으로 조회하지 않는 이유는 DECLINED 이후 재승인처럼 같은 posTrx에 여러 attempt가 생길 수 있기 때문이다.
         Optional<PaymentAttempt> attemptOpt =
-                repository.findByPosTrxAndAttemptSeq(posTrx, attemptSeq);
+                paymentAttemptRepository.findByPosTrxAndAttemptSeq(posTrx, attemptSeq);
 
         // Q3-1: 대상 없음.
         // - 조회 대상 자체가 없으므로 비즈니스 NOT_FOUND로 종료한다.
@@ -210,7 +212,7 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
         // - updateUnknownToFinal은 "아직 UNKNOWN_TIMEOUT인 row"만 바꾸는 멱등성 보호 장치다.
         // - 다른 요청이 먼저 확정했으면 Optional.empty()가 될 수 있다.
         Optional<PaymentAttemptUpdatedRow> finalizedRowOpt =
-                repository.updateUnknownToFinal(param);
+                paymentInquiryRepository.updateUnknownToFinal(param);
 
         // Q7: Q6 저장 성공.
         // - VAN 응답을 바로 쓰지 않고, 실제 DB에 확정 저장된 값을 응답 소스로 사용한다.
@@ -265,7 +267,7 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
         // Q6 update 0 rows 후 재조회.
         // - 승인 서비스의 A7 경합 처리와 동일하게 DB를 재조회하고, 실제 저장값을 응답 소스로 사용한다.
         Optional<PaymentAttempt> rereadOpt =
-                repository.findByPosTrxAndAttemptSeq(posTrx, attemptSeq);
+                paymentAttemptRepository.findByPosTrxAndAttemptSeq(posTrx, attemptSeq);
 
         if (rereadOpt.isPresent()) {
             PaymentAttempt rereadAttempt = rereadOpt.get();

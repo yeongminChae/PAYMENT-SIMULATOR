@@ -300,7 +300,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         // - 비정상 가능성: VAN 응답은 받았는데 DB update가 반영되지 않아 row가 여전히 PROCESSING일 수 있다.
         // - 그래서 같은 posTrx + attemptSeq를 재조회해서 DB의 현재 상태를 다시 판단한다.
         Optional<PaymentAttempt> latestAttemptFromDb =
-                repository.findLatestByPosTrxAndAttemptSeq(trx, attemptSeq);
+                repository.findByPosTrxAndAttemptSeq(trx, attemptSeq);
 
         if (latestAttemptFromDb.isPresent()) {
             PaymentAttempt row = latestAttemptFromDb.get();

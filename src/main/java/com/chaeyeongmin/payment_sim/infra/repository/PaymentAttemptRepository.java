@@ -46,7 +46,7 @@ public interface PaymentAttemptRepository {
      * - Optional.empty() : 해당 posTrx에 대한 attempt 레코드가 없음 → A3 신규 생성 대상
      * - Optional.of(...) : 해당 posTrx에 대한 attempt 레코드가 있음 → A4 분기 대상
      */
-    Optional<PaymentAttempt> findLatestByPosTrxAndAttemptSeq(String posTrx, int attemptSeq);
+    Optional<PaymentAttempt> findByPosTrxAndAttemptSeq(String posTrx, int attemptSeq);
 
     /**
      * [A7] 승인 결과 저장(최종 결과 확정)

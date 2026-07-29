@@ -309,7 +309,7 @@ class PaymentApprovalServiceImplTest {
         verifyAssembleCalled(trx, attemptSeq, baseReq);
         verify(gateway).approve(eq(vanReq));
         verify(repository).updateAttemptResult(any(AttemptResultUpdateParam.class));
-        verify(repository, never()).findLatestByPosTrxAndAttemptSeq(trx, attemptSeq);
+        verify(repository, never()).findByPosTrxAndAttemptSeq(trx, attemptSeq);
     }
 
     /**
@@ -351,7 +351,7 @@ class PaymentApprovalServiceImplTest {
         verifyAssembleCalled(trx, attemptSeq, baseReq);
         verify(gateway).approve(eq(vanReq));
         verify(repository).updateAttemptResult(any(AttemptResultUpdateParam.class));
-        verify(repository, never()).findLatestByPosTrxAndAttemptSeq(trx, attemptSeq);
+        verify(repository, never()).findByPosTrxAndAttemptSeq(trx, attemptSeq);
     }
 
     /**
@@ -360,7 +360,7 @@ class PaymentApprovalServiceImplTest {
      * [시나리오]
      * - Given: 신규 흐름으로 VAN까지 다녀옴
      * - But  : updateAttemptResult = Optional.empty() (0 rows)
-     * - And  : 재조회(findLatestByPosTrxAndAttemptSeq) 결과 finalStatus=APPROVED
+     * - And  : 재조회(findByPosTrxAndAttemptSeq) 결과 finalStatus=APPROVED
      * - Then : DB 값 기준으로 재응답(A9)
      * <p>
      * [흐름도]
@@ -385,7 +385,7 @@ class PaymentApprovalServiceImplTest {
         stubAssemble(trx, attemptSeq, baseReq, vanReq);
         when(gateway.approve(eq(vanReq))).thenReturn(vanApproveResApproved(trx, attemptSeq));
         when(repository.updateAttemptResult(any())).thenReturn(Optional.empty());
-        when(repository.findLatestByPosTrxAndAttemptSeq(trx, attemptSeq)).thenReturn(Optional.of(latest));
+        when(repository.findByPosTrxAndAttemptSeq(trx, attemptSeq)).thenReturn(Optional.of(latest));
 
         // when
         ApproveResponse res = service.approve(baseReq);
@@ -402,7 +402,7 @@ class PaymentApprovalServiceImplTest {
         verifyAssembleCalled(trx, attemptSeq, baseReq);
         verify(gateway).approve(eq(vanReq));
         verify(repository).updateAttemptResult(any(AttemptResultUpdateParam.class));
-        verify(repository).findLatestByPosTrxAndAttemptSeq(trx, attemptSeq);
+        verify(repository).findByPosTrxAndAttemptSeq(trx, attemptSeq);
     }
 
     /**
@@ -436,7 +436,7 @@ class PaymentApprovalServiceImplTest {
         stubAssemble(trx, attemptSeq, baseReq, vanReq);
         when(gateway.approve(eq(vanReq))).thenReturn(vanApproveResApproved(trx, attemptSeq));
         when(repository.updateAttemptResult(any())).thenReturn(Optional.empty());
-        when(repository.findLatestByPosTrxAndAttemptSeq(trx, attemptSeq)).thenReturn(Optional.of(latest));
+        when(repository.findByPosTrxAndAttemptSeq(trx, attemptSeq)).thenReturn(Optional.of(latest));
 
         // when
         ApproveResponse res = service.approve(baseReq);
@@ -453,7 +453,7 @@ class PaymentApprovalServiceImplTest {
         verifyAssembleCalled(trx, attemptSeq, baseReq);
         verify(gateway).approve(eq(vanReq));
         verify(repository).updateAttemptResult(any(AttemptResultUpdateParam.class));
-        verify(repository).findLatestByPosTrxAndAttemptSeq(trx, attemptSeq);
+        verify(repository).findByPosTrxAndAttemptSeq(trx, attemptSeq);
     }
 
     /**

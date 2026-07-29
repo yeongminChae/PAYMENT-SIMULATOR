@@ -73,7 +73,14 @@
         ORDER BY A.ATTEMPT_SEQ DESC LIMIT 1;
     </select>
 
-    <select id="findLatestByPosTrxAndAttemptSeq"
+    <!--
+    [findByPosTrxAndAttemptSeq]
+        - posTrx와 attemptSeq를 기준으로 특정 결제 시도(PAYMENT_ATTEMPT) 1건을 조회한다.
+        - 승인, 조회, 취소 흐름에서 동일한 결제 시도 정보를 재사용하기 위한 공통 조회 쿼리다.
+        - 조회 결과가 없으면 호출한 Service에서 NOT_FOUND 또는 해당 업무 규칙에 맞게 처리한다.
+        - POS_TRX + ATTEMPT_SEQ 조합은 결제 시도를 식별하는 키이므로 최대 1건만 반환한다.
+    -->
+    <select id="findByPosTrxAndAttemptSeq"
             resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt">
         SELECT
             A.FINAL_STATUS AS finalStatus,
@@ -81,14 +88,15 @@
             A.DECLINE_CODE AS declineCode,
             A.CARD_BIN AS cardBin,
             A.CARD_LAST4 AS cardLast4,
-            A.CARD_FINGERPRINT as cardFingerprint,
+            A.CARD_FINGERPRINT AS cardFingerprint,
             A.ATTEMPT_SEQ AS attemptSeq,
             A.AMOUNT AS amount,
             A.VAN_TRX_ID AS vanTrxId
         FROM PAYMENT_ATTEMPT A
         WHERE 1 = 1
             AND A.POS_TRX = #{posTrx}
-            AND A.ATTEMPT_SEQ = #{attemptSeq};
+            AND A.ATTEMPT_SEQ = #{attemptSeq}
+        LIMIT 1
     </select>
 
     <!--

@@ -18,6 +18,7 @@ import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.domain.policy.cancel.CancelCardVerificationPolicy;
 import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
+import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanCancelAssembler;
@@ -59,6 +60,7 @@ class PaymentCancelServiceImplTest {
 
     private PaymentCancelService service;
     private PaymentCancelRepository repository;
+    private PaymentAttemptRepository paymentAttemptRepository;
     private VanGateway vanGateway;
     private CancelRequestValidator validator;
     private VanCancelAssembler vanCancelAssembler;
@@ -69,12 +71,14 @@ class PaymentCancelServiceImplTest {
     @BeforeEach
     void setUp() {
         repository = mock(PaymentCancelRepository.class);
+        paymentAttemptRepository = mock(PaymentAttemptRepository.class);
         vanGateway = mock(VanGateway.class);
         validator = mock(CancelRequestValidator.class);
         vanCancelAssembler = mock(VanCancelAssembler.class);
         paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
         service = new PaymentCancelServiceImpl(
                 repository,
+                paymentAttemptRepository,
                 vanGateway,
                 validator,
                 vanCancelAssembler,
@@ -122,7 +126,7 @@ class PaymentCancelServiceImplTest {
         assertEquals(CancelValidationError.INVALID_REQUEST.code(), exception.getMessage());
 
         verify(validator).validate(baseReq);
-        verifyNoInteractions(repository, vanGateway, vanCancelAssembler);
+        verifyNoInteractions(repository, paymentAttemptRepository, vanGateway, vanCancelAssembler);
 
     }
 
@@ -145,7 +149,7 @@ class PaymentCancelServiceImplTest {
         String originalPosTrx = baseReq.originalPosTrx();
         int originalAttemptSeq = baseReq.originalAttemptSeq();
 
-        when(repository.findOriginalAttempt(originalPosTrx, originalAttemptSeq))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.empty());
 
         // when + then
@@ -155,7 +159,7 @@ class PaymentCancelServiceImplTest {
 
         // then
         verify(validator).validate(baseReq);
-        verify(repository).findOriginalAttempt(originalPosTrx, originalAttemptSeq);
+        verify(paymentAttemptRepository).findByPosTrxAndAttemptSeq(originalPosTrx, originalAttemptSeq);
         verify(repository, never()).findByOriginalPosTrxAndOriginalAttemptSeq(
                 originalPosTrx,
                 originalAttemptSeq
@@ -184,7 +188,7 @@ class PaymentCancelServiceImplTest {
         int originalAttemptSeq = baseReq.originalAttemptSeq();
 
         PaymentAttempt originalAttempt = originalDeclinedAttempt();
-        when(repository.findOriginalAttempt(originalPosTrx, originalAttemptSeq))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.of(originalAttempt));
 
         // when
@@ -222,7 +226,7 @@ class PaymentCancelServiceImplTest {
         // given
         String originalPosTrx = baseReq.originalPosTrx();
         int originalAttemptSeq = baseReq.originalAttemptSeq();
-        when(repository.findOriginalAttempt(originalPosTrx, originalAttemptSeq))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.of(originalApprovedAttempt()));
 
         when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))
@@ -259,7 +263,7 @@ class PaymentCancelServiceImplTest {
         String originalPosTrx = baseReq.originalPosTrx();
         int originalAttemptSeq = baseReq.originalAttemptSeq();
 
-        when(repository.findOriginalAttempt(originalPosTrx, originalAttemptSeq))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.of(originalApprovedAttempt()));
 
         when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))
@@ -296,7 +300,7 @@ class PaymentCancelServiceImplTest {
         String originalPosTrx = baseReq.originalPosTrx();
         int originalAttemptSeq = baseReq.originalAttemptSeq();
 
-        when(repository.findOriginalAttempt(originalPosTrx, originalAttemptSeq))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.of(originalApprovedAttempt()));
 
         when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))
@@ -336,7 +340,7 @@ class PaymentCancelServiceImplTest {
         String originalPosTrx = baseReq.originalPosTrx();
         int originalAttemptSeq = baseReq.originalAttemptSeq();
 
-        when(repository.findOriginalAttempt(originalPosTrx, originalAttemptSeq))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.of(originalApprovedAttempt()));
 
         when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))
@@ -396,7 +400,7 @@ class PaymentCancelServiceImplTest {
         PaymentCancel updatedCancel = cancelDeclinedCancel();
 
         // 원거래 APPROVED
-        when(repository.findOriginalAttempt(originalPosTrx, originalAttemptSeq))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.of(originalApprovedAttempt()));
 
         // 기존 cancel row 없음
@@ -426,7 +430,7 @@ class PaymentCancelServiceImplTest {
         assertEquals(CancelResultStatus.CANCEL_DECLINED, res.cancelStatus());
         assertEquals(updatedCancel.declineCode(), res.declineCode());
 
-        verify(repository).findOriginalAttempt(originalPosTrx, originalAttemptSeq);
+        verify(paymentAttemptRepository).findByPosTrxAndAttemptSeq(originalPosTrx, originalAttemptSeq);
         verify(repository).findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq);
         verify(repository).insertPendingCancel(any(CancelInsertParam.class));
         verifyCancelAssemble(baseReq, originalAttempt);
@@ -459,7 +463,7 @@ class PaymentCancelServiceImplTest {
         int originalAttemptSeq = baseReq.originalAttemptSeq();
 
         // 원거래 APPROVED
-        when(repository.findOriginalAttempt(originalPosTrx, originalAttemptSeq))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.of(originalApprovedAttempt()));
         // 기존 cancel row 없음
         PaymentAttempt originalAttempt = originalApprovedAttempt();
@@ -467,7 +471,7 @@ class PaymentCancelServiceImplTest {
         VanCancelRequest vanReq = vanCancelRequest();
         VanCancelResponse vanRes = vanCancelResPending();
 
-        when(repository.findOriginalAttempt(originalPosTrx, originalAttemptSeq))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.of(originalAttempt));
 
         when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))
@@ -517,7 +521,7 @@ class PaymentCancelServiceImplTest {
         PaymentAttempt originalAttempt = originalApprovedAttempt();
         PaymentCancel rereadCancel = cancelledCancel();
 
-        when(repository.findOriginalAttempt(originalPosTrx, originalAttemptSeq))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.of(originalAttempt));
 
         when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))
@@ -574,7 +578,7 @@ class PaymentCancelServiceImplTest {
                 cancelCardNo
         );
 
-        when(repository.findOriginalAttempt(
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(
                 request.originalPosTrx(),
                 request.originalAttemptSeq())
         ).thenReturn(Optional.of(originalAttempt));
@@ -589,7 +593,7 @@ class PaymentCancelServiceImplTest {
         assertThat(exception.getResultCode()).isEqualTo(ResultCode.CANCEL_NOT_ALLOWED);
         assertThat(exception.getMessage()).isEqualTo("CARD_MISMATCH");
 
-        verify(repository).findOriginalAttempt(request.originalPosTrx(), request.originalAttemptSeq());
+        verify(paymentAttemptRepository).findByPosTrxAndAttemptSeq(request.originalPosTrx(), request.originalAttemptSeq());
         verify(repository, never()).findByOriginalPosTrxAndOriginalAttemptSeq(anyString(), anyInt());
         verify(vanGateway, never()).cancel(any());
         verifyNoInteractions(vanCancelAssembler);
@@ -624,7 +628,7 @@ class PaymentCancelServiceImplTest {
                 cancelCardNo
         );
 
-        when(repository.findOriginalAttempt(request.originalPosTrx(), request.originalAttemptSeq()))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(request.originalPosTrx(), request.originalAttemptSeq()))
                 .thenReturn(Optional.of(originalAttempt));
 
         BusinessException exception = assertThrows(
@@ -641,7 +645,7 @@ class PaymentCancelServiceImplTest {
     void cancel_legacyOriginalWithoutFingerprint_sameBinAndLast4_shouldProceedCancelFlow() {
         PaymentAttempt legacyOriginalAttempt = originalApprovedAttemptWithoutFingerprint();
 
-        when(repository.findOriginalAttempt(baseReq.originalPosTrx(), baseReq.originalAttemptSeq()))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(baseReq.originalPosTrx(), baseReq.originalAttemptSeq()))
                 .thenReturn(Optional.of(legacyOriginalAttempt));
         when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(baseReq.originalPosTrx(), baseReq.originalAttemptSeq()))
                 .thenReturn(Optional.empty());
@@ -671,7 +675,7 @@ class PaymentCancelServiceImplTest {
                 "4111111111111111"
         );
 
-        when(repository.findOriginalAttempt(request.originalPosTrx(), request.originalAttemptSeq()))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(request.originalPosTrx(), request.originalAttemptSeq()))
                 .thenReturn(Optional.of(legacyOriginalAttempt));
 
         BusinessException exception = assertThrows(
@@ -708,7 +712,7 @@ class PaymentCancelServiceImplTest {
         String originalPosTrx = baseReq.originalPosTrx();
         int originalAttemptSeq = baseReq.originalAttemptSeq();
 
-        when(repository.findOriginalAttempt(originalPosTrx, originalAttemptSeq))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.of(originalApprovedAttempt()));
 
         when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))

@@ -477,7 +477,7 @@ class PaymentApprovalServiceImplIdempotencyTest {
                 .thenReturn(vanApprovedResponse(posTrx, attemptSeq, "A444444444", "42424242", "4242"));
         when(repository.updateAttemptResult(any(AttemptResultUpdateParam.class)))
                 .thenReturn(Optional.empty());
-        when(repository.findLatestByPosTrxAndAttemptSeq(posTrx, attemptSeq))
+        when(repository.findByPosTrxAndAttemptSeq(posTrx, attemptSeq))
                 .thenReturn(Optional.empty());
 
         ApproveResponse response = service.approve(request);

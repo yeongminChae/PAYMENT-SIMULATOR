@@ -52,7 +52,10 @@ public interface PaymentAttemptMapper {
      */
     Optional<PaymentAttempt> findLatestByPosTrx(@Param("posTrx") String posTrx);
 
-    Optional<PaymentAttempt> findLatestByPosTrxAndAttemptSeq(@Param("posTrx") String posTrx, @Param("attemptSeq") int attemptSeq);
+    Optional<PaymentAttempt> findByPosTrxAndAttemptSeq(
+            @Param("posTrx") String posTrx,
+            @Param("attemptSeq") int attemptSeq
+    );
 
     /**
      * [MyBatis] 승인 결과 확정 업데이트(A7)

@@ -34,8 +34,8 @@ public class PaymentAttemptRepositoryMyBatis implements PaymentAttemptRepository
 
     @Override
     public Optional<PaymentAttempt>
-    findLatestByPosTrxAndAttemptSeq(String posTrx, int attemptSeq) {
-        return mapper.findLatestByPosTrxAndAttemptSeq(posTrx, attemptSeq);
+    findByPosTrxAndAttemptSeq(String posTrx, int attemptSeq) {
+        return mapper.findByPosTrxAndAttemptSeq(posTrx, attemptSeq);
     }
 
     @Override

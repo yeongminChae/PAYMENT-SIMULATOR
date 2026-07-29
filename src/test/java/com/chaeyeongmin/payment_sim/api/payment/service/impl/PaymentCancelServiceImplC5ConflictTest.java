@@ -15,6 +15,7 @@ import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.domain.policy.cancel.CancelCardVerificationPolicy;
 import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
+import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanCancelAssembler;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
@@ -47,6 +48,7 @@ class PaymentCancelServiceImplC5ConflictTest {
 
     private PaymentCancelService service;
     private PaymentCancelRepository repository;
+    private PaymentAttemptRepository paymentAttemptRepository;
     private VanGateway vanGateway;
     private CancelRequestValidator validator;
     private VanCancelAssembler vanCancelAssembler;
@@ -57,6 +59,7 @@ class PaymentCancelServiceImplC5ConflictTest {
     @BeforeEach
     void setUp() {
         repository = mock(PaymentCancelRepository.class);
+        paymentAttemptRepository = mock(PaymentAttemptRepository.class);
         vanGateway = mock(VanGateway.class);
         validator = mock(CancelRequestValidator.class);
         vanCancelAssembler = mock(VanCancelAssembler.class);
@@ -64,6 +67,7 @@ class PaymentCancelServiceImplC5ConflictTest {
 
         service = new PaymentCancelServiceImpl(
                 repository,
+                paymentAttemptRepository,
                 vanGateway,
                 validator,
                 vanCancelAssembler,
@@ -215,7 +219,7 @@ class PaymentCancelServiceImplC5ConflictTest {
     }
 
     private void givenApprovedOriginal() {
-        when(repository.findOriginalAttempt(baseReq.originalPosTrx(), baseReq.originalAttemptSeq()))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(baseReq.originalPosTrx(), baseReq.originalAttemptSeq()))
                 .thenReturn(Optional.of(originalApprovedAttempt()));
     }
 

@@ -16,6 +16,7 @@ import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
 import com.chaeyeongmin.payment_sim.domain.policy.cancel.CancelCardVerificationPolicy;
 import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
+import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
@@ -51,7 +52,8 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class PaymentCancelServiceImpl implements PaymentCancelService {
 
-    private final PaymentCancelRepository repository;
+    private final PaymentCancelRepository paymentCancelRepository;
+    private final PaymentAttemptRepository paymentAttemptRepository;
     private final VanGateway vanGateway;
     private final CancelRequestValidator validator;
     private final VanCancelAssembler vanCancelAssembler;
@@ -81,7 +83,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // - 카드가 원승인과 다르더라도 POS_TRX_ALREADY_USED가 CARD_MISMATCH보다 우선한다.
         // - 이 검사는 원거래 조회보다 먼저 수행한다.
         //   같은 cancel posTrx를 다른 original에 붙여 재사용하는 요청도 원거래 존재 여부와 무관하게 실패해야 하기 때문이다.
-        Optional<PaymentCancel> existingCancelOpt = repository.findByPosTrx(posTrx);
+        Optional<PaymentCancel> existingCancelOpt = paymentCancelRepository.findByPosTrx(posTrx);
         if (existingCancelOpt.isPresent()) {
             PaymentCancel existingCancel = existingCancelOpt.get();
 
@@ -116,7 +118,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // - 취소는 독립 거래처럼 보이지만 실제로는 원승인 attempt에 종속된다.
         // - 원거래가 없으면 취소 가능 여부도 판단할 수 없으므로 NOT_FOUND로 종료한다.
         Optional<PaymentAttempt> originalAttemptOpt =
-                repository.findOriginalAttempt(originalPosTrx, originalAttemptSeq);
+                paymentAttemptRepository.findByPosTrxAndAttemptSeq(originalPosTrx, originalAttemptSeq);
 
         // C3-1: 원거래 없음.
         // - DB에 원승인 attempt가 없으므로 PAYMENT_CANCEL row를 만들지 않는다.
@@ -272,7 +274,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // - unique 충돌은 동일 원거래 취소가 먼저 접수된 경합으로 보고 original 기준 재조회 복구로 넘긴다.
         Optional<PaymentCancel> insertedCancelOpt;
         try {
-            insertedCancelOpt = repository.insertPendingCancel(insertParam);
+            insertedCancelOpt = paymentCancelRepository.insertPendingCancel(insertParam);
 
         } catch (DataIntegrityViolationException e) {
             // SQLite/MyBatis 조합에서는 unique 충돌이 Optional.empty가 아니라
@@ -419,7 +421,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                         vanCancelResponse.cancelApprovalNo()
                 );
                 Optional<PaymentCancel> updateCancelResult =
-                        repository.updateCancelResult(updateParam);
+                        paymentCancelRepository.updateCancelResult(updateParam);
 
                 if (updateCancelResult.isPresent()) {
                     PaymentCancel updatedCancel = updateCancelResult.get();
@@ -458,7 +460,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                         responseDeclineCode
                 );
                 Optional<PaymentCancel> updateCancelResult =
-                        repository.updateCancelResult(updateParam);
+                        paymentCancelRepository.updateCancelResult(updateParam);
 
                 if (updateCancelResult.isPresent()) {
                     PaymentCancel updatedCancel = updateCancelResult.get();
@@ -512,7 +514,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
             int originalAttemptSeq
     ) {
         Optional<PaymentCancel> cancelOpt =
-                repository.findByOriginalPosTrxAndOriginalAttemptSeq(
+                paymentCancelRepository.findByOriginalPosTrxAndOriginalAttemptSeq(
                         originalPosTrx,
                         originalAttemptSeq
                 );
