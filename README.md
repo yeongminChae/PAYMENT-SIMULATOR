@@ -176,6 +176,12 @@ fingerprint가 없는 기존 거래에 한해서만 BIN8/last4 fallback을 허�
 CARD_SECRET_KEY=local-dev-card-fingerprint-secret-key-32bytes ./gradlew test
 ```
 
+최근 테스트 결과:
+
+| 실행일 | 명령 | 결과 |
+| --- | --- | --- |
+| 2026-07-30 | `./gradlew.bat test` | 성공: 131 tests, 0 failures, 0 errors, 0 skipped |
+
 주요 검증 시나리오:
 
 - POS 거래번호 발급 및 입력값 검증
