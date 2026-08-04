@@ -15,7 +15,7 @@
         INSERT INTO POS_TRX_SEQUENCE(store_cd, biz_date, pos_no, seq, updated_at)
         VALUES (#{storeCd}, #{bizDate}, #{posNo}, 1, CURRENT_TIMESTAMP)
         ON CONFLICT (store_cd, biz_date, pos_no)
-            DO UPDATE SET SEQ        = SEQ + 1,
+            DO UPDATE SET SEQ        = POS_TRX_SEQUENCE.SEQ + 1,
                           updated_at = CURRENT_TIMESTAMP
         RETURNING SEQ;
     </select>
