@@ -19,7 +19,7 @@
                 1,
                 CURRENT_TIMESTAMP) ON CONFLICT (POS_TRX)
             DO
-        UPDATE SET LAST_SEQ = LAST_SEQ + 1,
+        UPDATE SET LAST_SEQ = PAYMENT_ATTEMPT_SEQ.LAST_SEQ + 1,
             UPDATED_AT = CURRENT_TIMESTAMP
             RETURNING LAST_SEQ;
     </select>

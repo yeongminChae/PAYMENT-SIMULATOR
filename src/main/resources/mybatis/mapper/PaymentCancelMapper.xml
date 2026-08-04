@@ -51,7 +51,7 @@
         CANCEL_STATUS = #{cancel.cancelStatusValue},
         CANCEL_APPROVAL_NO = #{cancel.cancelApprovalNo},
         DECLINE_CODE = #{cancel.declineCode},
-        UPDATED_AT = STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')
+        UPDATED_AT = CURRENT_TIMESTAMP
         WHERE CURRENT_TRX_NO = #{cancel.posTrx}
         AND ORIGINAL_TRX_NO = #{cancel.originalPosTrx}
         AND ORIGINAL_ATTEMPT_SEQ = #{cancel.originalAttemptSeq}
