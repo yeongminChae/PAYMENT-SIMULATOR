@@ -25,6 +25,17 @@ public interface PaymentAttemptRepository {
     int acquireApprovalSerializationLock(String posTrx);
 
     /**
+     * 이미 존재하는 posTrx 기준 row lock을 획득한다.
+     * <p>
+     * 취소 흐름에서는 cancel posTrx가 아니라 originalPosTrx를 key로 사용해야
+     * 서로 다른 취소 거래번호가 같은 원승인을 동시에 취소하는 경합을 직렬화할 수 있다.
+     * <p>
+     * 이 메서드는 누락된 PAYMENT_ATTEMPT_SEQ row를 새로 만들지 않는다.
+     * Optional.empty()는 승인 attempt는 있는데 sequence row가 없는 데이터 정합성 오류 신호다.
+     */
+    Optional<Integer> acquireExistingPosTrxLock(String originalPosTrx);
+
+    /**
      * 특정 posTrx(거래번호/포스TR)에 대한 "다음 attempt_seq"를 원자적으로 발급한다.
      * - 동일 posTrx에 대해 동시 요청이 들어와도 중복되지 않도록 DB 레벨에서 증가/락(또는 upsert)로 보장한다.
      * - 반환값은 "숫자" 시퀀스(예: 1,2,3...)로 두고, 포맷팅은 Service/Policy가 책임진다.

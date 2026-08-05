@@ -62,6 +62,11 @@ class PaymentCancelServiceImplIdempotencyTest {
         vanCancelAssembler = mock(VanCancelAssembler.class);
         paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
 
+        // 정상 원승인에서 생성된 PAYMENT_ATTEMPT_SEQ row lock 획득을 기본 전제로 둔다.
+        // lock row 누락은 데이터 정합성 오류 경로이므로 이 클래스의 멱등성 검증 대상이 아니다.
+        when(paymentAttemptRepository.acquireExistingPosTrxLock(anyString()))
+                .thenReturn(Optional.of(0));
+
         service = new PaymentCancelServiceImpl(
                 repository,
                 paymentAttemptRepository,
@@ -529,7 +534,8 @@ class PaymentCancelServiceImplIdempotencyTest {
      * original 기준 기존 취소 row 재응답 경로에서 VAN 호출과 DB insert/update가 없었는지 검증한다.
      */
     private void verifyExistingOriginalCancelRepliedWithoutVan(CancelRequest request) {
-        verify(repository).findByPosTrx(request.posTrx());
+        // cancel posTrx는 lock 전 빠른 사전검사와 lock 후 최종 재검사로 두 번 확인한다.
+        verify(repository, times(2)).findByPosTrx(request.posTrx());
         verify(paymentAttemptRepository).findByPosTrxAndAttemptSeq(request.originalPosTrx(), request.originalAttemptSeq());
         verify(repository).findByOriginalPosTrxAndOriginalAttemptSeq(
                 request.originalPosTrx(),

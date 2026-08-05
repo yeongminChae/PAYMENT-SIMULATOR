@@ -23,6 +23,11 @@ public class PaymentAttemptRepositoryMyBatis implements PaymentAttemptRepository
     }
 
     @Override
+    public Optional<Integer> acquireExistingPosTrxLock(String originalPosTrx) {
+        return mapper.acquireExistingPosTrxLock(originalPosTrx);
+    }
+
+    @Override
     public int insertAttemptSeq(String posTrx) {
         return mapper.insertAttemptSeq(posTrx);
     }

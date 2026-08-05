@@ -65,6 +65,11 @@ class PaymentCancelServiceImplC5ConflictTest {
         vanCancelAssembler = mock(VanCancelAssembler.class);
         paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
 
+        // C5 경합 복구 테스트는 lock 획득 이후의 insert/re-read 분기를 검증한다.
+        // 따라서 원승인 posTrx lock row는 정상 존재하는 상태로 고정한다.
+        when(paymentAttemptRepository.acquireExistingPosTrxLock(anyString()))
+                .thenReturn(Optional.of(0));
+
         service = new PaymentCancelServiceImpl(
                 repository,
                 paymentAttemptRepository,

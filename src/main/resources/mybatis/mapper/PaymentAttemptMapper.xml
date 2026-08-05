@@ -26,6 +26,21 @@
     </select>
 
     <!--
+      [acquireExistingPosTrxLock]
+      - 이미 승인 흐름에서 만들어진 PAYMENT_ATTEMPT_SEQ row를 기준으로 row lock을 잡는다.
+      - 취소 동시성에서는 originalPosTrx를 key로 사용해야 같은 원승인 취소 요청들이 직렬화된다.
+      - row가 없으면 새로 만들지 않고 0 rows/Optional.empty로 반환한다.
+        이는 정상 승인 API 외부에서 데이터가 만들어진 정합성 오류 신호로 본다.
+    -->
+    <select id="acquireExistingPosTrxLock" resultType="int">
+        UPDATE PAYMENT_ATTEMPT_SEQ
+        SET LAST_SEQ = PAYMENT_ATTEMPT_SEQ.LAST_SEQ
+        WHERE 1 = 1
+        and POS_TRX = #{originalPosTrx}
+        RETURNING LAST_SEQ;
+    </select>
+
+    <!--
       [insertAttemptSeq]
       - PAYMENT_ATTEMPT_SEQ 에서 posTrx 기준 attempt_seq를 원자 발급한다.
       - 최초: (POS_TRX, LAST_SEQ=1)

@@ -76,6 +76,12 @@ class PaymentCancelServiceImplTest {
         validator = mock(CancelRequestValidator.class);
         vanCancelAssembler = mock(VanCancelAssembler.class);
         paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
+
+        // 대부분의 취소 단위 테스트는 정상 승인 API로 만들어진 원거래를 전제한다.
+        // 원승인 posTrx 기준 직렬화 lock row가 없을 때의 정합성 오류는 별도 테스트에서 다룬다.
+        when(paymentAttemptRepository.acquireExistingPosTrxLock(anyString()))
+                .thenReturn(Optional.of(0));
+
         service = new PaymentCancelServiceImpl(
                 repository,
                 paymentAttemptRepository,

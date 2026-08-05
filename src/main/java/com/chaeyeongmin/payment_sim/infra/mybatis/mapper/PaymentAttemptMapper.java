@@ -30,6 +30,13 @@ public interface PaymentAttemptMapper {
     int acquireApprovalSerializationLock(@Param("posTrx") String posTrx);
 
     /**
+     * 기존 PAYMENT_ATTEMPT_SEQ row를 no-op update로 잠근다.
+     * <p>
+     * row가 없으면 생성하지 않고 Optional.empty()를 반환해 호출자가 정합성 오류로 처리하게 한다.
+     */
+    Optional<Integer> acquireExistingPosTrxLock(@Param("originalPosTrx") String originalPosTrx);
+
+    /**
      * 특정 posTrx(거래번호/포스TR)에 대한 "다음 attempt_seq"를 원자적으로 발급한다.
      * - row 없으면 1로 생성, 있으면 LAST_SEQ를 +1 갱신
      * - SQLite UPSERT + RETURNING 으로 DB 레벨에서 원자성 보장

@@ -60,6 +60,11 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
         vanCancelAssembler = mock(VanCancelAssembler.class);
         paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
 
+        // C7 update empty 복구 테스트는 VAN 호출 이후 update/re-read 분기를 검증한다.
+        // 원승인 posTrx 직렬화 lock은 정상 획득된 상태로 둔다.
+        when(paymentAttemptRepository.acquireExistingPosTrxLock(anyString()))
+                .thenReturn(Optional.of(0));
+
         service = new PaymentCancelServiceImpl(
                 repository,
                 paymentAttemptRepository,
