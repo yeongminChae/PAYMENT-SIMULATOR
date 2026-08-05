@@ -75,6 +75,13 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
 
         String trx = request.getPosTrx();
 
+        // A3-0: posTrx 단위 승인 처리 직렬화.
+        // - 동시 최초 승인 요청들이 모두 findLatestByPosTrx()에서 empty를 보고
+        //   각자 VAN을 호출하는 것을 막기 위해, 조회 전에 PAYMENT_ATTEMPT_SEQ row lock을 획득한다.
+        // - 최초 row는 LAST_SEQ=0이며 실제 attemptSeq가 아니다.
+        // - 실제 attemptSeq 증가는 신규 attempt 생성이 확정된 뒤 insertAttemptSeq()에서만 수행한다.
+        repository.acquireApprovalSerializationLock(trx);
+
         // A4: posTrx 기준 최신 attempt 조회.
         // - 동일 posTrx로 승인 요청이 다시 들어온 경우, 먼저 DB에 이미 처리 흔적이 있는지 확인한다.
         // - 이 조회 결과가 있으면 "신규 승인"이 아니라 "재요청/중복요청/이전 거절 후 재시도" 중 하나다.

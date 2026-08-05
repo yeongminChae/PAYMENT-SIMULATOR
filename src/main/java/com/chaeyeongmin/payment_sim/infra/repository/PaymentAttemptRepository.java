@@ -16,6 +16,15 @@ import java.util.Optional;
 public interface PaymentAttemptRepository {
 
     /**
+     * 동일 posTrx 승인 처리를 직렬화하기 위한 PAYMENT_ATTEMPT_SEQ row를 확보한다.
+     * <p>
+     * - row가 없으면 LAST_SEQ=0으로 만든다. 실제 attemptSeq 발급은 하지 않는다.
+     * - row가 있으면 no-op update로 현재 트랜잭션이 해당 posTrx row lock을 획득한다.
+     * - 이 lock을 잡은 뒤 기존 attempt를 조회해야 동시 최초 요청의 VAN 중복 호출을 막을 수 있다.
+     */
+    int acquireApprovalSerializationLock(String posTrx);
+
+    /**
      * 특정 posTrx(거래번호/포스TR)에 대한 "다음 attempt_seq"를 원자적으로 발급한다.
      * - 동일 posTrx에 대해 동시 요청이 들어와도 중복되지 않도록 DB 레벨에서 증가/락(또는 upsert)로 보장한다.
      * - 반환값은 "숫자" 시퀀스(예: 1,2,3...)로 두고, 포맷팅은 Service/Policy가 책임진다.

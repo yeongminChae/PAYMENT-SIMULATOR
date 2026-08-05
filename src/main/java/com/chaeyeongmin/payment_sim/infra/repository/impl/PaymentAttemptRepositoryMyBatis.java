@@ -18,6 +18,11 @@ public class PaymentAttemptRepositoryMyBatis implements PaymentAttemptRepository
     private final PaymentAttemptMapper mapper;
 
     @Override
+    public int acquireApprovalSerializationLock(String posTrx) {
+        return mapper.acquireApprovalSerializationLock(posTrx);
+    }
+
+    @Override
     public int insertAttemptSeq(String posTrx) {
         return mapper.insertAttemptSeq(posTrx);
     }

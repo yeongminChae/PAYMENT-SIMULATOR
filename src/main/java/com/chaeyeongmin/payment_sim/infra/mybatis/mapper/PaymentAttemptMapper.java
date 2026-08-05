@@ -23,6 +23,13 @@ import java.util.Optional;
 public interface PaymentAttemptMapper {
 
     /**
+     * 동일 posTrx 승인 요청을 직렬화하기 위한 기준 row를 확보하고 잠근다.
+     * - 신규 row는 LAST_SEQ=0으로 만들며, 실제 attemptSeq 발급은 insertAttemptSeq가 담당한다.
+     * - 기존 row는 LAST_SEQ를 변경하지 않는 UPDATE 경합으로 트랜잭션 row lock을 획득한다.
+     */
+    int acquireApprovalSerializationLock(@Param("posTrx") String posTrx);
+
+    /**
      * 특정 posTrx(거래번호/포스TR)에 대한 "다음 attempt_seq"를 원자적으로 발급한다.
      * - row 없으면 1로 생성, 있으면 LAST_SEQ를 +1 갱신
      * - SQLite UPSERT + RETURNING 으로 DB 레벨에서 원자성 보장
