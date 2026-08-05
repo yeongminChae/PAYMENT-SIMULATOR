@@ -1,4 +1,4 @@
-package com.chaeyeongmin.payment_sim.api.payment.integration;
+package com.chaeyeongmin.payment_sim.api.payment.integration.postgres;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

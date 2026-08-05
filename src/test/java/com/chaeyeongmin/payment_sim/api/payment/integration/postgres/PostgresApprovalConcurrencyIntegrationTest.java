@@ -1,4 +1,4 @@
-package com.chaeyeongmin.payment_sim.api.payment.integration;
+package com.chaeyeongmin.payment_sim.api.payment.integration.postgres;
 
 import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.ApproveRequest;
