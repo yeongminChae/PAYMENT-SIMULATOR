@@ -1,6 +1,5 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.impl;
 
-import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
@@ -16,6 +15,8 @@ import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
 import com.chaeyeongmin.payment_sim.domain.policy.cancel.CancelCardVerificationPolicy;
+import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
+import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
@@ -51,10 +52,11 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class PaymentCancelServiceImpl implements PaymentCancelService {
 
-    private final PaymentCancelRepository repository;
+    private final PaymentCancelRepository paymentCancelRepository;
+    private final PaymentAttemptRepository paymentAttemptRepository;
     private final VanGateway vanGateway;
     private final CancelRequestValidator validator;
-    private final VanCancelAssembler assembler;
+    private final VanCancelAssembler vanCancelAssembler;
     private final CancelCardVerificationPolicy policy;
     private final CancelResponseFactory factory;
     private final CancelEventRecorder recorder;
@@ -75,48 +77,39 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         String originalPosTrx = request.originalPosTrx();
         int originalAttemptSeq = request.originalAttemptSeq();
 
+        // C2-1: cancel posTrx 빠른 사전검사.
+        // - 이미 처리된 취소 거래번호는 lock을 기다리지 않고 곧바로 CONFLICT로 거른다.
+        // - 단, 이 결과만으로 최종 판단하지 않는다. lock 대기 중 다른 요청이 같은 posTrx를 만들 수 있으므로
+        //   originalPosTrx lock 획득 뒤 한 번 더 확인한다.
+        assertCancelPosTrxNotUsed(posTrx, originalPosTrx, originalAttemptSeq);
+
+        // C3-0: 원승인 posTrx 기준 직렬화 lock 획득.
+        // - 취소 요청의 posTrx는 C01~C20처럼 모두 다를 수 있으므로 lock key가 될 수 없다.
+        // - 같은 원승인에 대한 취소 판단은 이 lock 이후의 DB 재조회 결과만 신뢰한다.
+        // - 정상 승인 API로 생성된 원거래라면 PAYMENT_ATTEMPT_SEQ row가 반드시 존재해야 한다.
+        //   row가 없으면 legacy/수동 데이터 불일치로 보고 조용히 취소를 진행하지 않는다.
+        Optional<Integer> lockResult = paymentAttemptRepository.acquireExistingPosTrxLock(originalPosTrx);
+        if (lockResult.isEmpty()) {
+            throw new BusinessException(
+                    ResultCode.INTERNAL_ERROR,
+                    "ORIGINAL_POS_TRX_LOCK_ROW_NOT_FOUND"
+            );
+        }
+
         // C4-1: cancel posTrx 사용 여부 확인.
         // - MVP2에서는 cancel posTrx를 1회용 취소 거래번호로 본다.
         // - 이미 사용된 cancel posTrx가 다시 들어오면 같은 original 여부와 관계없이 거래번호 중복으로 차단한다.
         // - 카드가 원승인과 다르더라도 POS_TRX_ALREADY_USED가 CARD_MISMATCH보다 우선한다.
         // - 이 검사는 원거래 조회보다 먼저 수행한다.
         //   같은 cancel posTrx를 다른 original에 붙여 재사용하는 요청도 원거래 존재 여부와 무관하게 실패해야 하기 때문이다.
-        Optional<PaymentCancel> existingCancelOpt = repository.findByPosTrx(posTrx);
-        if (existingCancelOpt.isPresent()) {
-            PaymentCancel existingCancel = existingCancelOpt.get();
-
-            log.warn("[cancel][C4-1-conflict] cancel posTrx already used. posTrx={}, existingOriginalPosTrx={}, existingOriginalAttemptSeq={}, existingCancelStatus={}",
-                    posTrx,
-                    existingCancel.originalPosTrx(),
-                    existingCancel.originalAttemptSeq(),
-                    existingCancel.cancelStatus()
-            );
-
-            // 여기서 차단되면 이후 original 기준 재응답 정책으로 내려가지 않는다.
-            // cancel posTrx 자체가 이미 사용된 거래번호이므로, 같은 original 재요청도 허용하지 않는다.
-            recorder.recordCancelEvent(
-                    PaymentEventType.CANCEL_CONFLICT,
-                    posTrx,
-                    originalPosTrx,
-                    originalAttemptSeq,
-                    ResultCode.CONFLICT.name(),
-                    existingCancel.cancelStatus().name(),
-                    null,
-                    existingCancel.cancelApprovalNo(),
-                    existingCancel.declineCode(),
-                    "POS_TRX_ALREADY_USED"
-            );
-            throw new BusinessException(
-                    ResultCode.CONFLICT,
-                    "POS_TRX_ALREADY_USED"
-            );
-        }
+        // - lock 이후 재검사이므로, 기다리는 동안 앞선 요청이 만든 cancel row까지 반영해 최종 판단한다.
+        assertCancelPosTrxNotUsed(posTrx, originalPosTrx, originalAttemptSeq);
 
         // C3: 취소 대상 원거래 attempt 조회.
         // - 취소는 독립 거래처럼 보이지만 실제로는 원승인 attempt에 종속된다.
         // - 원거래가 없으면 취소 가능 여부도 판단할 수 없으므로 NOT_FOUND로 종료한다.
         Optional<PaymentAttempt> originalAttemptOpt =
-                repository.findOriginalAttempt(originalPosTrx, originalAttemptSeq);
+                paymentAttemptRepository.findByPosTrxAndAttemptSeq(originalPosTrx, originalAttemptSeq);
 
         // C3-1: 원거래 없음.
         // - DB에 원승인 attempt가 없으므로 PAYMENT_CANCEL row를 만들지 않는다.
@@ -184,14 +177,15 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // - 요청 형식 검증(C2)을 통과한 PAN으로 fingerprint를 다시 생성한다.
         // - 원승인 attempt에 저장된 fingerprint와 일치할 때만 취소를 허용한다.
         // - 카드가 다르면 취소 권한이 없는 요청이므로 PAYMENT_CANCEL row를 만들거나 VAN을 호출하지 않는다.
-        try {
-            policy.validateCardMatchesOriginalAttempt(originalAttempt, request);
-        } catch (BusinessException e) {
-            log.warn("[cancel][C4-2] card mismatch. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, reason={}",
+        boolean cardMatches =
+                policy.matchesOriginalAttempt(originalAttempt, request.cardNo());
+
+        if (cardMatches == false) {
+            log.warn(
+                    "[cancel][C4-2] card mismatch. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, reason=CARD_MISMATCH",
                     posTrx,
                     originalPosTrx,
-                    originalAttemptSeq,
-                    e.getMessage()
+                    originalAttemptSeq
             );
 
             recorder.recordAfterRollback(
@@ -211,7 +205,6 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                     ResultCode.CANCEL_NOT_ALLOWED,
                     "CARD_MISMATCH"
             );
-
         }
 
         // C4-3: 기존 취소 row 확인.
@@ -272,7 +265,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // - unique 충돌은 동일 원거래 취소가 먼저 접수된 경합으로 보고 original 기준 재조회 복구로 넘긴다.
         Optional<PaymentCancel> insertedCancelOpt;
         try {
-            insertedCancelOpt = repository.insertPendingCancel(insertParam);
+            insertedCancelOpt = paymentCancelRepository.insertPendingCancel(insertParam);
 
         } catch (DataIntegrityViolationException e) {
             // SQLite/MyBatis 조합에서는 unique 충돌이 Optional.empty가 아니라
@@ -358,7 +351,13 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // - CancelRequest에는 현취소 거래번호와 원거래 식별자가 있다.
         // - originalAttempt에는 원승인 금액/승인번호/카드요약 등 VAN 취소에 필요한 원거래 정보가 있다.
         // - assembler는 두 객체를 합쳐 VAN 계약에 맞는 취소 전문을 만든다.
-        VanCancelRequest vanCancelRequest = assembler.getVanCancelRequest(request, originalAttempt);
+        VanCancelRequest vanCancelRequest =
+                vanCancelAssembler.assemble(
+                        request.posTrx(),
+                        request.originalPosTrx(),
+                        request.originalAttemptSeq(),
+                        originalAttempt
+                );
 
         recorder.recordCancelEvent(
                 PaymentEventType.CANCEL_VAN_REQUESTED,
@@ -413,7 +412,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                         vanCancelResponse.cancelApprovalNo()
                 );
                 Optional<PaymentCancel> updateCancelResult =
-                        repository.updateCancelResult(updateParam);
+                        paymentCancelRepository.updateCancelResult(updateParam);
 
                 if (updateCancelResult.isPresent()) {
                     PaymentCancel updatedCancel = updateCancelResult.get();
@@ -452,7 +451,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                         responseDeclineCode
                 );
                 Optional<PaymentCancel> updateCancelResult =
-                        repository.updateCancelResult(updateParam);
+                        paymentCancelRepository.updateCancelResult(updateParam);
 
                 if (updateCancelResult.isPresent()) {
                     PaymentCancel updatedCancel = updateCancelResult.get();
@@ -506,7 +505,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
             int originalAttemptSeq
     ) {
         Optional<PaymentCancel> cancelOpt =
-                repository.findByOriginalPosTrxAndOriginalAttemptSeq(
+                paymentCancelRepository.findByOriginalPosTrxAndOriginalAttemptSeq(
                         originalPosTrx,
                         originalAttemptSeq
                 );
@@ -522,6 +521,42 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         );
 
         return cancelOpt;
+    }
+
+    private void assertCancelPosTrxNotUsed(
+            String posTrx,
+            String originalPosTrx,
+            int originalAttemptSeq
+    ) {
+        Optional<PaymentCancel> existingCancelOpt = paymentCancelRepository.findByPosTrx(posTrx);
+        if (existingCancelOpt.isEmpty()) return;
+
+        PaymentCancel existingCancel = existingCancelOpt.get();
+
+        log.warn("[cancel][C4-1-conflict] cancel posTrx already used. posTrx={}, existingOriginalPosTrx={}, existingOriginalAttemptSeq={}, existingCancelStatus={}",
+                posTrx,
+                existingCancel.originalPosTrx(),
+                existingCancel.originalAttemptSeq(),
+                existingCancel.cancelStatus()
+        );
+
+        // cancel posTrx 자체가 이미 사용된 거래번호이므로, 같은 original 재요청도 허용하지 않는다.
+        recorder.recordCancelEvent(
+                PaymentEventType.CANCEL_CONFLICT,
+                posTrx,
+                originalPosTrx,
+                originalAttemptSeq,
+                ResultCode.CONFLICT.name(),
+                existingCancel.cancelStatus().name(),
+                null,
+                existingCancel.cancelApprovalNo(),
+                existingCancel.declineCode(),
+                "POS_TRX_ALREADY_USED"
+        );
+        throw new BusinessException(
+                ResultCode.CONFLICT,
+                "POS_TRX_ALREADY_USED"
+        );
     }
 
     /**

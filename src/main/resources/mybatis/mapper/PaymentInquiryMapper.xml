@@ -5,24 +5,6 @@
 
 <mapper namespace="com.chaeyeongmin.payment_sim.infra.mybatis.mapper.PaymentInquiryMapper">
 
-    <select id="findByPosTrxAndAttemptSeq"
-            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt">
-        SELECT
-               A.FINAL_STATUS,
-               A.APPROVAL_NO,
-               A.DECLINE_CODE,
-               A.CARD_BIN,
-               A.CARD_LAST4,
-                A.CARD_FINGERPRINT as cardFingerprint,
-               A.ATTEMPT_SEQ,
-               A.AMOUNT,
-               A.VAN_TRX_ID AS vanTrxId
-           FROM PAYMENT_ATTEMPT A
-           WHERE A.POS_TRX = #{posTrx}
-             AND A.ATTEMPT_SEQ = #{attemptSeq}
-           LIMIT 1;
-    </select>
-
     <select id="updateUnknownToFinal"
             resultType="com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentAttemptUpdatedRow">
         UPDATE PAYMENT_ATTEMPT

@@ -1,6 +1,6 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.support;
 
-import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
+import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdateParam;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveResponse;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResponse;

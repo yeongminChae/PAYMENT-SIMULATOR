@@ -1,6 +1,6 @@
 package com.chaeyeongmin.payment_sim.van.client.dto;
 
-import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
+import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
 import lombok.Builder;
 

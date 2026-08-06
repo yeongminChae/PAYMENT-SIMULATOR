@@ -1,6 +1,5 @@
 package com.chaeyeongmin.payment_sim.infra.mybatis.mapper;
 
-import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
@@ -18,15 +17,6 @@ import java.util.Optional;
  */
 @Mapper
 public interface PaymentCancelMapper {
-
-    /**
-     * 취소 대상 원승인 attempt를 조회한다.
-     */
-    Optional<PaymentAttempt> findOriginalAttempt(
-            @Param("posTrx") String posTrx,
-            @Param("attemptSeq") int attemptSeq
-    );
-
     /**
      * 현거래 기준으로 만들어진 기존 PAYMENT_CANCEL row가 존재하는지 조회한다.
      */

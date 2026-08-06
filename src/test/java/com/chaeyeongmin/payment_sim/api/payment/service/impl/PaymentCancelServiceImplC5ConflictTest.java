@@ -1,7 +1,7 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.impl;
 
 import com.chaeyeongmin.payment_sim.api.payment.dto.enums.CancelResultStatus;
-import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
+import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
 import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
@@ -15,6 +15,7 @@ import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.domain.policy.cancel.CancelCardVerificationPolicy;
 import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
+import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanCancelAssembler;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
@@ -47,6 +48,7 @@ class PaymentCancelServiceImplC5ConflictTest {
 
     private PaymentCancelService service;
     private PaymentCancelRepository repository;
+    private PaymentAttemptRepository paymentAttemptRepository;
     private VanGateway vanGateway;
     private CancelRequestValidator validator;
     private VanCancelAssembler vanCancelAssembler;
@@ -57,13 +59,20 @@ class PaymentCancelServiceImplC5ConflictTest {
     @BeforeEach
     void setUp() {
         repository = mock(PaymentCancelRepository.class);
+        paymentAttemptRepository = mock(PaymentAttemptRepository.class);
         vanGateway = mock(VanGateway.class);
         validator = mock(CancelRequestValidator.class);
         vanCancelAssembler = mock(VanCancelAssembler.class);
         paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
 
+        // C5 경합 복구 테스트는 lock 획득 이후의 insert/re-read 분기를 검증한다.
+        // 따라서 원승인 posTrx lock row는 정상 존재하는 상태로 고정한다.
+        when(paymentAttemptRepository.acquireExistingPosTrxLock(anyString()))
+                .thenReturn(Optional.of(0));
+
         service = new PaymentCancelServiceImpl(
                 repository,
+                paymentAttemptRepository,
                 vanGateway,
                 validator,
                 vanCancelAssembler,
@@ -215,7 +224,7 @@ class PaymentCancelServiceImplC5ConflictTest {
     }
 
     private void givenApprovedOriginal() {
-        when(repository.findOriginalAttempt(baseReq.originalPosTrx(), baseReq.originalAttemptSeq()))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(baseReq.originalPosTrx(), baseReq.originalAttemptSeq()))
                 .thenReturn(Optional.of(originalApprovedAttempt()));
     }
 
@@ -253,7 +262,12 @@ class PaymentCancelServiceImplC5ConflictTest {
     private void assertNoVanCancelCall() {
         // C5 insert conflict 경로는 VAN 호출 권한을 얻지 못한 중복/경합 요청이다.
         // 따라서 VAN request 조립도, VAN cancel 호출도 없어야 한다.
-        verify(vanCancelAssembler, never()).getVanCancelRequest(any(), any());
+        verify(vanCancelAssembler, never()).assemble(
+                anyString(),
+                anyString(),
+                anyInt(),
+                any(PaymentAttempt.class)
+        );
         verify(vanGateway, never()).cancel(any());
     }
 

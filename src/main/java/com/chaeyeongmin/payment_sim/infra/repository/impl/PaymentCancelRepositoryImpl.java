@@ -1,6 +1,5 @@
 package com.chaeyeongmin.payment_sim.infra.repository.impl;
 
-import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.infra.mybatis.mapper.PaymentCancelMapper;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
@@ -16,11 +15,6 @@ import java.util.Optional;
 public class PaymentCancelRepositoryImpl implements PaymentCancelRepository {
 
     private final PaymentCancelMapper mapper;
-
-    @Override
-    public Optional<PaymentAttempt> findOriginalAttempt(String posTrx, int attemptSeq) {
-        return mapper.findOriginalAttempt(posTrx, attemptSeq);
-    }
 
     /**
      * cancel posTrx 중복 방어용 단건 조회를 MyBatis mapper에 위임한다.

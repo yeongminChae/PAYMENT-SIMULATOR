@@ -16,6 +16,26 @@ import java.util.Optional;
 public interface PaymentAttemptRepository {
 
     /**
+     * 동일 posTrx 승인 처리를 직렬화하기 위한 PAYMENT_ATTEMPT_SEQ row를 확보한다.
+     * <p>
+     * - row가 없으면 LAST_SEQ=0으로 만든다. 실제 attemptSeq 발급은 하지 않는다.
+     * - row가 있으면 no-op update로 현재 트랜잭션이 해당 posTrx row lock을 획득한다.
+     * - 이 lock을 잡은 뒤 기존 attempt를 조회해야 동시 최초 요청의 VAN 중복 호출을 막을 수 있다.
+     */
+    int acquireApprovalSerializationLock(String posTrx);
+
+    /**
+     * 이미 존재하는 posTrx 기준 row lock을 획득한다.
+     * <p>
+     * 취소 흐름에서는 cancel posTrx가 아니라 originalPosTrx를 key로 사용해야
+     * 서로 다른 취소 거래번호가 같은 원승인을 동시에 취소하는 경합을 직렬화할 수 있다.
+     * <p>
+     * 이 메서드는 누락된 PAYMENT_ATTEMPT_SEQ row를 새로 만들지 않는다.
+     * Optional.empty()는 승인 attempt는 있는데 sequence row가 없는 데이터 정합성 오류 신호다.
+     */
+    Optional<Integer> acquireExistingPosTrxLock(String originalPosTrx);
+
+    /**
      * 특정 posTrx(거래번호/포스TR)에 대한 "다음 attempt_seq"를 원자적으로 발급한다.
      * - 동일 posTrx에 대해 동시 요청이 들어와도 중복되지 않도록 DB 레벨에서 증가/락(또는 upsert)로 보장한다.
      * - 반환값은 "숫자" 시퀀스(예: 1,2,3...)로 두고, 포맷팅은 Service/Policy가 책임진다.
@@ -46,7 +66,7 @@ public interface PaymentAttemptRepository {
      * - Optional.empty() : 해당 posTrx에 대한 attempt 레코드가 없음 → A3 신규 생성 대상
      * - Optional.of(...) : 해당 posTrx에 대한 attempt 레코드가 있음 → A4 분기 대상
      */
-    Optional<PaymentAttempt> findLatestByPosTrxAndAttemptSeq(String posTrx, int attemptSeq);
+    Optional<PaymentAttempt> findByPosTrxAndAttemptSeq(String posTrx, int attemptSeq);
 
     /**
      * [A7] 승인 결과 저장(최종 결과 확정)

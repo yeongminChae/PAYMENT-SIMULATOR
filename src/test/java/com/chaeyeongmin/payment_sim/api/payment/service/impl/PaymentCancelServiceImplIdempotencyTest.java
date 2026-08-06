@@ -1,7 +1,7 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.impl;
 
 import com.chaeyeongmin.payment_sim.api.payment.dto.enums.CancelResultStatus;
-import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
+import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
 import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
@@ -18,6 +18,7 @@ import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
 import com.chaeyeongmin.payment_sim.domain.policy.cancel.CancelCardVerificationPolicy;
 import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
+import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentEventLogInsertParam;
@@ -46,6 +47,7 @@ class PaymentCancelServiceImplIdempotencyTest {
 
     private PaymentCancelService service;
     private PaymentCancelRepository repository;
+    private PaymentAttemptRepository paymentAttemptRepository;
     private VanGateway vanGateway;
     private CancelRequestValidator validator;
     private VanCancelAssembler vanCancelAssembler;
@@ -54,13 +56,20 @@ class PaymentCancelServiceImplIdempotencyTest {
     @BeforeEach
     void setUp() {
         repository = mock(PaymentCancelRepository.class);
+        paymentAttemptRepository = mock(PaymentAttemptRepository.class);
         vanGateway = mock(VanGateway.class);
         validator = mock(CancelRequestValidator.class);
         vanCancelAssembler = mock(VanCancelAssembler.class);
         paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
 
+        // 정상 원승인에서 생성된 PAYMENT_ATTEMPT_SEQ row lock 획득을 기본 전제로 둔다.
+        // lock row 누락은 데이터 정합성 오류 경로이므로 이 클래스의 멱등성 검증 대상이 아니다.
+        when(paymentAttemptRepository.acquireExistingPosTrxLock(anyString()))
+                .thenReturn(Optional.of(0));
+
         service = new PaymentCancelServiceImpl(
                 repository,
+                paymentAttemptRepository,
                 vanGateway,
                 validator,
                 vanCancelAssembler,
@@ -417,7 +426,7 @@ class PaymentCancelServiceImplIdempotencyTest {
         );
 
         when(repository.findByPosTrx(request.posTrx())).thenReturn(Optional.empty());
-        when(repository.findOriginalAttempt(request.originalPosTrx(), request.originalAttemptSeq()))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(request.originalPosTrx(), request.originalAttemptSeq()))
                 .thenReturn(Optional.of(originalDeclinedAttempt(request.originalAttemptSeq())));
 
         CancelResponse response = service.cancel(request);
@@ -467,7 +476,7 @@ class PaymentCancelServiceImplIdempotencyTest {
         VanCancelRequest vanRequest = vanCancelRequest(request);
 
         when(repository.findByPosTrx(request.posTrx())).thenReturn(Optional.empty());
-        when(repository.findOriginalAttempt(request.originalPosTrx(), request.originalAttemptSeq()))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(request.originalPosTrx(), request.originalAttemptSeq()))
                 .thenReturn(Optional.of(originalAttempt));
         when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(
                 request.originalPosTrx(),
@@ -475,8 +484,12 @@ class PaymentCancelServiceImplIdempotencyTest {
         )).thenReturn(Optional.empty());
         when(repository.insertPendingCancel(any(CancelInsertParam.class)))
                 .thenReturn(Optional.of(pendingCancel));
-        when(vanCancelAssembler.getVanCancelRequest(request, originalAttempt))
-                .thenReturn(vanRequest);
+        when(vanCancelAssembler.assemble(
+                eq(request.posTrx()),
+                eq(request.originalPosTrx()),
+                eq(request.originalAttemptSeq()),
+                eq(originalAttempt)
+        )).thenReturn(vanRequest);
         when(vanGateway.cancel(vanRequest))
                 .thenReturn(vanCancelResCancelled(request, "C777777777"));
         when(repository.updateCancelResult(any(CancelResultUpdateParam.class)))
@@ -495,7 +508,7 @@ class PaymentCancelServiceImplIdempotencyTest {
      */
     private void givenNoCurrentCancelAndApprovedOriginal(CancelRequest request) {
         when(repository.findByPosTrx(request.posTrx())).thenReturn(Optional.empty());
-        when(repository.findOriginalAttempt(request.originalPosTrx(), request.originalAttemptSeq()))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(request.originalPosTrx(), request.originalAttemptSeq()))
                 .thenReturn(Optional.of(originalApprovedAttempt(request.originalAttemptSeq())));
     }
 
@@ -504,11 +517,16 @@ class PaymentCancelServiceImplIdempotencyTest {
      */
     private void verifySameCancelPosTrxConflictBlocked(CancelRequest request) {
         verify(repository).findByPosTrx(request.posTrx());
-        verify(repository, never()).findOriginalAttempt(any(), anyInt());
+        verify(paymentAttemptRepository, never()).findByPosTrxAndAttemptSeq(any(), anyInt());
         verify(repository, never()).findByOriginalPosTrxAndOriginalAttemptSeq(any(), anyInt());
         verify(repository, never()).insertPendingCancel(any(CancelInsertParam.class));
         verify(vanGateway, never()).cancel(any(VanCancelRequest.class));
-        verify(vanCancelAssembler, never()).getVanCancelRequest(any(), any());
+        verify(vanCancelAssembler, never()).assemble(
+                anyString(),
+                anyString(),
+                anyInt(),
+                any(PaymentAttempt.class)
+        );
         verify(repository, never()).updateCancelResult(any(CancelResultUpdateParam.class));
     }
 
@@ -516,15 +534,21 @@ class PaymentCancelServiceImplIdempotencyTest {
      * original 기준 기존 취소 row 재응답 경로에서 VAN 호출과 DB insert/update가 없었는지 검증한다.
      */
     private void verifyExistingOriginalCancelRepliedWithoutVan(CancelRequest request) {
-        verify(repository).findByPosTrx(request.posTrx());
-        verify(repository).findOriginalAttempt(request.originalPosTrx(), request.originalAttemptSeq());
+        // cancel posTrx는 lock 전 빠른 사전검사와 lock 후 최종 재검사로 두 번 확인한다.
+        verify(repository, times(2)).findByPosTrx(request.posTrx());
+        verify(paymentAttemptRepository).findByPosTrxAndAttemptSeq(request.originalPosTrx(), request.originalAttemptSeq());
         verify(repository).findByOriginalPosTrxAndOriginalAttemptSeq(
                 request.originalPosTrx(),
                 request.originalAttemptSeq()
         );
         verify(repository, never()).insertPendingCancel(any(CancelInsertParam.class));
         verify(vanGateway, never()).cancel(any(VanCancelRequest.class));
-        verify(vanCancelAssembler, never()).getVanCancelRequest(any(), any());
+        verify(vanCancelAssembler, never()).assemble(
+                anyString(),
+                anyString(),
+                anyInt(),
+                any(PaymentAttempt.class)
+        );
         verify(repository, never()).updateCancelResult(any(CancelResultUpdateParam.class));
     }
 

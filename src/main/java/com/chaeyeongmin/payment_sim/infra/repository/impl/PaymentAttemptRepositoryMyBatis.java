@@ -18,6 +18,16 @@ public class PaymentAttemptRepositoryMyBatis implements PaymentAttemptRepository
     private final PaymentAttemptMapper mapper;
 
     @Override
+    public int acquireApprovalSerializationLock(String posTrx) {
+        return mapper.acquireApprovalSerializationLock(posTrx);
+    }
+
+    @Override
+    public Optional<Integer> acquireExistingPosTrxLock(String originalPosTrx) {
+        return mapper.acquireExistingPosTrxLock(originalPosTrx);
+    }
+
+    @Override
     public int insertAttemptSeq(String posTrx) {
         return mapper.insertAttemptSeq(posTrx);
     }
@@ -34,8 +44,8 @@ public class PaymentAttemptRepositoryMyBatis implements PaymentAttemptRepository
 
     @Override
     public Optional<PaymentAttempt>
-    findLatestByPosTrxAndAttemptSeq(String posTrx, int attemptSeq) {
-        return mapper.findLatestByPosTrxAndAttemptSeq(posTrx, attemptSeq);
+    findByPosTrxAndAttemptSeq(String posTrx, int attemptSeq) {
+        return mapper.findByPosTrxAndAttemptSeq(posTrx, attemptSeq);
     }
 
     @Override

@@ -23,6 +23,20 @@ import java.util.Optional;
 public interface PaymentAttemptMapper {
 
     /**
+     * 동일 posTrx 승인 요청을 직렬화하기 위한 기준 row를 확보하고 잠근다.
+     * - 신규 row는 LAST_SEQ=0으로 만들며, 실제 attemptSeq 발급은 insertAttemptSeq가 담당한다.
+     * - 기존 row는 LAST_SEQ를 변경하지 않는 UPDATE 경합으로 트랜잭션 row lock을 획득한다.
+     */
+    int acquireApprovalSerializationLock(@Param("posTrx") String posTrx);
+
+    /**
+     * 기존 PAYMENT_ATTEMPT_SEQ row를 no-op update로 잠근다.
+     * <p>
+     * row가 없으면 생성하지 않고 Optional.empty()를 반환해 호출자가 정합성 오류로 처리하게 한다.
+     */
+    Optional<Integer> acquireExistingPosTrxLock(@Param("originalPosTrx") String originalPosTrx);
+
+    /**
      * 특정 posTrx(거래번호/포스TR)에 대한 "다음 attempt_seq"를 원자적으로 발급한다.
      * - row 없으면 1로 생성, 있으면 LAST_SEQ를 +1 갱신
      * - SQLite UPSERT + RETURNING 으로 DB 레벨에서 원자성 보장
@@ -52,7 +66,10 @@ public interface PaymentAttemptMapper {
      */
     Optional<PaymentAttempt> findLatestByPosTrx(@Param("posTrx") String posTrx);
 
-    Optional<PaymentAttempt> findLatestByPosTrxAndAttemptSeq(@Param("posTrx") String posTrx, @Param("attemptSeq") int attemptSeq);
+    Optional<PaymentAttempt> findByPosTrxAndAttemptSeq(
+            @Param("posTrx") String posTrx,
+            @Param("attemptSeq") int attemptSeq
+    );
 
     /**
      * [MyBatis] 승인 결과 확정 업데이트(A7)
