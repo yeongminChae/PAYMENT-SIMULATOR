@@ -1,7 +1,7 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.impl;
 
 import com.chaeyeongmin.payment_sim.api.payment.dto.enums.CancelResultStatus;
-import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
+import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
 import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
@@ -15,6 +15,7 @@ import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.domain.policy.cancel.CancelCardVerificationPolicy;
 import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
+import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanCancelAssembler;
@@ -42,6 +43,7 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
 
     private PaymentCancelService service;
     private PaymentCancelRepository repository;
+    private PaymentAttemptRepository paymentAttemptRepository;
     private VanGateway vanGateway;
     private CancelRequestValidator validator;
     private VanCancelAssembler vanCancelAssembler;
@@ -52,13 +54,20 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
     @BeforeEach
     void setUp() {
         repository = mock(PaymentCancelRepository.class);
+        paymentAttemptRepository = mock(PaymentAttemptRepository.class);
         vanGateway = mock(VanGateway.class);
         validator = mock(CancelRequestValidator.class);
         vanCancelAssembler = mock(VanCancelAssembler.class);
         paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
 
+        // C7 update empty 복구 테스트는 VAN 호출 이후 update/re-read 분기를 검증한다.
+        // 원승인 posTrx 직렬화 lock은 정상 획득된 상태로 둔다.
+        when(paymentAttemptRepository.acquireExistingPosTrxLock(anyString()))
+                .thenReturn(Optional.of(0));
+
         service = new PaymentCancelServiceImpl(
                 repository,
+                paymentAttemptRepository,
                 vanGateway,
                 validator,
                 vanCancelAssembler,
@@ -179,7 +188,7 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
     }
 
     private void givenApprovedOriginal() {
-        when(repository.findOriginalAttempt(baseReq.originalPosTrx(), baseReq.originalAttemptSeq()))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(baseReq.originalPosTrx(), baseReq.originalAttemptSeq()))
                 .thenReturn(Optional.of(originalApprovedAttempt()));
     }
 
@@ -202,7 +211,12 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
                 .thenReturn(Optional.of(pendingCancel()));
 
         // C6 VAN 요청 조립
-        when(vanCancelAssembler.getVanCancelRequest(any(), any()))
+        when(vanCancelAssembler.assemble(
+                anyString(),
+                anyString(),
+                anyInt(),
+                any(PaymentAttempt.class)
+        ))
                 .thenReturn(vanCancelRequest());
 
         // C6 VAN 취소 응답
@@ -219,7 +233,12 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
         // C5 conflict는 VAN 호출 전 insert 권한 획득에 실패한 흐름이고,
         // C7 update empty는 이미 VAN cancel을 1회 호출한 뒤 DB update 결과만 놓친 흐름이다.
         verify(vanCancelAssembler, times(1))
-                .getVanCancelRequest(any(), any());
+                .assemble(
+                        anyString(),
+                        anyString(),
+                        anyInt(),
+                        any(PaymentAttempt.class)
+                );
 
         verify(vanGateway, times(1))
                 .cancel(any(VanCancelRequest.class));

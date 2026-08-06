@@ -1,9 +1,9 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.impl;
 
 import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
-import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.ApproveRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.ApproveResponse;
+import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.api.payment.service.BinCatalogService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveRequestValidator;
@@ -13,13 +13,13 @@ import com.chaeyeongmin.payment_sim.domain.model.CardIdentity;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
 import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
+import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
-import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentExternalInfoRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdateParam;
-import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentEventLogInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentAttemptUpdatedRow;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentEventLogInsertParam;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanApproveAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveResponse;
@@ -36,16 +36,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.Mockito.any;
-import static org.mockito.Mockito.anyInt;
-import static org.mockito.Mockito.anyString;
-import static org.mockito.Mockito.argThat;
-import static org.mockito.Mockito.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 class PaymentApprovalServiceImplIdempotencyTest {
 
@@ -94,15 +85,15 @@ class PaymentApprovalServiceImplIdempotencyTest {
     /**
      * [시나리오] UT-2-APPROVE-IDEMP-001
      * 기존 APPROVED attempt와 같은 payload로 승인 재요청하면 DB의 기존 승인 결과를 재응답한다.
-     *
+     * <p>
      * Given:
      * - posTrx=2376-20260521-9991-1001인 기존 PaymentAttempt가 존재한다.
      * - 기존 attemptSeq=1, finalStatus=APPROVED, amount=20000이다.
      * - 기존 cardBin=42424242, cardLast4=4242, approvalNo=A151472400이다.
-     *
+     * <p>
      * When:
      * - 같은 posTrx로 amount=20000, pan=4242424242424242 승인 요청이 들어온다.
-     *
+     * <p>
      * Then:
      * - 기존 DB 승인 결과를 재응답한다.
      * - finalStatus=APPROVED, approvalNo=A151472400, cardSummary=42424242/4242를 검증한다.
@@ -146,15 +137,15 @@ class PaymentApprovalServiceImplIdempotencyTest {
     /**
      * [시나리오] UT-2-APPROVE-IDEMP-002
      * 기존 APPROVED attempt와 cardLast4가 다른 payload로 승인 재요청하면 CONFLICT를 반환한다.
-     *
+     * <p>
      * Given:
      * - posTrx=2376-20260521-9991-1001인 기존 APPROVED attempt가 존재한다.
      * - 기존 amount=20000, cardBin=42424242, cardLast4=4242이다.
-     *
+     * <p>
      * When:
      * - 같은 posTrx로 amount=20000, pan=4242424211111111 승인 요청이 들어온다.
      * - amount/cardBin은 같지만 cardLast4가 다르다.
-     *
+     * <p>
      * Then:
      * - BusinessException이 발생한다.
      * - ResultCode=CONFLICT, message=POS_TRX_ALREADY_USED를 검증한다.
@@ -246,15 +237,15 @@ class PaymentApprovalServiceImplIdempotencyTest {
     /**
      * [시나리오] UT-2-APPROVE-IDEMP-003
      * 기존 APPROVED attempt와 amount가 다른 payload로 승인 재요청하면 CONFLICT를 반환한다.
-     *
+     * <p>
      * Given:
      * - posTrx=2376-20260521-9991-1002인 기존 APPROVED attempt가 존재한다.
      * - 기존 amount=20000, cardBin=42424242, cardLast4=4242이다.
-     *
+     * <p>
      * When:
      * - 같은 posTrx로 amount=50000, pan=4242424242424242 승인 요청이 들어온다.
      * - 카드는 같지만 amount가 다르다.
-     *
+     * <p>
      * Then:
      * - BusinessException이 발생한다.
      * - ResultCode=CONFLICT, message=POS_TRX_ALREADY_USED를 검증한다.
@@ -288,16 +279,16 @@ class PaymentApprovalServiceImplIdempotencyTest {
     /**
      * [시나리오] UT-2-APPROVE-IDEMP-004
      * 기존 PROCESSING attempt와 다른 payload로 승인 재요청하면 CONFLICT를 반환한다.
-     *
+     * <p>
      * Given:
      * - posTrx=2376-20260521-9991-1003인 기존 PaymentAttempt가 존재한다.
      * - 기존 finalStatus는 null이고, 서비스에서는 PROCESSING으로 해석된다.
      * - 기존 amount=20000, cardBin=42424242, cardLast4=4242이다.
-     *
+     * <p>
      * When:
      * - 같은 posTrx로 amount=20000, pan=4242424211111111 승인 요청이 들어온다.
      * - amount/cardBin은 같지만 cardLast4가 다르다.
-     *
+     * <p>
      * Then:
      * - BusinessException이 발생한다.
      * - ResultCode=CONFLICT, message=POS_TRX_ALREADY_USED를 검증한다.
@@ -332,15 +323,15 @@ class PaymentApprovalServiceImplIdempotencyTest {
     /**
      * [시나리오] UT-2-APPROVE-IDEMP-005
      * 기존 UNKNOWN_TIMEOUT attempt와 다른 payload로 승인 재요청하면 CONFLICT를 반환한다.
-     *
+     * <p>
      * Given:
      * - posTrx=2376-20260521-9991-1004인 기존 UNKNOWN_TIMEOUT attempt가 존재한다.
      * - 기존 amount=20000, cardBin=42424242, cardLast4=4242이다.
-     *
+     * <p>
      * When:
      * - 같은 posTrx로 amount=20000, pan=4242424211111111 승인 요청이 들어온다.
      * - amount/cardBin은 같지만 cardLast4가 다르다.
-     *
+     * <p>
      * Then:
      * - BusinessException이 발생한다.
      * - ResultCode=CONFLICT, message=POS_TRX_ALREADY_USED를 검증한다.
@@ -383,15 +374,15 @@ class PaymentApprovalServiceImplIdempotencyTest {
     /**
      * [시나리오] UT-2-APPROVE-IDEMP-006
      * 기존 DECLINED attempt와 같은 payload로 승인 재요청하면 새 attempt를 허용한다.
-     *
+     * <p>
      * Given:
      * - posTrx=2376-20260521-9991-1006인 기존 DECLINED attempt가 존재한다.
      * - 기존 amount=20000, cardBin=42424242, cardLast4=4242, declineCode=INSUFFICIENT_FUNDS이다.
      * - 신규 attemptSeq=2가 발급되고, VAN/DB update 결과는 APPROVED/A222222222로 mock 처리한다.
-     *
+     * <p>
      * When:
      * - 같은 posTrx로 amount=20000, pan=4242424242424242 승인 요청이 들어온다.
-     *
+     * <p>
      * Then:
      * - CONFLICT가 발생하지 않는다.
      * - 신규 attempt row insert, VAN approve, updateAttemptResult가 각각 호출된다.
@@ -407,8 +398,7 @@ class PaymentApprovalServiceImplIdempotencyTest {
         when(repository.findLatestByPosTrx(posTrx))
                 .thenReturn(Optional.of(declinedAttempt(1, 20000)));
         when(repository.insertAttemptSeq(posTrx)).thenReturn(newAttemptSeq);
-        when(vanApproveAssembler.getVanApproveRequest(posTrx, newAttemptSeq, request))
-                .thenReturn(vanRequest);
+        stubAssemble(posTrx, newAttemptSeq, request, vanRequest);
         when(vanGateway.approve(vanRequest))
                 .thenReturn(vanApprovedResponse(posTrx, newAttemptSeq, "A222222222", "42424242", "4242"));
         when(repository.updateAttemptResult(any(AttemptResultUpdateParam.class)))
@@ -428,16 +418,16 @@ class PaymentApprovalServiceImplIdempotencyTest {
     /**
      * [시나리오] UT-2-APPROVE-IDEMP-007
      * 기존 DECLINED attempt와 다른 payload로 승인 재요청해도 새 attempt를 허용한다.
-     *
+     * <p>
      * Given:
      * - posTrx=2376-20260521-9991-1007인 기존 DECLINED attempt가 존재한다.
      * - 기존 amount=20000, cardBin=42424242, cardLast4=4242, declineCode=INSUFFICIENT_FUNDS이다.
      * - 신규 attemptSeq=2가 발급되고, VAN/DB update 결과는 APPROVED/A333333333로 mock 처리한다.
-     *
+     * <p>
      * When:
      * - 같은 posTrx로 amount=30000, pan=4242424211111111 승인 요청이 들어온다.
      * - 기존 attempt와 amount/cardLast4가 다르다.
-     *
+     * <p>
      * Then:
      * - CONFLICT가 발생하지 않는다.
      * - 신규 attempt row insert, VAN approve, updateAttemptResult가 각각 호출된다.
@@ -453,8 +443,7 @@ class PaymentApprovalServiceImplIdempotencyTest {
         when(repository.findLatestByPosTrx(posTrx))
                 .thenReturn(Optional.of(declinedAttempt(1, 20000)));
         when(repository.insertAttemptSeq(posTrx)).thenReturn(newAttemptSeq);
-        when(vanApproveAssembler.getVanApproveRequest(posTrx, newAttemptSeq, request))
-                .thenReturn(vanRequest);
+        stubAssemble(posTrx, newAttemptSeq, request, vanRequest);
         when(vanGateway.approve(vanRequest))
                 .thenReturn(vanApprovedResponse(posTrx, newAttemptSeq, "A333333333", "42424242", "1111"));
         when(repository.updateAttemptResult(any(AttemptResultUpdateParam.class)))
@@ -483,13 +472,12 @@ class PaymentApprovalServiceImplIdempotencyTest {
 
         when(repository.findLatestByPosTrx(posTrx)).thenReturn(Optional.empty());
         when(repository.insertAttemptSeq(posTrx)).thenReturn(attemptSeq);
-        when(vanApproveAssembler.getVanApproveRequest(posTrx, attemptSeq, request))
-                .thenReturn(vanRequest);
+        stubAssemble(posTrx, attemptSeq, request, vanRequest);
         when(vanGateway.approve(vanRequest))
                 .thenReturn(vanApprovedResponse(posTrx, attemptSeq, "A444444444", "42424242", "4242"));
         when(repository.updateAttemptResult(any(AttemptResultUpdateParam.class)))
                 .thenReturn(Optional.empty());
-        when(repository.findLatestByPosTrxAndAttemptSeq(posTrx, attemptSeq))
+        when(repository.findByPosTrxAndAttemptSeq(posTrx, attemptSeq))
                 .thenReturn(Optional.empty());
 
         ApproveResponse response = service.approve(request);
@@ -506,6 +494,18 @@ class PaymentApprovalServiceImplIdempotencyTest {
         ));
     }
 
+    private void stubAssemble(String posTrx, int attemptSeq, ApproveRequest request, VanApproveRequest vanRequest) {
+        when(vanApproveAssembler.assemble(
+                eq(posTrx),
+                eq(attemptSeq),
+                eq(request.getAmount()),
+                eq(request.getCard().getPan()),
+                eq(request.getCard().getExpiryYyMm()),
+                eq(request.getCard().bin8()),
+                eq(request.getCard().last4())
+        )).thenReturn(vanRequest);
+    }
+
     /**
      * 기존 attempt 재응답 또는 충돌 차단 경로에서 신규 승인 흐름이 시작되지 않았는지 검증한다.
      */
@@ -514,7 +514,15 @@ class PaymentApprovalServiceImplIdempotencyTest {
         verify(repository, never()).insertAttemptSeq(posTrx);
         verify(repository, never()).insertAttempt(any(AttemptInsertParam.class));
         verify(vanGateway, never()).approve(any(VanApproveRequest.class));
-        verify(vanApproveAssembler, never()).getVanApproveRequest(any(), anyInt(), any());
+        verify(vanApproveAssembler, never()).assemble(
+                anyString(),
+                anyInt(),
+                anyInt(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString()
+        );
         verify(repository, never()).updateAttemptResult(any(AttemptResultUpdateParam.class));
     }
 
@@ -529,7 +537,15 @@ class PaymentApprovalServiceImplIdempotencyTest {
     ) {
         verify(repository).insertAttemptSeq(posTrx);
         verify(repository).insertAttempt(any(AttemptInsertParam.class));
-        verify(vanApproveAssembler).getVanApproveRequest(posTrx, attemptSeq, request);
+        verify(vanApproveAssembler).assemble(
+                eq(posTrx),
+                eq(attemptSeq),
+                eq(request.getAmount()),
+                eq(request.getCard().getPan()),
+                eq(request.getCard().getExpiryYyMm()),
+                eq(request.getCard().bin8()),
+                eq(request.getCard().last4())
+        );
         verify(vanGateway).approve(eq(vanRequest));
         verify(repository).updateAttemptResult(any(AttemptResultUpdateParam.class));
     }

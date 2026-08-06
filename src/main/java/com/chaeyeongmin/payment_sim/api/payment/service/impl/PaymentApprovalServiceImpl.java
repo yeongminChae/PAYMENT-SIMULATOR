@@ -2,7 +2,6 @@ package com.chaeyeongmin.payment_sim.api.payment.service.impl;
 
 import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
 import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardSummary;
-import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.ApproveRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.ApproveResponse;
 import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
@@ -19,6 +18,7 @@ import com.chaeyeongmin.payment_sim.domain.model.CardIdentity;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
 import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
+import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentExternalInfoRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.*;
@@ -74,6 +74,13 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         validator.validate(request);
 
         String trx = request.getPosTrx();
+
+        // A3-0: posTrx 단위 승인 처리 직렬화.
+        // - 동시 최초 승인 요청들이 모두 findLatestByPosTrx()에서 empty를 보고
+        //   각자 VAN을 호출하는 것을 막기 위해, 조회 전에 PAYMENT_ATTEMPT_SEQ row lock을 획득한다.
+        // - 최초 row는 LAST_SEQ=0이며 실제 attemptSeq가 아니다.
+        // - 실제 attemptSeq 증가는 신규 attempt 생성이 확정된 뒤 insertAttemptSeq()에서만 수행한다.
+        repository.acquireApprovalSerializationLock(trx);
 
         // A4: posTrx 기준 최신 attempt 조회.
         // - 동일 posTrx로 승인 요청이 다시 들어온 경우, 먼저 DB에 이미 처리 흔적이 있는지 확인한다.
@@ -211,8 +218,16 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         // A5: VAN 승인 요청 DTO 구성.
         // - 내부 API 요청(ApproveRequest)을 그대로 VAN에 넘기지 않고, VAN 계약에 맞는 DTO로 변환한다.
         // - assembler는 posTrx/attemptSeq/request를 합쳐 VAN이 추적 가능한 승인 전문을 만든다.
-        VanApproveRequest vanApproveReq =
-                vanApproveAssembler.getVanApproveRequest(trx, attemptSeq, request);
+        VanApproveRequest vanApproveRequest =
+                vanApproveAssembler.assemble(
+                        trx,
+                        attemptSeq,
+                        request.getAmount(),
+                        card.getPan(),
+                        card.getExpiryYyMm(),
+                        cardBin,
+                        cardLast4
+                );
 
         insertApproveEvent(
                 PaymentEventType.APPROVE_VAN_REQUESTED,
@@ -229,16 +244,16 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         // A6: VAN 승인 호출.
         // - 이 흐름에서 실제 외부 승인 시도는 여기서 1번만 발생해야 한다.
         // - 위 A4에서 재요청을 걸러낸 이유도 이 중복 호출을 막기 위해서다.
-        VanApproveResponse vanApproveRes = vanGateway.approve(vanApproveReq);
+        VanApproveResponse vanResponse = vanGateway.approve(vanApproveRequest);
         insertApproveEvent(
                 PaymentEventType.APPROVE_VAN_RESULT_RECEIVED,
                 trx,
                 attemptSeq,
-                PaymentResultCodeMapper.codeName(vanApproveRes.finalStatus()),
-                vanApproveRes.finalStatus().name(),
-                vanApproveRes.vanTrxId(),
-                vanApproveRes.approvalNo(),
-                VanDeclineCodeMapper.toCode(vanApproveRes.declineCode()),
+                PaymentResultCodeMapper.codeName(vanResponse.finalStatus()),
+                vanResponse.finalStatus().name(),
+                vanResponse.vanTrxId(),
+                vanResponse.approvalNo(),
+                VanDeclineCodeMapper.toCode(vanResponse.declineCode()),
                 "VAN approve result received"
         );
 
@@ -247,7 +262,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         // - AttemptResultUpdateParam은 PAYMENT_ATTEMPT 테이블에 저장할 내부 확정 결과다.
         // - 조건부 update(FINAL_STATUS IS NULL)에 사용되므로 멱등성의 핵심 파라미터다.
         AttemptResultUpdateParam updateParam =
-                AttemptResultUpdateParamFactory.fromVanApprove(vanApproveRes, trx, attemptSeq);
+                AttemptResultUpdateParamFactory.fromVanApprove(vanResponse, trx, attemptSeq);
 
         // A7-1: VAN 결과 DB 확정 저장.
         // - 이번 요청이 최초 확정 저장에 성공하면 RETURNING row로 결과를 받는다.
@@ -292,7 +307,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         // - 비정상 가능성: VAN 응답은 받았는데 DB update가 반영되지 않아 row가 여전히 PROCESSING일 수 있다.
         // - 그래서 같은 posTrx + attemptSeq를 재조회해서 DB의 현재 상태를 다시 판단한다.
         Optional<PaymentAttempt> latestAttemptFromDb =
-                repository.findLatestByPosTrxAndAttemptSeq(trx, attemptSeq);
+                repository.findByPosTrxAndAttemptSeq(trx, attemptSeq);
 
         if (latestAttemptFromDb.isPresent()) {
             PaymentAttempt row = latestAttemptFromDb.get();
@@ -307,7 +322,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
                 // 결제 시스템에서는 "실제로 저장된 상태"가 우선이다.
                 if (dbStatus.equals(vanStatus) == false) {
                     log.error("[approve][A7-0rows][MISMATCH] db finalStatus != van finalStatus. posTrx={}, attemptSeq={}, dbStatus={}, vanStatus={}, vanTrxId={}",
-                            trx, attemptSeq, dbStatus, vanStatus, vanApproveRes.vanTrxId());
+                            trx, attemptSeq, dbStatus, vanStatus, vanResponse.vanTrxId());
                 }
 
                 // A9: 이미 확정된 결과가 있으면 DB값 그대로 재응답.
@@ -325,7 +340,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
             // - VAN 응답 이후에도 DB가 PROCESSING이면 정합성 이상 또는 update 실패 가능성이 있다.
             // - 클라이언트에게 확정 결과를 단정하지 않고 retryLater(PROCESSING)로 응답한다.
             log.error("[approve][A7-0rows][PROCESSING_AFTER_VAN] update miss; attempt still processing after VAN response. posTrx={}, attemptSeq={}, vanStatus={}, vanTrxId={}",
-                    trx, attemptSeq, vanApproveRes.finalStatus(), vanApproveRes.vanTrxId());
+                    trx, attemptSeq, vanResponse.finalStatus(), vanResponse.vanTrxId());
 
             return ApproveResponse.retryLater(trx, attemptSeq, summaryFromReq);
         }
@@ -334,7 +349,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         // - A3에서 insert한 attempt row를 A7 후처리에서 찾지 못한 상황이라 정상 흐름에서는 거의 없어야 한다.
         // - 이 경우에도 승인 성공/거절을 임의로 만들면 위험하므로 UNKNOWN_TIMEOUT 계열로 방어 응답한다.
         log.error("[approve][A7-0rows][CRITICAL_ATTEMPT_NOT_FOUND] update miss; attempt row not found after VAN response. posTrx={}, attemptSeq={}, vanStatus={}, vanTrxId={}",
-                trx, attemptSeq, vanApproveRes.finalStatus(), vanApproveRes.vanTrxId());
+                trx, attemptSeq, vanResponse.finalStatus(), vanResponse.vanTrxId());
 
         insertApproveEvent(
                 PaymentEventType.APPROVE_UNKNOWN_TIMEOUT,
@@ -342,7 +357,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
                 attemptSeq,
                 ResultCode.UNKNOWN_TIMEOUT.name(),
                 PaymentFinalStatus.UNKNOWN_TIMEOUT.name(),
-                vanApproveRes.vanTrxId(),
+                vanResponse.vanTrxId(),
                 null,
                 "UNKNOWN_AFTER_UPDATE_MISS",
                 "approval unknown timeout after update miss"
@@ -386,7 +401,9 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         };
     }
 
-    /** 저장 정책: 앞 8자리 BIN + 별표 6개 + 마지막 4자리. */
+    /**
+     * 저장 정책: 앞 8자리 BIN + 별표 6개 + 마지막 4자리.
+     */
     private String maskedCardNo(String cardBin, String cardLast4) {
         return cardBin + "******" + cardLast4;
     }

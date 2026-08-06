@@ -1,7 +1,5 @@
 package com.chaeyeongmin.payment_sim.van.client.assembler;
 
-import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
-import com.chaeyeongmin.payment_sim.api.payment.dto.request.ApproveRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveRequest;
 import org.springframework.stereotype.Component;
 
@@ -31,18 +29,25 @@ public class VanApproveAssembler {
     /**
      * A5: ApproveRequest -> VanApproveRequest 변환(구성)
      */
-    public VanApproveRequest getVanApproveRequest(String posTrx, int attemptSeq, ApproveRequest req) {
-        CardInput card = req.getCard();
-
+    public VanApproveRequest assemble(
+            String posTrx,
+            int attemptSeq,
+            int amount,
+            String pan,
+            String expiryYyMm,
+            String cardBin,
+            String cardLast4
+    ) {
         return VanApproveRequest.builder()
                 .posTrx(posTrx)
                 .attemptSeq(attemptSeq)
-                .amount(req.getAmount())
-                .pan(card.getPan())
-                .expiryYyMm(card.getExpiryYyMm())
-                .cardBin(card.bin8())
-                .cardLast4(card.last4())
-                .build();
+                .amount(amount)
+                .pan(pan)
+                .expiryYyMm(expiryYyMm)
+                .cardBin(cardBin)
+                .cardLast4(cardLast4)
+                .build()
+                ;
     }
 
 }

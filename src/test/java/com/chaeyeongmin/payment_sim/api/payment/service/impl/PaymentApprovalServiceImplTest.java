@@ -1,9 +1,9 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.impl;
 
 import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
-import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.ApproveRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.ApproveResponse;
+import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.api.payment.service.BinCatalogService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveRequestValidator;
@@ -12,13 +12,13 @@ import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.CardIdentity;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
+import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
-import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentExternalInfoRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdateParam;
-import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentExternalInfoInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentAttemptUpdatedRow;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentExternalInfoInsertParam;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanApproveAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveResponse;
@@ -33,10 +33,7 @@ import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class PaymentApprovalServiceImplTest {
@@ -175,7 +172,7 @@ class PaymentApprovalServiceImplTest {
         verify(repository, times(1)).findLatestByPosTrx(trx);
         verify(repository, never()).insertAttempt(any(AttemptInsertParam.class));
         verifyNoInteractions(gateway);
-        verify(assembler, never()).getVanApproveRequest(trx, attemptSeq, baseReq);
+        verifyAssembleNever(trx, attemptSeq, baseReq);
         verify(repository, never()).updateAttemptResult(any(AttemptResultUpdateParam.class));
 
     }
@@ -218,7 +215,7 @@ class PaymentApprovalServiceImplTest {
         verify(repository, times(1)).findLatestByPosTrx(trx);
         verify(repository, never()).insertAttempt(any(AttemptInsertParam.class));
         verifyNoInteractions(gateway);
-        verify(assembler, never()).getVanApproveRequest(trx, attemptSeq, baseReq);
+        verifyAssembleNever(trx, attemptSeq, baseReq);
         verify(repository, never()).updateAttemptResult(any(AttemptResultUpdateParam.class));
 
     }
@@ -252,7 +249,7 @@ class PaymentApprovalServiceImplTest {
 
         when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.of(latest));
         when(repository.insertAttemptSeq(trx)).thenReturn(newAttemptSeq);
-        when(assembler.getVanApproveRequest(trx, newAttemptSeq, baseReq)).thenReturn(vanReq);
+        stubAssemble(trx, newAttemptSeq, baseReq, vanReq);
         when(gateway.approve(eq(vanReq))).thenReturn(vanApproveResApproved(trx, newAttemptSeq));
         when(repository.updateAttemptResult(any())).thenReturn(Optional.of(updatedRowApproved(trx, newAttemptSeq)));
 
@@ -267,7 +264,7 @@ class PaymentApprovalServiceImplTest {
         verify(repository).findLatestByPosTrx(trx);
         verify(repository).insertAttemptSeq(trx);
         verify(repository).insertAttempt(any(AttemptInsertParam.class));
-        verify(assembler).getVanApproveRequest(trx, newAttemptSeq, baseReq);
+        verifyAssembleCalled(trx, newAttemptSeq, baseReq);
         verify(gateway).approve(eq(vanReq));
         verify(repository).updateAttemptResult(any(AttemptResultUpdateParam.class));
 
@@ -294,7 +291,7 @@ class PaymentApprovalServiceImplTest {
 
         when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.empty());
         when(repository.insertAttemptSeq(trx)).thenReturn(attemptSeq);
-        when(assembler.getVanApproveRequest(trx, attemptSeq, baseReq)).thenReturn(vanReq);
+        stubAssemble(trx, attemptSeq, baseReq, vanReq);
         when(gateway.approve(eq(vanReq))).thenReturn(vanApproveResApproved(trx, attemptSeq));
         when(repository.updateAttemptResult(any())).thenReturn(Optional.of(updatedRowApproved(trx, attemptSeq)));
 
@@ -309,10 +306,10 @@ class PaymentApprovalServiceImplTest {
         verify(repository).findLatestByPosTrx(trx);
         verify(repository).insertAttemptSeq(trx);
         verify(repository).insertAttempt(any(AttemptInsertParam.class));
-        verify(assembler).getVanApproveRequest(trx, attemptSeq, baseReq);
+        verifyAssembleCalled(trx, attemptSeq, baseReq);
         verify(gateway).approve(eq(vanReq));
         verify(repository).updateAttemptResult(any(AttemptResultUpdateParam.class));
-        verify(repository, never()).findLatestByPosTrxAndAttemptSeq(trx, attemptSeq);
+        verify(repository, never()).findByPosTrxAndAttemptSeq(trx, attemptSeq);
     }
 
     /**
@@ -336,7 +333,7 @@ class PaymentApprovalServiceImplTest {
 
         when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.empty());
         when(repository.insertAttemptSeq(trx)).thenReturn(attemptSeq);
-        when(assembler.getVanApproveRequest(trx, attemptSeq, baseReq)).thenReturn(vanReq);
+        stubAssemble(trx, attemptSeq, baseReq, vanReq);
         when(gateway.approve(eq(vanReq))).thenReturn(vanApproveResDeclined(trx, attemptSeq));
         when(repository.updateAttemptResult(any())).thenReturn(Optional.of(updatedRowDeclined(trx, attemptSeq)));
 
@@ -351,10 +348,10 @@ class PaymentApprovalServiceImplTest {
         verify(repository).findLatestByPosTrx(trx);
         verify(repository).insertAttemptSeq(trx);
         verify(repository).insertAttempt(any(AttemptInsertParam.class));
-        verify(assembler).getVanApproveRequest(trx, attemptSeq, baseReq);
+        verifyAssembleCalled(trx, attemptSeq, baseReq);
         verify(gateway).approve(eq(vanReq));
         verify(repository).updateAttemptResult(any(AttemptResultUpdateParam.class));
-        verify(repository, never()).findLatestByPosTrxAndAttemptSeq(trx, attemptSeq);
+        verify(repository, never()).findByPosTrxAndAttemptSeq(trx, attemptSeq);
     }
 
     /**
@@ -363,7 +360,7 @@ class PaymentApprovalServiceImplTest {
      * [시나리오]
      * - Given: 신규 흐름으로 VAN까지 다녀옴
      * - But  : updateAttemptResult = Optional.empty() (0 rows)
-     * - And  : 재조회(findLatestByPosTrxAndAttemptSeq) 결과 finalStatus=APPROVED
+     * - And  : 재조회(findByPosTrxAndAttemptSeq) 결과 finalStatus=APPROVED
      * - Then : DB 값 기준으로 재응답(A9)
      * <p>
      * [흐름도]
@@ -385,10 +382,10 @@ class PaymentApprovalServiceImplTest {
 
         when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.empty());
         when(repository.insertAttemptSeq(trx)).thenReturn(attemptSeq);
-        when(assembler.getVanApproveRequest(trx, attemptSeq, baseReq)).thenReturn(vanReq);
+        stubAssemble(trx, attemptSeq, baseReq, vanReq);
         when(gateway.approve(eq(vanReq))).thenReturn(vanApproveResApproved(trx, attemptSeq));
         when(repository.updateAttemptResult(any())).thenReturn(Optional.empty());
-        when(repository.findLatestByPosTrxAndAttemptSeq(trx, attemptSeq)).thenReturn(Optional.of(latest));
+        when(repository.findByPosTrxAndAttemptSeq(trx, attemptSeq)).thenReturn(Optional.of(latest));
 
         // when
         ApproveResponse res = service.approve(baseReq);
@@ -402,10 +399,10 @@ class PaymentApprovalServiceImplTest {
         verify(repository).findLatestByPosTrx(trx);
         verify(repository).insertAttemptSeq(trx);
         verify(repository).insertAttempt(any(AttemptInsertParam.class));
-        verify(assembler).getVanApproveRequest(trx, attemptSeq, baseReq);
+        verifyAssembleCalled(trx, attemptSeq, baseReq);
         verify(gateway).approve(eq(vanReq));
         verify(repository).updateAttemptResult(any(AttemptResultUpdateParam.class));
-        verify(repository).findLatestByPosTrxAndAttemptSeq(trx, attemptSeq);
+        verify(repository).findByPosTrxAndAttemptSeq(trx, attemptSeq);
     }
 
     /**
@@ -436,10 +433,10 @@ class PaymentApprovalServiceImplTest {
 
         when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.empty());
         when(repository.insertAttemptSeq(trx)).thenReturn(attemptSeq);
-        when(assembler.getVanApproveRequest(trx, attemptSeq, baseReq)).thenReturn(vanReq);
+        stubAssemble(trx, attemptSeq, baseReq, vanReq);
         when(gateway.approve(eq(vanReq))).thenReturn(vanApproveResApproved(trx, attemptSeq));
         when(repository.updateAttemptResult(any())).thenReturn(Optional.empty());
-        when(repository.findLatestByPosTrxAndAttemptSeq(trx, attemptSeq)).thenReturn(Optional.of(latest));
+        when(repository.findByPosTrxAndAttemptSeq(trx, attemptSeq)).thenReturn(Optional.of(latest));
 
         // when
         ApproveResponse res = service.approve(baseReq);
@@ -453,10 +450,10 @@ class PaymentApprovalServiceImplTest {
         verify(repository).findLatestByPosTrx(trx);
         verify(repository).insertAttemptSeq(trx);
         verify(repository).insertAttempt(any(AttemptInsertParam.class));
-        verify(assembler).getVanApproveRequest(trx, attemptSeq, baseReq);
+        verifyAssembleCalled(trx, attemptSeq, baseReq);
         verify(gateway).approve(eq(vanReq));
         verify(repository).updateAttemptResult(any(AttemptResultUpdateParam.class));
-        verify(repository).findLatestByPosTrxAndAttemptSeq(trx, attemptSeq);
+        verify(repository).findByPosTrxAndAttemptSeq(trx, attemptSeq);
     }
 
     /**
@@ -476,7 +473,7 @@ class PaymentApprovalServiceImplTest {
         when(repository.insertAttemptSeq(trx)).thenReturn(attemptSeq);
         when(binCatalogService.identify("41111111", "1111"))
                 .thenReturn(new CardIdentity("41111111", "1111", "VISA", "KB_CARD_TEST", "KR", "MOCK_VAN"));
-        when(assembler.getVanApproveRequest(trx, attemptSeq, baseReq)).thenReturn(vanReq);
+        stubAssemble(trx, attemptSeq, baseReq, vanReq);
         when(gateway.approve(eq(vanReq))).thenReturn(vanApproveResApproved(trx, attemptSeq));
         when(repository.updateAttemptResult(any())).thenReturn(Optional.of(updatedRowApproved(trx, attemptSeq)));
 
@@ -521,7 +518,7 @@ class PaymentApprovalServiceImplTest {
         when(cardFingerprintPolicy.generate(pan)).thenReturn(generatedFingerprint);
         when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.empty());
         when(repository.insertAttemptSeq(trx)).thenReturn(attemptSeq);
-        when(assembler.getVanApproveRequest(trx, attemptSeq, baseReq)).thenReturn(vanReq);
+        stubAssemble(trx, attemptSeq, baseReq, vanReq);
         when(gateway.approve(eq(vanReq))).thenReturn(vanApproveResApproved(trx, attemptSeq));
         when(repository.updateAttemptResult(any())).thenReturn(Optional.of(updatedRowApproved(trx, attemptSeq)));
 
@@ -554,7 +551,7 @@ class PaymentApprovalServiceImplTest {
         when(repository.insertAttemptSeq(trx)).thenReturn(attemptSeq);
         when(binCatalogService.identify("41111111", "1111"))
                 .thenReturn(new CardIdentity("41111111", "1111", "VISA", "KB_CARD_TEST", "KR", "MOCK_VAN"));
-        when(assembler.getVanApproveRequest(trx, attemptSeq, baseReq)).thenReturn(vanReq);
+        stubAssemble(trx, attemptSeq, baseReq, vanReq);
         when(gateway.approve(eq(vanReq))).thenReturn(vanApproveResApproved(trx, attemptSeq));
         when(repository.updateAttemptResult(any())).thenReturn(Optional.of(updatedRowApproved(trx, attemptSeq)));
 
@@ -633,6 +630,42 @@ class PaymentApprovalServiceImplTest {
                 .anyMatch(component -> component.getName().equals(fieldName));
 
         assertFalse(exists);
+    }
+
+    private void stubAssemble(String posTrx, int attemptSeq, ApproveRequest request, VanApproveRequest vanRequest) {
+        when(assembler.assemble(
+                eq(posTrx),
+                eq(attemptSeq),
+                eq(request.getAmount()),
+                eq(request.getCard().getPan()),
+                eq(request.getCard().getExpiryYyMm()),
+                eq(request.getCard().bin8()),
+                eq(request.getCard().last4())
+        )).thenReturn(vanRequest);
+    }
+
+    private void verifyAssembleCalled(String posTrx, int attemptSeq, ApproveRequest request) {
+        verify(assembler).assemble(
+                eq(posTrx),
+                eq(attemptSeq),
+                eq(request.getAmount()),
+                eq(request.getCard().getPan()),
+                eq(request.getCard().getExpiryYyMm()),
+                eq(request.getCard().bin8()),
+                eq(request.getCard().last4())
+        );
+    }
+
+    private void verifyAssembleNever(String posTrx, int attemptSeq, ApproveRequest request) {
+        verify(assembler, never()).assemble(
+                eq(posTrx),
+                eq(attemptSeq),
+                eq(request.getAmount()),
+                eq(request.getCard().getPan()),
+                eq(request.getCard().getExpiryYyMm()),
+                eq(request.getCard().bin8()),
+                eq(request.getCard().last4())
+        );
     }
 
     // status만 바꿔서 새 record를 생성

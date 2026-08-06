@@ -1,17 +1,16 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.impl;
 
-import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
+import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.InquiryRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.InquiryResponse;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentInquiryService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.InquiryRequestValidator;
-import com.chaeyeongmin.payment_sim.api.payment.validate.enums.ApproveValidationError;
-import com.chaeyeongmin.payment_sim.api.payment.validate.enums.CancelValidationError;
 import com.chaeyeongmin.payment_sim.api.payment.validate.enums.InquiryValidationError;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentInquiryRepository;
+import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdateParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentAttemptUpdatedRow;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanInquiryAssembler;
@@ -34,7 +33,7 @@ class PaymentInquiryServiceImplTest {
     /*
      * 이 테스트 파일에서 자주 나오는 이름의 의미:
      *
-     * latest       : repository.findByPosTrxAndAttemptSeq(...)가 DB에서 읽어온 것처럼 돌려주는 기존 attempt row
+     * latest       : paymentAttemptRepository.findByPosTrxAndAttemptSeq(...)가 DB에서 읽어온 것처럼 돌려주는 기존 attempt row
      * vanInquiryReq: 서비스가 VAN 조회를 호출하기 위해 assembler에게 만들어 달라고 하는 요청 DTO
      * vanInquiryRes: gateway.inquiry(...)가 VAN에서 받은 것처럼 돌려주는 응답 DTO
      * finalizedRow : repository.updateUnknownToFinal(...) 이후 DB에 실제 저장된 최종 row
@@ -59,6 +58,7 @@ class PaymentInquiryServiceImplTest {
 
     private PaymentInquiryService service;
     private PaymentInquiryRepository repository;
+    private PaymentAttemptRepository paymentAttemptRepository;
     private VanGateway gateway;
     private InquiryRequestValidator validator;
     private VanInquiryAssembler assembler;
@@ -68,12 +68,14 @@ class PaymentInquiryServiceImplTest {
     @BeforeEach
     void setUp() {
         repository = mock(PaymentInquiryRepository.class);
+        paymentAttemptRepository = mock(PaymentAttemptRepository.class);
         gateway = mock(VanGateway.class);
         validator = mock(InquiryRequestValidator.class);
         assembler = mock(VanInquiryAssembler.class);
 
         service = new PaymentInquiryServiceImpl(
                 repository,
+                paymentAttemptRepository,
                 gateway,
                 validator,
                 assembler
@@ -114,7 +116,7 @@ class PaymentInquiryServiceImplTest {
         assertEquals(InquiryValidationError.INVALID_REQUEST.code(), exception.getMessage());
 
         verify(validator).validate(baseReq);
-        verifyNoInteractions(repository, gateway, assembler);
+        verifyNoInteractions(repository, paymentAttemptRepository, gateway, assembler);
 
     }
 
@@ -122,7 +124,7 @@ class PaymentInquiryServiceImplTest {
      * [UT_ID] UT-PAYMENT-INQUIRY-002
      * <p>
      * [시나리오]
-     * - Given: repository.findByPosTrxAndAttemptSeq(posTrx, attemptSeq)가 Optional.empty()를 반환한다
+     * - Given: paymentAttemptRepository.findByPosTrxAndAttemptSeq(posTrx, attemptSeq)가 Optional.empty()를 반환한다
      * - When : service.inquiry() 호출
      * - Then : BusinessException(ResultCode.NOT_FOUND)이 발생한다
      * - And  : 조회 대상이 없으므로 VAN inquiry 호출이 없어야 한다
@@ -136,7 +138,7 @@ class PaymentInquiryServiceImplTest {
         String trx = baseReq.posTrx();
         int attemptSeq = baseReq.attemptSeq();
 
-        when(repository.findByPosTrxAndAttemptSeq(trx, attemptSeq))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(trx, attemptSeq))
                 .thenReturn(Optional.empty());
 
         // when + then
@@ -147,7 +149,7 @@ class PaymentInquiryServiceImplTest {
 
         assertEquals(ResultCode.NOT_FOUND, exception.getResultCode());
 
-        verify(repository, times(1))
+        verify(paymentAttemptRepository, times(1))
                 .findByPosTrxAndAttemptSeq(trx, attemptSeq);
         verifyNoInteractions(gateway);
         verifyNoInteractions(assembler);
@@ -185,7 +187,7 @@ class PaymentInquiryServiceImplTest {
         );
 
         // repository mock에게 "이 key로 조회하면 latest row가 나온다"고 알려준다.
-        when(repository.findByPosTrxAndAttemptSeq(trx, attemptSeq))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(trx, attemptSeq))
                 .thenReturn(Optional.of(latest));
 
         // when
@@ -198,7 +200,7 @@ class PaymentInquiryServiceImplTest {
         assertEquals(latest.cardBin(), res.cardSummary().cardBin());
         assertEquals(latest.cardLast4(), res.cardSummary().cardLast4());
 
-        verify(repository, times(1))
+        verify(paymentAttemptRepository, times(1))
                 .findByPosTrxAndAttemptSeq(trx, attemptSeq);
         verifyNoInteractions(gateway);
         verifyNoInteractions(assembler);
@@ -234,7 +236,7 @@ class PaymentInquiryServiceImplTest {
                 attemptSeq
         );
 
-        when(repository.findByPosTrxAndAttemptSeq(trx, attemptSeq))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(trx, attemptSeq))
                 .thenReturn(Optional.of(latest));
 
         // when
@@ -247,7 +249,7 @@ class PaymentInquiryServiceImplTest {
         assertEquals(latest.cardBin(), res.cardSummary().cardBin());
         assertEquals(latest.cardLast4(), res.cardSummary().cardLast4());
 
-        verify(repository, times(1))
+        verify(paymentAttemptRepository, times(1))
                 .findByPosTrxAndAttemptSeq(trx, attemptSeq);
         verifyNoInteractions(gateway);
         verifyNoInteractions(assembler);
@@ -283,7 +285,7 @@ class PaymentInquiryServiceImplTest {
                 attemptSeq
         );
 
-        when(repository.findByPosTrxAndAttemptSeq(trx, attemptSeq))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(trx, attemptSeq))
                 .thenReturn(Optional.of(latest));
 
         // when
@@ -293,7 +295,7 @@ class PaymentInquiryServiceImplTest {
         assertEquals(PaymentFinalStatus.PROCESSING, res.finalStatus());
 
         // 처리중 상태에서는 VAN inquiry도, DB 확정 update도 호출하면 안 된다.
-        verify(repository, times(1))
+        verify(paymentAttemptRepository, times(1))
                 .findByPosTrxAndAttemptSeq(trx, attemptSeq);
         verifyNoInteractions(gateway);
         verifyNoInteractions(assembler);
@@ -355,7 +357,7 @@ class PaymentInquiryServiceImplTest {
                 "9999"
         );
 
-        when(repository.findByPosTrxAndAttemptSeq(trx, attemptSeq))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(trx, attemptSeq))
                 .thenReturn(Optional.of(latest));
 
         // 서비스는 latest.cardLast4/latest.vanTrxId를 assembler에 넘겨 VAN 조회 요청을 만든다.
@@ -382,7 +384,7 @@ class PaymentInquiryServiceImplTest {
         // VAN 응답 승인번호가 아니라 DB RETURNING row 승인번호 기준인지 검증
         assertEquals("DB-APPROVAL-0001", res.approvalNo());
 
-        verify(repository, times(1))
+        verify(paymentAttemptRepository, times(1))
                 .findByPosTrxAndAttemptSeq(trx, attemptSeq);
         verify(assembler, times(1))
                 .getVanInquiryRequest(trx, attemptSeq, "4242", "VAN-TRX-0001");
@@ -444,7 +446,7 @@ class PaymentInquiryServiceImplTest {
                 "8881"
         );
 
-        when(repository.findByPosTrxAndAttemptSeq(trx, attemptSeq))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(trx, attemptSeq))
                 .thenReturn(Optional.of(latest));
 
         when(assembler.getVanInquiryRequest(trx, attemptSeq, "1111", "VAN-TRX-0001"))
@@ -466,7 +468,7 @@ class PaymentInquiryServiceImplTest {
         assertEquals(finalizedRow.cardBin(), res.cardSummary().cardBin());
         assertEquals(finalizedRow.cardLast4(), res.cardSummary().cardLast4());
 
-        verify(repository, times(1))
+        verify(paymentAttemptRepository, times(1))
                 .findByPosTrxAndAttemptSeq(trx, attemptSeq);
         verify(assembler, times(1))
                 .getVanInquiryRequest(trx, attemptSeq, "1111", "VAN-TRX-0001");
@@ -527,7 +529,7 @@ class PaymentInquiryServiceImplTest {
 
         VanInquiryResponse vanInquiryRes = vanInquiryResApproved(trx, attemptSeq);
 
-        when(repository.findByPosTrxAndAttemptSeq(trx, attemptSeq))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(trx, attemptSeq))
                 .thenReturn(Optional.of(latest), Optional.of(rereadApproved));
 
         when(assembler.getVanInquiryRequest(trx, attemptSeq, "4242", "VAN-TRX-UNKNOWN-0001"))
@@ -551,7 +553,7 @@ class PaymentInquiryServiceImplTest {
         // VAN 응답 승인번호가 아니라 update miss 이후 재조회된 DB row 기준인지 검증한다.
         assertEquals("DB-REREAD-APPROVAL-0001", res.approvalNo());
 
-        verify(repository, times(2))
+        verify(paymentAttemptRepository, times(2))
                 .findByPosTrxAndAttemptSeq(trx, attemptSeq);
         verify(assembler, times(1))
                 .getVanInquiryRequest(trx, attemptSeq, "4242", "VAN-TRX-UNKNOWN-0001");
@@ -612,7 +614,7 @@ class PaymentInquiryServiceImplTest {
 
         VanInquiryResponse vanInquiryRes = vanInquiryResDeclined(trx, attemptSeq);
 
-        when(repository.findByPosTrxAndAttemptSeq(trx, attemptSeq))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(trx, attemptSeq))
                 .thenReturn(Optional.of(latest), Optional.of(rereadDeclined));
 
         when(assembler.getVanInquiryRequest(trx, attemptSeq, "1111", "VAN-TRX-UNKNOWN-0002"))
@@ -636,7 +638,7 @@ class PaymentInquiryServiceImplTest {
         // VAN 응답의 DO_NOT_HONOR("05")가 아니라 재조회된 DB row declineCode 기준인지 검증한다.
         assertEquals("DB_REREAD_DECLINED", res.declineCode());
 
-        verify(repository, times(2))
+        verify(paymentAttemptRepository, times(2))
                 .findByPosTrxAndAttemptSeq(trx, attemptSeq);
         verify(assembler, times(1))
                 .getVanInquiryRequest(trx, attemptSeq, "1111", "VAN-TRX-UNKNOWN-0002");
@@ -689,7 +691,7 @@ class PaymentInquiryServiceImplTest {
         // VAN 조회 후에도 여전히 UNKNOWN_TIMEOUT인 응답이다.
         VanInquiryResponse vanInquiryRes = vanInquiryResUnknownTimeout(trx, attemptSeq);
 
-        when(repository.findByPosTrxAndAttemptSeq(trx, attemptSeq))
+        when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(trx, attemptSeq))
                 .thenReturn(Optional.of(latest));
 
         when(assembler.getVanInquiryRequest(trx, attemptSeq, "0000", "VAN-TRX-0001"))
@@ -709,7 +711,7 @@ class PaymentInquiryServiceImplTest {
         assertEquals(latest.cardBin(), res.cardSummary().cardBin());
         assertEquals(latest.cardLast4(), res.cardSummary().cardLast4());
 
-        verify(repository, times(1))
+        verify(paymentAttemptRepository, times(1))
                 .findByPosTrxAndAttemptSeq(trx, attemptSeq);
         verify(assembler, times(1))
                 .getVanInquiryRequest(trx, attemptSeq, "0000", "VAN-TRX-0001");

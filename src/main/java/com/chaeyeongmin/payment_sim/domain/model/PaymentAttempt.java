@@ -1,6 +1,6 @@
 package com.chaeyeongmin.payment_sim.domain.model;
 
-import com.chaeyeongmin.payment_sim.api.payment.dto.enums.PaymentFinalStatus;
+import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 
 /**
  * [Domain Model] PaymentAttempt (A4 분기용 조회 모델)

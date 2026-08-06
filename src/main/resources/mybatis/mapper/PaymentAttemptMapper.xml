@@ -5,6 +5,42 @@
 
 <mapper namespace="com.chaeyeongmin.payment_sim.infra.mybatis.mapper.PaymentAttemptMapper">
     <!--
+      [acquireApprovalSerializationLock]
+      - 동일 posTrx 승인 요청을 VAN 호출 전에 직렬화하기 위한 기준 row를 확보한다.
+      - 최초 진입자는 LAST_SEQ=0 row를 만든다. 이 값은 실제 attemptSeq가 아니며,
+        아래 insertAttemptSeq가 호출될 때만 LAST_SEQ가 1 이상으로 증가한다.
+      - 기존 row가 있으면 LAST_SEQ를 그대로 다시 대입하는 no-op UPDATE를 수행한다.
+        PostgreSQL에서는 이 UPDATE가 해당 row lock을 잡고, 같은 posTrx 후속 요청은
+        현재 트랜잭션이 끝날 때까지 대기한 뒤 최신 PAYMENT_ATTEMPT를 다시 보게 된다.
+    -->
+    <select id="acquireApprovalSerializationLock" resultType="int">
+        INSERT INTO PAYMENT_ATTEMPT_SEQ(POS_TRX,
+                                        LAST_SEQ,
+                                        UPDATED_AT)
+        VALUES (#{posTrx},
+                0,
+                CURRENT_TIMESTAMP) ON CONFLICT (POS_TRX)
+            DO
+        UPDATE SET LAST_SEQ = PAYMENT_ATTEMPT_SEQ.LAST_SEQ
+            RETURNING LAST_SEQ;
+    </select>
+
+    <!--
+      [acquireExistingPosTrxLock]
+      - 이미 승인 흐름에서 만들어진 PAYMENT_ATTEMPT_SEQ row를 기준으로 row lock을 잡는다.
+      - 취소 동시성에서는 originalPosTrx를 key로 사용해야 같은 원승인 취소 요청들이 직렬화된다.
+      - row가 없으면 새로 만들지 않고 0 rows/Optional.empty로 반환한다.
+        이는 정상 승인 API 외부에서 데이터가 만들어진 정합성 오류 신호로 본다.
+    -->
+    <select id="acquireExistingPosTrxLock" resultType="int">
+        UPDATE PAYMENT_ATTEMPT_SEQ
+        SET LAST_SEQ = PAYMENT_ATTEMPT_SEQ.LAST_SEQ
+        WHERE 1 = 1
+        and POS_TRX = #{originalPosTrx}
+        RETURNING LAST_SEQ;
+    </select>
+
+    <!--
       [insertAttemptSeq]
       - PAYMENT_ATTEMPT_SEQ 에서 posTrx 기준 attempt_seq를 원자 발급한다.
       - 최초: (POS_TRX, LAST_SEQ=1)
@@ -19,7 +55,7 @@
                 1,
                 CURRENT_TIMESTAMP) ON CONFLICT (POS_TRX)
             DO
-        UPDATE SET LAST_SEQ = LAST_SEQ + 1,
+        UPDATE SET LAST_SEQ = PAYMENT_ATTEMPT_SEQ.LAST_SEQ + 1,
             UPDATED_AT = CURRENT_TIMESTAMP
             RETURNING LAST_SEQ;
     </select>
@@ -73,7 +109,14 @@
         ORDER BY A.ATTEMPT_SEQ DESC LIMIT 1;
     </select>
 
-    <select id="findLatestByPosTrxAndAttemptSeq"
+    <!--
+    [findByPosTrxAndAttemptSeq]
+        - posTrx와 attemptSeq를 기준으로 특정 결제 시도(PAYMENT_ATTEMPT) 1건을 조회한다.
+        - 승인, 조회, 취소 흐름에서 동일한 결제 시도 정보를 재사용하기 위한 공통 조회 쿼리다.
+        - 조회 결과가 없으면 호출한 Service에서 NOT_FOUND 또는 해당 업무 규칙에 맞게 처리한다.
+        - POS_TRX + ATTEMPT_SEQ 조합은 결제 시도를 식별하는 키이므로 최대 1건만 반환한다.
+    -->
+    <select id="findByPosTrxAndAttemptSeq"
             resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt">
         SELECT
             A.FINAL_STATUS AS finalStatus,
@@ -81,14 +124,15 @@
             A.DECLINE_CODE AS declineCode,
             A.CARD_BIN AS cardBin,
             A.CARD_LAST4 AS cardLast4,
-            A.CARD_FINGERPRINT as cardFingerprint,
+            A.CARD_FINGERPRINT AS cardFingerprint,
             A.ATTEMPT_SEQ AS attemptSeq,
             A.AMOUNT AS amount,
             A.VAN_TRX_ID AS vanTrxId
         FROM PAYMENT_ATTEMPT A
         WHERE 1 = 1
             AND A.POS_TRX = #{posTrx}
-            AND A.ATTEMPT_SEQ = #{attemptSeq};
+            AND A.ATTEMPT_SEQ = #{attemptSeq}
+        LIMIT 1
     </select>
 
     <!--

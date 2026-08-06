@@ -1,6 +1,5 @@
 package com.chaeyeongmin.payment_sim.common.policy;
 
-import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -22,12 +21,7 @@ public class CardValidationPolicy {
      * 보안 주의:
      * - 이 함수 안/밖에서 PAN 원문을 로그로 남기지 않는다.
      */
-    public boolean isValidCard(CardInput card) {
-        if (card == null) return false;
-
-        String pan = card.getPan();
-        String expiryYyMm = card.getExpiryYyMm();
-
+    public boolean isValidCard(String pan, String expiryYyMm) {
         // 필수값 및 기본 형식(길이/숫자) 검사
         if (pan == null || expiryYyMm == null) return false;
         if (expiryYyMm.length() != 4 || pan.length() != 16) return false;

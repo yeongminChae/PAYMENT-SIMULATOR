@@ -610,6 +610,22 @@ class Mvp2PaymentFlowIntegrationTest {
             String declineCode,
             String vanTrxId
     ) {
+        // 취소 흐름은 originalPosTrx 기준 PAYMENT_ATTEMPT_SEQ row lock을 사용한다.
+        // 승인 API로 만든 원거래에는 이 row가 항상 있으므로, 수동 fixture도 같은 정합성 조건을 맞춘다.
+        jdbcTemplate.update(
+                """
+                INSERT INTO PAYMENT_ATTEMPT_SEQ (
+                    POS_TRX,
+                    LAST_SEQ
+                )
+                VALUES (?, ?)
+                ON CONFLICT(POS_TRX)
+                DO UPDATE SET LAST_SEQ = excluded.LAST_SEQ
+                """,
+                posTrx,
+                attemptSeq
+        );
+
         jdbcTemplate.update(
                 """
                 INSERT INTO PAYMENT_ATTEMPT (
