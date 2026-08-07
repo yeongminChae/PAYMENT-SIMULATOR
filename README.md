@@ -118,7 +118,7 @@ VAN은 실제 외부 연동이 아니라 승인, 조회, 취소 결과를 재현
 
 ```powershell
 $env:CARD_SECRET_KEY = "local-dev-card-fingerprint-secret-key-32bytes"
-.\gradlew.bat bootRun
+.\gradlew.bat :payment-server:bootRun
 ```
 
 PostgreSQL 실행 설정은 `application-postgres.yml`에 정의되어 있습니다.
@@ -136,7 +136,7 @@ PostgreSQL 실행 설정은 `application-postgres.yml`에 정의되어 있습니
 ```powershell
 $env:CARD_SECRET_KEY = "local-dev-card-fingerprint-secret-key-32bytes"
 $env:POSTGRES_PASSWORD = "<local-postgres-password>"
-.\gradlew.bat bootRun --args="--spring.profiles.active=postgres"
+.\gradlew.bat :payment-server:bootRun --args="--spring.profiles.active=postgres"
 ```
 
 ## 테스트
@@ -163,14 +163,14 @@ Release 3 완료 시점 기준 결과:
 
 ```powershell
 $env:CARD_SECRET_KEY = "local-dev-card-fingerprint-secret-key-32bytes"
-.\gradlew.bat clean test
+.\gradlew.bat :payment-server:clean :payment-server:test
 ```
 
 PostgreSQL 테스트는 Testcontainers로 Docker PostgreSQL 17 컨테이너를 실행합니다. Docker가 실행 중이어야 합니다.
 
 ```powershell
 $env:CARD_SECRET_KEY = "local-dev-card-fingerprint-secret-key-32bytes"
-.\gradlew.bat test --tests "*Postgres*"
+.\gradlew.bat :payment-server:test --tests "*Postgres*"
 ```
 
 ## 한계와 개선 방향
