@@ -1,3 +1,4 @@
 rootProject.name = 'payment-sim'
 
 include 'payment-server'
+include 'van-simulator'
