@@ -17,7 +17,7 @@ class VanApprovalTcpRequestTest {
                 "1",
                 "APPROVAL",
                 "abc123",
-                "202608080001",
+                "2301-20260808-9999-0001",
                 1,
                 10_000,
                 "1234567890123456",
@@ -31,7 +31,7 @@ class VanApprovalTcpRequestTest {
         assertThat(root.get("protocolVersion").asText()).isEqualTo("1");
         assertThat(root.get("messageType").asText()).isEqualTo("APPROVAL");
         assertThat(root.get("requestId").asText()).isEqualTo("abc123");
-        assertThat(root.get("posTrx").asText()).isEqualTo("202608080001");
+        assertThat(root.get("posTrx").asText()).isEqualTo("2301-20260808-9999-0001");
         assertThat(root.get("attemptSeq").asInt()).isEqualTo(1);
         assertThat(root.get("amount").asInt()).isEqualTo(10_000);
         assertThat(root.get("pan").asText()).isEqualTo("1234567890123456");

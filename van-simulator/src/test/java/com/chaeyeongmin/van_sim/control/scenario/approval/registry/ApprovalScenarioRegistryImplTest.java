@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ApprovalScenarioRegistryImplTest {
 
-    private static final String POS_TRX = "202608080001";
+    private static final String POS_TRX = "2301-20260808-9999-0001";
 
     private ApprovalScenarioRegistry registry;
 

@@ -17,7 +17,7 @@ class ApprovalRequestMessageTest {
                   "protocolVersion": "1",
                   "messageType": "APPROVAL",
                   "requestId": "abc123",
-                  "posTrx": "202608080001",
+                  "posTrx": "2301-20260808-9999-0001",
                   "attemptSeq": 1,
                   "amount": 10000,
                   "pan": "1234567890123456",
@@ -30,7 +30,7 @@ class ApprovalRequestMessageTest {
         assertThat(request.protocolVersion()).isEqualTo("1");
         assertThat(request.messageType()).isEqualTo("APPROVAL");
         assertThat(request.requestId()).isEqualTo("abc123");
-        assertThat(request.posTrx()).isEqualTo("202608080001");
+        assertThat(request.posTrx()).isEqualTo("2301-20260808-9999-0001");
         assertThat(request.attemptSeq()).isEqualTo(1);
         assertThat(request.amount()).isEqualTo(10_000);
         assertThat(request.pan()).isEqualTo("1234567890123456");

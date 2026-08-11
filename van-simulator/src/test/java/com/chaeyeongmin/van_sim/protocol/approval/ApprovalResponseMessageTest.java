@@ -25,7 +25,7 @@ class ApprovalResponseMessageTest {
                 "1",
                 "APPROVAL_RESPONSE",
                 "abc123",
-                "202608080001",
+                "2301-20260808-9999-0001",
                 1,
                 "VAN-20260808-000001",
                 ApprovalStatus.APPROVED,
@@ -40,7 +40,7 @@ class ApprovalResponseMessageTest {
         assertThat(root.get("protocolVersion").asText()).isEqualTo("1");
         assertThat(root.get("messageType").asText()).isEqualTo("APPROVAL_RESPONSE");
         assertThat(root.get("requestId").asText()).isEqualTo("abc123");
-        assertThat(root.get("posTrx").asText()).isEqualTo("202608080001");
+        assertThat(root.get("posTrx").asText()).isEqualTo("2301-20260808-9999-0001");
         assertThat(root.get("attemptSeq").asInt()).isEqualTo(1);
         assertThat(root.get("vanTrxId").asText()).isEqualTo("VAN-20260808-000001");
         assertThat(root.get("status").asText()).isEqualTo("APPROVED");

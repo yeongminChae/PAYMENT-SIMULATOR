@@ -24,7 +24,7 @@ class VanApprovalTcpResponseTest {
                 "protocolVersion" : "1",
                 "messageType" : "APPROVAL_RESPONSE",
                 "requestId" : "abc123",
-                "posTrx" : "202608080001",
+                "posTrx" : "2301-20260808-9999-0001",
                 "attemptSeq" : 1,
                 "vanTrxId" : "VAN-20260808-000001",
                 "status" : "APPROVED",
@@ -39,7 +39,7 @@ class VanApprovalTcpResponseTest {
         assertThat(response.protocolVersion()).isEqualTo("1");
         assertThat(response.messageType()).isEqualTo("APPROVAL_RESPONSE");
         assertThat(response.requestId()).isEqualTo("abc123");
-        assertThat(response.posTrx()).isEqualTo("202608080001");
+        assertThat(response.posTrx()).isEqualTo("2301-20260808-9999-0001");
         assertThat(response.attemptSeq()).isEqualTo(1);
         assertThat(response.vanTrxId()).isEqualTo("VAN-20260808-000001");
         assertThat(response.status()).isEqualTo(VanApprovalStatus.APPROVED);

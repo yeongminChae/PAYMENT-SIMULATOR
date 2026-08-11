@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @AutoConfigureMockMvc
 class ApprovalScenarioControllerTest {
 
-    private static final String POS_TRX = "202608080001";
+    private static final String POS_TRX = "2301-20260808-9999-0001";
 
     @Autowired
     private MockMvc mockMvc;
