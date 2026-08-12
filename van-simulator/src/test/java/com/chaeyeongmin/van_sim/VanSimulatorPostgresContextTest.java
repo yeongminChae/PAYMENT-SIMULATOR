@@ -1,22 +1,15 @@
 package com.chaeyeongmin.van_sim;
 
+import com.chaeyeongmin.van_sim.support.PostgresTestcontainersConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
-@Testcontainers
 @SpringBootTest
 @ActiveProfiles("postgres")
+@Import(PostgresTestcontainersConfig.class)
 class VanSimulatorPostgresContextTest {
-
-    @Container
-    @ServiceConnection
-    static final PostgreSQLContainer<?> postgres =
-            new PostgreSQLContainer<>("postgres:17");
 
     @Test
     void contextLoadsWithPostgres() {
