@@ -5,6 +5,12 @@ spring:
     password: ${VAN_DB_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
 
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema-postgres.sql
+      continue-on-error: false
+
   jpa:
     open-in-view: false
     hibernate:
