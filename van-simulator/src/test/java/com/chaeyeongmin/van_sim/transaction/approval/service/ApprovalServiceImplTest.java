@@ -8,6 +8,7 @@ import com.chaeyeongmin.van_sim.ledger.approval.entity.VanApproval;
 import com.chaeyeongmin.van_sim.ledger.approval.repository.VanApprovalRepository;
 import com.chaeyeongmin.van_sim.ledger.approval.status.ApprovalStatus;
 import com.chaeyeongmin.van_sim.transaction.approval.service.command.ApprovalCommand;
+import com.chaeyeongmin.van_sim.transaction.approval.service.exception.ApprovalRequestConflictException;
 import com.chaeyeongmin.van_sim.transaction.approval.service.impl.ApprovalServiceImpl;
 import com.chaeyeongmin.van_sim.transaction.approval.service.result.ApprovalResult;
 import com.chaeyeongmin.van_sim.transaction.approval.service.support.ApprovalNumberGenerator;
@@ -18,9 +19,11 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -157,6 +160,125 @@ class ApprovalServiceImplTest {
 
     }
 
+    @Test
+    void 동일한_승인_요청이_이미_처리되었으면_기존_결과를_반환한다() {
+        // given: 기존 원장과 동일한 승인 요청
+        ApprovalCommand command = newCommand("0004");
+
+        LocalDateTime processedAt =
+                LocalDateTime.of(2026, 8, 13, 10, 0);
+
+        VanApproval existing = newApprovedApproval(command, processedAt);
+
+        givenExistingApproval(command, existing);
+
+        // when: 동일한 승인 요청 재처리
+        ApprovalResult result = approvalService.processApproval(command);
+
+        // then: 신규 처리 없이 기존 승인 결과 반환
+        assertResult(
+                result,
+                command,
+                ApprovalStatus.APPROVED,
+                "VAN-ORIGINAL-001",
+                "APPROVAL-ORIGINAL-001",
+                null
+        );
+
+        assertThat(result.processedAt()).isEqualTo(processedAt);
+
+        // 이미 처리된 거래이므로 신규 승인 로직을 다시 실행하지 않음
+        verify(repository, never()).save(any(VanApproval.class));
+        verify(scenarioRegistry, never()).find(anyString());
+        verify(vanTransactionIdGenerator, never()).generate();
+        verify(approvalNumberGenerator, never()).generate();
+
+    }
+
+    @Test
+    void 동일한_거래키로_금액이_다르면_충돌로_처리한다() {
+        // given: 기존에 승인 완료된 거래
+        ApprovalCommand existingCommand = newCommand("0005");
+
+        LocalDateTime processedAt =
+                LocalDateTime.of(2026, 8, 13, 10, 0);
+
+        VanApproval existing = newApprovedApproval(existingCommand, processedAt);
+
+        // 같은 거래키지만 금액만 다르게 재요청
+        ApprovalCommand conflictCommand = newCommand("0005", 20_000);
+
+        givenExistingApproval(conflictCommand, existing);
+
+        // when & then: 기존 원장과 요청 금액이 달라 충돌
+        assertThatThrownBy(() ->
+                approvalService.processApproval(conflictCommand)
+        ).isInstanceOf(ApprovalRequestConflictException.class);
+
+        // 충돌 요청은 신규 승인 처리를 진행하지 않음
+        verify(repository, never()).save(any(VanApproval.class));
+        verify(scenarioRegistry, never()).find(anyString());
+        verify(vanTransactionIdGenerator, never()).generate();
+        verify(approvalNumberGenerator, never()).generate();
+
+    }
+
+    @Test
+    void 동일한_거래키로_cardBin이_다르면_충돌로_처리한다() {
+        // given: 기존에 승인 완료된 거래
+        ApprovalCommand existingCommand = newCommand("0006");
+
+        LocalDateTime processedAt =
+                LocalDateTime.of(2026, 8, 13, 10, 0);
+
+        VanApproval existing = newApprovedApproval(existingCommand, processedAt);
+
+        // 같은 거래키지만 카드 BIN만 다르게 재요청
+        ApprovalCommand conflictCommand = newCommand("0006", "87654321", "1234");
+
+        givenExistingApproval(conflictCommand, existing);
+
+        // when & then: 기존 원장과 카드 BIN이 달라 충돌
+        assertThatThrownBy(() ->
+                approvalService.processApproval(conflictCommand)
+        ).isInstanceOf(ApprovalRequestConflictException.class);
+
+        // 충돌 요청은 신규 승인 처리를 진행하지 않음
+        verify(repository, never()).save(any(VanApproval.class));
+        verify(scenarioRegistry, never()).find(anyString());
+        verify(vanTransactionIdGenerator, never()).generate();
+        verify(approvalNumberGenerator, never()).generate();
+
+    }
+
+    @Test
+    void 동일한_거래키로_cardLast4가_다르면_충돌로_처리한다() {
+        // given: 기존에 승인 완료된 거래
+        ApprovalCommand existingCommand = newCommand("0007");
+
+        LocalDateTime processedAt =
+                LocalDateTime.of(2026, 8, 13, 10, 0);
+
+        VanApproval existing = newApprovedApproval(existingCommand, processedAt);
+
+        // 같은 거래키지만 카드 마지막 4자리만 다르게 재요청
+        ApprovalCommand conflictCommand = newCommand("0007", "12345678", "4321");
+
+        givenExistingApproval(conflictCommand, existing);
+
+        // when & then: 기존 원장과 카드 마지막 4자리가 달라 충돌
+        assertThatThrownBy(() ->
+                approvalService.processApproval(conflictCommand)
+        ).isInstanceOf(ApprovalRequestConflictException.class);
+
+        // 충돌 요청은 신규 승인 처리를 진행하지 않음
+        verify(repository, never()).save(any(VanApproval.class));
+        verify(scenarioRegistry, never()).find(anyString());
+        verify(vanTransactionIdGenerator, never()).generate();
+        verify(approvalNumberGenerator, never()).generate();
+
+    }
+
     // 신규 승인 요청에서 모든 시나리오가 공통으로 필요로 하는 mock 설정을 묶는다.
     private void givenNewApproval(
             ApprovalCommand command,
@@ -192,6 +314,35 @@ class ApprovalServiceImplTest {
                 });
     }
 
+    private void givenExistingApproval(
+            ApprovalCommand command,
+            VanApproval existing
+    ) {
+        when(repository.findByPosTrxAndAttemptSeq(
+                command.posTrx(),
+                command.attemptSeq()
+        )).thenReturn(Optional.of(existing));
+    }
+
+    // 기존에 정상 승인 완료된 VAN 원장을 만든다.
+    private VanApproval newApprovedApproval(
+            ApprovalCommand command,
+            LocalDateTime processedAt
+    ) {
+        return VanApproval.builder()
+                .vanTrxId("VAN-ORIGINAL-001")
+                .posTrx(command.posTrx())
+                .attemptSeq(command.attemptSeq())
+                .amount(command.amount())
+                .cardBin(command.cardBin())
+                .cardLast4(command.cardLast4())
+                .approvalStatus(ApprovalStatus.APPROVED)
+                .approvalNo("APPROVAL-ORIGINAL-001")
+                .declineCode(null)
+                .processedAt(processedAt)
+                .build();
+    }
+
     // APPROVED 시나리오에서만 필요한 승인번호 생성 결과를 고정한다.
     private void givenApprovalNumber(String approvalNo) {
         when(approvalNumberGenerator.generate())
@@ -215,7 +366,7 @@ class ApprovalServiceImplTest {
         assertThat(result.declineCode()).isEqualTo(declineCode);
     }
 
-    // Repository에 저장된 VAN 승인 원장이 요청값과 시나리오 결과를 담았는지 검증한다.
+    // Repository에 저장 요청된 VAN 승인 원장이 요청값과 시나리오 결과를 담았는지 검증한다.
     private void assertSavedApproval(
             VanApproval saved,
             ApprovalCommand command,
@@ -235,12 +386,29 @@ class ApprovalServiceImplTest {
 
     // 테스트별 posTrx만 다르게 만들고 나머지 승인 요청값은 고정한다.
     private ApprovalCommand newCommand(String posTrxSuffix) {
-        return new ApprovalCommand(
+        return newCommand(posTrxSuffix, 10_000);
+    }
+
+    private ApprovalCommand newCommand(String posTrxSuffix, int amount) {
+        return newCommand(posTrxSuffix, amount, "12345678", "1234");
+    }
+
+    private ApprovalCommand newCommand(String posTrxSuffix, String cardBin, String cardLast4) {
+        return newCommand(posTrxSuffix, 10_000, cardBin, cardLast4);
+    }
+
+    private ApprovalCommand newCommand(
+            String posTrxSuffix,
+            int amount,
+            String cardBin,
+            String cardLast4
+    ) {
+        return ApprovalCommand.of(
                 "2301-20260808-9999-" + posTrxSuffix,
                 1,
-                10_000,
-                "12345678",
-                "1234"
+                amount,
+                cardBin,
+                cardLast4
         );
     }
 
