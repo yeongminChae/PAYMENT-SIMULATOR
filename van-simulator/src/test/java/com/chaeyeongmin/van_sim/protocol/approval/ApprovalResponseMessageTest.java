@@ -28,7 +28,7 @@ class ApprovalResponseMessageTest {
                 "2301-20260808-9999-0001",
                 1,
                 "VAN-20260808-000001",
-                ApprovalStatus.APPROVED,
+                ApprovalResponseStatus.APPROVED,
                 "12345678",
                 null,
                 LocalDateTime.of(2026, 8, 8, 18, 30, 0)

@@ -6,7 +6,7 @@ import com.chaeyeongmin.van_sim.control.scenario.approval.model.TransportBehavio
 import com.chaeyeongmin.van_sim.control.scenario.approval.registry.ApprovalScenarioRegistry;
 import com.chaeyeongmin.van_sim.ledger.approval.entity.VanApproval;
 import com.chaeyeongmin.van_sim.ledger.approval.repository.VanApprovalRepository;
-import com.chaeyeongmin.van_sim.ledger.approval.status.ApprovalStatus;
+import com.chaeyeongmin.van_sim.ledger.approval.status.VanApprovalStatus;
 import com.chaeyeongmin.van_sim.transaction.approval.service.ApprovalService;
 import com.chaeyeongmin.van_sim.transaction.approval.service.command.ApprovalCommand;
 import com.chaeyeongmin.van_sim.transaction.approval.service.exception.ApprovalRequestConflictException;
@@ -76,23 +76,23 @@ public class ApprovalServiceImpl implements ApprovalService {
 
         // VAN 거래번호 생성
         String vanTrxId = vanTransactionIdGenerator.generate();
-        ApprovalStatus status;
+        VanApprovalStatus status;
         String approvalNo = null;
         String declineCode = null;
 
         switch (scenario.issuerResult()) {
             case APPROVED -> {
-                status = ApprovalStatus.APPROVED;
+                status = VanApprovalStatus.APPROVED;
                 approvalNo = approvalNumberGenerator.generate();
             }
 
             case DECLINED -> {
-                status = ApprovalStatus.DECLINED;
+                status = VanApprovalStatus.DECLINED;
                 declineCode = "D001";
             }
 
             case ISSUER_TIMEOUT -> {
-                status = ApprovalStatus.UNKNOWN;
+                status = VanApprovalStatus.UNKNOWN;
             }
 
             default -> throw new IllegalStateException(
@@ -136,7 +136,7 @@ public class ApprovalServiceImpl implements ApprovalService {
     private static VanApproval getVanApprovalEntity(
             ApprovalCommand command,
             String vanTrxId,
-            ApprovalStatus status,
+            VanApprovalStatus status,
             String approvalNo,
             String declineCode,
             LocalDateTime processedAt

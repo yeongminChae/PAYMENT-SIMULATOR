@@ -6,7 +6,7 @@ import com.chaeyeongmin.van_sim.control.scenario.approval.model.TransportBehavio
 import com.chaeyeongmin.van_sim.control.scenario.approval.registry.ApprovalScenarioRegistry;
 import com.chaeyeongmin.van_sim.ledger.approval.entity.VanApproval;
 import com.chaeyeongmin.van_sim.ledger.approval.repository.VanApprovalRepository;
-import com.chaeyeongmin.van_sim.ledger.approval.status.ApprovalStatus;
+import com.chaeyeongmin.van_sim.ledger.approval.status.VanApprovalStatus;
 import com.chaeyeongmin.van_sim.transaction.approval.service.command.ApprovalCommand;
 import com.chaeyeongmin.van_sim.transaction.approval.service.exception.ApprovalRequestConflictException;
 import com.chaeyeongmin.van_sim.transaction.approval.service.impl.ApprovalServiceImpl;
@@ -71,7 +71,7 @@ class ApprovalServiceImplTest {
         assertResult(
                 result,
                 command,
-                ApprovalStatus.APPROVED,
+                VanApprovalStatus.APPROVED,
                 "VAN-TEST-001",
                 "APPROVAL-TEST-001",
                 null
@@ -83,7 +83,7 @@ class ApprovalServiceImplTest {
         assertSavedApproval(
                 savedApproval,
                 command,
-                ApprovalStatus.APPROVED,
+                VanApprovalStatus.APPROVED,
                 "APPROVAL-TEST-001",
                 null
         );
@@ -103,7 +103,7 @@ class ApprovalServiceImplTest {
         assertResult(
                 result,
                 command,
-                ApprovalStatus.DECLINED,
+                VanApprovalStatus.DECLINED,
                 "VAN-TEST-002",
                 null,
                 "D001"
@@ -115,7 +115,7 @@ class ApprovalServiceImplTest {
         assertSavedApproval(
                 savedApproval,
                 command,
-                ApprovalStatus.DECLINED,
+                VanApprovalStatus.DECLINED,
                 null,
                 "D001"
         );
@@ -138,7 +138,7 @@ class ApprovalServiceImplTest {
         assertResult(
                 result,
                 command,
-                ApprovalStatus.UNKNOWN,
+                VanApprovalStatus.UNKNOWN,
                 "VAN-TEST-003",
                 null,
                 null
@@ -150,7 +150,7 @@ class ApprovalServiceImplTest {
         assertSavedApproval(
                 savedApproval,
                 command,
-                ApprovalStatus.UNKNOWN,
+                VanApprovalStatus.UNKNOWN,
                 null,
                 null
         );
@@ -179,7 +179,7 @@ class ApprovalServiceImplTest {
         assertResult(
                 result,
                 command,
-                ApprovalStatus.APPROVED,
+                VanApprovalStatus.APPROVED,
                 "VAN-ORIGINAL-001",
                 "APPROVAL-ORIGINAL-001",
                 null
@@ -336,7 +336,7 @@ class ApprovalServiceImplTest {
                 .amount(command.amount())
                 .cardBin(command.cardBin())
                 .cardLast4(command.cardLast4())
-                .approvalStatus(ApprovalStatus.APPROVED)
+                .approvalStatus(VanApprovalStatus.APPROVED)
                 .approvalNo("APPROVAL-ORIGINAL-001")
                 .declineCode(null)
                 .processedAt(processedAt)
@@ -353,7 +353,7 @@ class ApprovalServiceImplTest {
     private void assertResult(
             ApprovalResult result,
             ApprovalCommand command,
-            ApprovalStatus status,
+            VanApprovalStatus status,
             String vanTrxId,
             String approvalNo,
             String declineCode
@@ -370,7 +370,7 @@ class ApprovalServiceImplTest {
     private void assertSavedApproval(
             VanApproval saved,
             ApprovalCommand command,
-            ApprovalStatus status,
+            VanApprovalStatus status,
             String approvalNo,
             String declineCode
     ) {

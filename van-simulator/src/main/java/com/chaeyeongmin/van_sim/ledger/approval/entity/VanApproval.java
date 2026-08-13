@@ -1,6 +1,6 @@
 package com.chaeyeongmin.van_sim.ledger.approval.entity;
 
-import com.chaeyeongmin.van_sim.ledger.approval.status.ApprovalStatus;
+import com.chaeyeongmin.van_sim.ledger.approval.status.VanApprovalStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -62,7 +62,7 @@ public class VanApproval {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "approval_status", length = 20, nullable = false)
-    private ApprovalStatus approvalStatus;
+    private VanApprovalStatus approvalStatus;
 
     @Column(name = "approval_no", length = 20)
     private String approvalNo;
@@ -81,7 +81,7 @@ public class VanApproval {
             int amount,
             String cardBin,
             String cardLast4,
-            ApprovalStatus approvalStatus,
+            VanApprovalStatus approvalStatus,
             String approvalNo,
             String declineCode,
             LocalDateTime processedAt

@@ -1,7 +1,7 @@
 package com.chaeyeongmin.van_sim.ledger.approval.repository;
 
 import com.chaeyeongmin.van_sim.ledger.approval.entity.VanApproval;
-import com.chaeyeongmin.van_sim.ledger.approval.status.ApprovalStatus;
+import com.chaeyeongmin.van_sim.ledger.approval.status.VanApprovalStatus;
 import com.chaeyeongmin.van_sim.support.PostgresTestcontainersConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,7 +32,7 @@ class VanApprovalRepositoryTest {
         // given
         VanApproval approval = approval(
                 "0001",
-                ApprovalStatus.APPROVED,
+                VanApprovalStatus.APPROVED,
                 "APPROVAL-0001",
                 null
         );
@@ -47,7 +47,7 @@ class VanApprovalRepositoryTest {
         assertNotNull(savedApproval.getId());
         assertTrue(findApproval.isPresent());
         assertEquals("APPROVAL-0001", findApproval.get().getApprovalNo());
-        assertEquals(ApprovalStatus.APPROVED, findApproval.get().getApprovalStatus());
+        assertEquals(VanApprovalStatus.APPROVED, findApproval.get().getApprovalStatus());
         assertNull(findApproval.get().getDeclineCode());
         assertEquals(savedApproval.getId(), findApproval.get().getId());
     }
@@ -57,7 +57,7 @@ class VanApprovalRepositoryTest {
         // given
         VanApproval decline = approval(
                 "0002",
-                ApprovalStatus.DECLINED,
+                VanApprovalStatus.DECLINED,
                 null,
                 "01"
         );
@@ -71,7 +71,7 @@ class VanApprovalRepositoryTest {
         // then
         assertNotNull(savedApproval.getId());
         assertTrue(findApproval.isPresent());
-        assertEquals(ApprovalStatus.DECLINED, findApproval.get().getApprovalStatus());
+        assertEquals(VanApprovalStatus.DECLINED, findApproval.get().getApprovalStatus());
         assertNull(findApproval.get().getApprovalNo());
         assertEquals("01", findApproval.get().getDeclineCode());
         assertEquals(savedApproval.getId(), findApproval.get().getId());
@@ -82,7 +82,7 @@ class VanApprovalRepositoryTest {
         // given
         VanApproval unknown = approval(
                 "0003",
-                ApprovalStatus.UNKNOWN,
+                VanApprovalStatus.UNKNOWN,
                 null,
                 null
         );
@@ -96,7 +96,7 @@ class VanApprovalRepositoryTest {
         // then
         assertNotNull(savedApproval.getId());
         assertTrue(findApproval.isPresent());
-        assertEquals(ApprovalStatus.UNKNOWN, findApproval.get().getApprovalStatus());
+        assertEquals(VanApprovalStatus.UNKNOWN, findApproval.get().getApprovalStatus());
         assertNull(findApproval.get().getApprovalNo());
         assertNull(findApproval.get().getDeclineCode());
         assertEquals(savedApproval.getId(), findApproval.get().getId());
@@ -110,7 +110,7 @@ class VanApprovalRepositoryTest {
                 "2301-20260808-9999-0004",
                 1,
                 10000,
-                ApprovalStatus.APPROVED,
+                VanApprovalStatus.APPROVED,
                 "APPROVAL-0400",
                 null
         );
@@ -123,7 +123,7 @@ class VanApprovalRepositoryTest {
                 "2301-20260808-9999-0004",
                 1,
                 10000,
-                ApprovalStatus.APPROVED,
+                VanApprovalStatus.APPROVED,
                 "APPROVAL-0401",
                 null
         );
@@ -146,7 +146,7 @@ class VanApprovalRepositoryTest {
                 "2301-20260808-9999-5000",
                 1,
                 10000,
-                ApprovalStatus.APPROVED,
+                VanApprovalStatus.APPROVED,
                 "APPROVAL-5000",
                 null
         );
@@ -159,7 +159,7 @@ class VanApprovalRepositoryTest {
                 "2301-20260808-9999-5001",
                 2,
                 10000,
-                ApprovalStatus.APPROVED,
+                VanApprovalStatus.APPROVED,
                 "APPROVAL-5001",
                 null
         );
@@ -179,7 +179,7 @@ class VanApprovalRepositoryTest {
         // given
         VanApproval first = approval(
                 "0006",
-                ApprovalStatus.APPROVED,
+                VanApprovalStatus.APPROVED,
                 null,
                 null
         );
@@ -191,7 +191,7 @@ class VanApprovalRepositoryTest {
                         () -> repository.saveAndFlush(first)
                 );
 
-        assertEquals(ApprovalStatus.APPROVED, first.getApprovalStatus());
+        assertEquals(VanApprovalStatus.APPROVED, first.getApprovalStatus());
         assertThat(exception.getMessage()).contains("ck_van_approval_status_payload");
 
     }
@@ -201,7 +201,7 @@ class VanApprovalRepositoryTest {
         // given
         VanApproval first = approval(
                 "0007",
-                ApprovalStatus.DECLINED,
+                VanApprovalStatus.DECLINED,
                 null,
                 null
         );
@@ -213,7 +213,7 @@ class VanApprovalRepositoryTest {
                         () -> repository.saveAndFlush(first)
                 );
 
-        assertEquals(ApprovalStatus.DECLINED, first.getApprovalStatus());
+        assertEquals(VanApprovalStatus.DECLINED, first.getApprovalStatus());
         assertThat(exception.getMessage()).contains("ck_van_approval_status_payload");
     }
 
@@ -222,7 +222,7 @@ class VanApprovalRepositoryTest {
         // given
         VanApproval first = approval(
                 "0080",
-                ApprovalStatus.UNKNOWN,
+                VanApprovalStatus.UNKNOWN,
                 "APPROVAL-0080",
                 null
         );
@@ -234,7 +234,7 @@ class VanApprovalRepositoryTest {
                         () -> repository.saveAndFlush(first)
                 );
 
-        assertEquals(ApprovalStatus.UNKNOWN, first.getApprovalStatus());
+        assertEquals(VanApprovalStatus.UNKNOWN, first.getApprovalStatus());
         assertThat(exception.getMessage()).contains("ck_van_approval_status_payload");
     }
 
@@ -243,7 +243,7 @@ class VanApprovalRepositoryTest {
         // given
         VanApproval first = approval(
                 "0081",
-                ApprovalStatus.UNKNOWN,
+                VanApprovalStatus.UNKNOWN,
                 null,
                 "01"
         );
@@ -255,7 +255,7 @@ class VanApprovalRepositoryTest {
                         () -> repository.saveAndFlush(first)
                 );
 
-        assertEquals(ApprovalStatus.UNKNOWN, first.getApprovalStatus());
+        assertEquals(VanApprovalStatus.UNKNOWN, first.getApprovalStatus());
         assertThat(exception.getMessage()).contains("ck_van_approval_status_payload");
 
     }
@@ -267,7 +267,7 @@ class VanApprovalRepositoryTest {
                 "0009",
                 1,
                 0,
-                ApprovalStatus.APPROVED,
+                VanApprovalStatus.APPROVED,
                 "APPROVAL-0009",
                 null
         );
@@ -289,7 +289,7 @@ class VanApprovalRepositoryTest {
                 "0010",
                 0,
                 10000,
-                ApprovalStatus.APPROVED,
+                VanApprovalStatus.APPROVED,
                 "APPROVAL-0010",
                 null
         );
@@ -306,7 +306,7 @@ class VanApprovalRepositoryTest {
 
     private VanApproval approval(
             String suffix,
-            ApprovalStatus approvalStatus,
+            VanApprovalStatus approvalStatus,
             String approvalNo,
             String declineCode
     ) {
@@ -317,7 +317,7 @@ class VanApprovalRepositoryTest {
             String suffix,
             int attemptSeq,
             int amount,
-            ApprovalStatus approvalStatus,
+            VanApprovalStatus approvalStatus,
             String approvalNo,
             String declineCode
     ) {
@@ -337,7 +337,7 @@ class VanApprovalRepositoryTest {
             String posTrx,
             int attemptSeq,
             int amount,
-            ApprovalStatus approvalStatus,
+            VanApprovalStatus approvalStatus,
             String approvalNo,
             String declineCode
     ) {

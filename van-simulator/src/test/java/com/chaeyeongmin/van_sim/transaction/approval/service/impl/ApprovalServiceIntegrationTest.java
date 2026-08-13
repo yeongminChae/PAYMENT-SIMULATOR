@@ -6,7 +6,7 @@ import com.chaeyeongmin.van_sim.control.scenario.approval.model.TransportBehavio
 import com.chaeyeongmin.van_sim.control.scenario.approval.registry.ApprovalScenarioRegistry;
 import com.chaeyeongmin.van_sim.ledger.approval.entity.VanApproval;
 import com.chaeyeongmin.van_sim.ledger.approval.repository.VanApprovalRepository;
-import com.chaeyeongmin.van_sim.ledger.approval.status.ApprovalStatus;
+import com.chaeyeongmin.van_sim.ledger.approval.status.VanApprovalStatus;
 import com.chaeyeongmin.van_sim.support.PostgresTestcontainersConfig;
 import com.chaeyeongmin.van_sim.transaction.approval.service.ApprovalService;
 import com.chaeyeongmin.van_sim.transaction.approval.service.command.ApprovalCommand;
@@ -71,10 +71,10 @@ class ApprovalServiceIntegrationTest {
         VanApproval saved = repository.findByPosTrxAndAttemptSeq(command.posTrx(), command.attemptSeq())
                                     .orElseThrow();
 
-        assertThat(saved.getApprovalStatus()).isEqualTo(ApprovalStatus.APPROVED);
+        assertThat(saved.getApprovalStatus()).isEqualTo(VanApprovalStatus.APPROVED);
         assertThat(saved.getVanTrxId()).isEqualTo("VAN-IT-001");
         assertThat(saved.getApprovalNo()).isEqualTo("APPROVAL-IT-001");
-        assertThat(result.status()).isEqualTo(ApprovalStatus.APPROVED);
+        assertThat(result.status()).isEqualTo(VanApprovalStatus.APPROVED);
         assertThat(result.vanTrxId()).isEqualTo(saved.getVanTrxId());
 
     }
