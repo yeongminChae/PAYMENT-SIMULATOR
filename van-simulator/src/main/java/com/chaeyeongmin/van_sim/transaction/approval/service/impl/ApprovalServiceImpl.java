@@ -101,7 +101,8 @@ public class ApprovalServiceImpl implements ApprovalService {
         }
 
         // 업무 결과가 확정된 시점
-        LocalDateTime processedAt = LocalDateTime.now();
+        // PostgreSQL TIMESTAMP 정밀도에 맞춰 재조회 시 processedAt 동일성 유지
+        LocalDateTime processedAt = LocalDateTime.now().truncatedTo(ChronoUnit.MICROS);
 
         VanApproval entity = getVanApprovalEntity(
                 command,
