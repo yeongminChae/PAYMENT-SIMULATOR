@@ -14,10 +14,12 @@ import com.chaeyeongmin.van_sim.transaction.approval.service.result.ApprovalResu
 import com.chaeyeongmin.van_sim.transaction.approval.service.support.ApprovalNumberGenerator;
 import com.chaeyeongmin.van_sim.transaction.approval.service.support.VanTransactionIdGenerator;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 
 /**
@@ -29,6 +31,7 @@ import java.util.Optional;
  * - VAN 승인 원장을 저장하고 ApprovalResult를 반환한다.
  */
 @Service
+@Profile("postgres")
 @RequiredArgsConstructor
 public class ApprovalServiceImpl implements ApprovalService {
 
