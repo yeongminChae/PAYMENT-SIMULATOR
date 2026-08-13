@@ -17,6 +17,11 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
+/**
+ * VAN이 처리한 승인 결과를 영속화하는 원장 엔티티다.
+ * <p>
+ * VAN 거래번호와 POS 거래번호/시도 순번 조합을 유니크하게 관리해 중복 승인 기록을 막는다.
+ */
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Entity

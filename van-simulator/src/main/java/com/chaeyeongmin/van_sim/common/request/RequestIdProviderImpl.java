@@ -7,6 +7,11 @@ import org.springframework.stereotype.Component;
 
 import java.util.UUID;
 
+/**
+ * X-REQUEST-ID 헤더 기반 requestId 제공자다.
+ * <p>
+ * 클라이언트가 값을 보내면 재사용하고, 없으면 UUID 기반 값을 생성해 응답 헤더와 MDC에 기록한다.
+ */
 @Component
 public class RequestIdProviderImpl implements RequestIdProvider {
 

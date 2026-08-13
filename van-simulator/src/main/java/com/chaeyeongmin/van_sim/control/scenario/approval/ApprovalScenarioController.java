@@ -13,6 +13,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * 승인 처리 결과를 테스트 시나리오로 제어하기 위한 내부용 REST API다.
+ * <p>
+ * posTrx 단위로 발급사 결과와 통신 동작을 등록, 조회, 삭제한다.
+ */
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/internal/test-scenarios/approvals")

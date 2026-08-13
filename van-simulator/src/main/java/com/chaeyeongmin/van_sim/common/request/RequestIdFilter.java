@@ -9,6 +9,11 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 
+/**
+ * 모든 HTTP 요청마다 requestId를 확보하고 MDC에 넣어 로그 추적성을 제공하는 필터다.
+ * <p>
+ * 요청 처리가 끝나면 MDC 값을 제거해 다음 요청 로그에 섞이지 않도록 한다.
+ */
 public class RequestIdFilter extends OncePerRequestFilter {
 
     private final RequestIdProvider requestIdProvider;
