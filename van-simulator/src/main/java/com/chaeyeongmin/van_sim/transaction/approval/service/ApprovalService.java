@@ -5,5 +5,5 @@ import com.chaeyeongmin.van_sim.transaction.approval.service.result.ApprovalResu
 
 public interface ApprovalService {
 
-    ApprovalResult approve(ApprovalCommand command);
+    ApprovalResult processApproval(ApprovalCommand command);
 }
