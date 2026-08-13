@@ -31,8 +31,8 @@ public record ApprovalResponseMessage(
             String declineCode
     ) {
         return ApprovalResponseMessage.builder()
-                .protocolVersion("1.0") // 공통 규격 값 세팅
-                .messageType("APPROVAL")
+                .protocolVersion("1")
+                .messageType("APPROVAL_RESPONSE")
                 .requestId(requestId)
                 .posTrx(posTrx)
                 .attemptSeq(attemptSeq)
@@ -40,7 +40,7 @@ public record ApprovalResponseMessage(
                 .status(status)
                 .approvalNo(approvalNo)
                 .declineCode(declineCode)
-                .respondedAt(LocalDateTime.now()) // 생성 시점 주입
+                .respondedAt(LocalDateTime.now())
                 .build();
     }
 
