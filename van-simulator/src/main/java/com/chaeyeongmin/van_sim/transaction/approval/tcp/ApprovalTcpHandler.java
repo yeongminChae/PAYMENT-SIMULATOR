@@ -32,15 +32,20 @@ public class ApprovalTcpHandler {
      * 승인 TCP 요청 payload를 처리하고 응답 payload를 반환한다.
      */
     public byte[] handle(byte[] payload) {
+        // TCP 서버가 수신한 원본 JSON 바이트 payload를 승인 요청 전문 객체로 역직렬화한다.
         ApprovalRequestMessage approvalRequest = readApprovalRequest(payload);
 
+        // 승인 요청 전문에 담긴 거래 정보를 서비스 계층이 처리할 수 있는 커맨드 모델로 변환한다.
         ApprovalCommand approvalCommand = tcpMessageMapper.toCommand(approvalRequest);
 
+        // 승인 서비스에 커맨드를 전달해 카드 승인 가능 여부와 응답에 필요한 처리 결과를 계산한다.
         ApprovalResult approvalResult = approvalService.processApproval(approvalCommand);
 
+        // 원 요청 전문의 식별 정보와 서비스 처리 결과를 조합해 TCP 응답 전문 객체를 만든다.
         ApprovalResponseMessage approvalResponse =
                 tcpMessageMapper.toResponse(approvalRequest, approvalResult);
 
+        // 응답 전문 객체를 TCP 클라이언트로 되돌려 보낼 JSON 바이트 payload로 직렬화한다.
         return writeApprovalResponse(approvalResponse);
     }
 
