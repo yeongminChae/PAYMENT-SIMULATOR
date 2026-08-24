@@ -18,3 +18,7 @@ spring:
     properties:
       hibernate:
         format_sql: true
+
+van:
+  tcp:
+    port: ${VAN_TCP_PORT:9090}

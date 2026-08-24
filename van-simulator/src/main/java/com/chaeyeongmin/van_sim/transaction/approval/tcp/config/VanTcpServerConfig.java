@@ -1,0 +1,69 @@
+package com.chaeyeongmin.van_sim.transaction.approval.tcp.config;
+
+import com.chaeyeongmin.van_sim.transaction.approval.tcp.ApprovalTcpHandler;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
+import org.springframework.integration.dsl.IntegrationFlow;
+import org.springframework.integration.ip.dsl.Tcp;
+import org.springframework.integration.ip.tcp.connection.TcpNetServerConnectionFactory;
+import org.springframework.integration.ip.tcp.serializer.ByteArrayLengthHeaderSerializer;
+
+/**
+ * VAN 승인 TCP 서버의 연결, 프레이밍, 핸들러 라우팅을 구성한다.
+ * <p>
+ * 이 설정은 TCP 연결 계층만 담당하고, 승인 전문 해석과 업무 처리는
+ * {@link ApprovalTcpHandler} 이후의 기존 승인 흐름에 위임한다.
+ */
+@Configuration
+@Profile("postgres")
+public class VanTcpServerConfig {
+
+    /**
+     * VAN TCP 프로토콜의 4-byte Big Endian length header serializer/deserializer를 만든다.
+     * <p>
+     * Spring Integration의 기본 length header serializer를 사용하므로,
+     * 직접 byte framing codec을 구현하지 않는다.
+     */
+    @Bean
+    public ByteArrayLengthHeaderSerializer vanTcpLengthHeaderSerializer() {
+        return new ByteArrayLengthHeaderSerializer(ByteArrayLengthHeaderSerializer.HEADER_SIZE_INT);
+    }
+
+    /**
+     * VAN 승인 요청을 받을 TCP server connection factory를 만든다.
+     * <p>
+     * 애플리케이션 시작 시 한 번 Bean으로 생성되고, Spring Integration lifecycle에 의해
+     * 설정된 port를 listen한다. port가 0이면 테스트에서 OS가 random port를 할당한다.
+     */
+    @Bean
+    public TcpNetServerConnectionFactory vanTcpServerConnectionFactory(
+            @Value("${van.tcp.port}") int port,
+            ByteArrayLengthHeaderSerializer vanTcpLengthHeaderSerializer
+    ) {
+        TcpNetServerConnectionFactory connectionFactory = new TcpNetServerConnectionFactory(port);
+
+        // 요청 payload를 읽을 때와 응답 payload를 쓸 때 모두 동일한 4-byte length header를 사용한다.
+        connectionFactory.setSerializer(vanTcpLengthHeaderSerializer);
+        connectionFactory.setDeserializer(vanTcpLengthHeaderSerializer);
+        return connectionFactory;
+    }
+
+    /**
+     * TCP inbound gateway를 승인 핸들러에 연결한다.
+     * <p>
+     * Spring Integration이 length header를 제거한 JSON payload byte[]를 전달하면,
+     * 기존 {@link ApprovalTcpHandler#handle(byte[])}가 승인 처리 후 응답 payload byte[]를 반환한다.
+     */
+    @Bean
+    public IntegrationFlow vanApprovalTcpInboundGateway(
+            TcpNetServerConnectionFactory vanTcpServerConnectionFactory,
+            ApprovalTcpHandler approvalTcpHandler
+    ) {
+        return IntegrationFlow.from(Tcp.inboundGateway(vanTcpServerConnectionFactory))
+                // 요청마다 실행되는 지점이다. TCP 설정 클래스는 라우팅만 하고 업무 책임은 핸들러에 둔다.
+                .handle(byte[].class, (payload, headers) -> approvalTcpHandler.handle(payload))
+                .get();
+    }
+}
