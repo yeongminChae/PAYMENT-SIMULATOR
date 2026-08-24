@@ -1,5 +1,6 @@
 package com.chaeyeongmin.van_sim.transaction.approval.tcp;
 
+import com.chaeyeongmin.van_sim.control.scenario.approval.registry.ApprovalScenarioRegistry;
 import com.chaeyeongmin.van_sim.ledger.approval.status.VanApprovalStatus;
 import com.chaeyeongmin.van_sim.protocol.approval.ApprovalRequestMessage;
 import com.chaeyeongmin.van_sim.protocol.approval.ApprovalResponseMessage;
@@ -20,6 +21,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
@@ -31,6 +33,9 @@ class ApprovalTcpHandlerTest {
 
     @Mock
     ApprovalService approvalService;
+
+    @Mock
+    ApprovalScenarioRegistry scenarioRegistry;
 
     ApprovalTcpMessageMapper mapper;
     ObjectMapper objectMapper;
@@ -48,7 +53,8 @@ class ApprovalTcpHandlerTest {
         handler = new ApprovalTcpHandler(
                 objectMapper,
                 mapper,
-                approvalService
+                approvalService,
+                scenarioRegistry
         );
     }
 
@@ -78,6 +84,8 @@ class ApprovalTcpHandlerTest {
 
         when(approvalService.processApproval(any(ApprovalCommand.class)))
                 .thenReturn(result);
+        when(scenarioRegistry.find(request.posTrx()))
+                .thenReturn(Optional.empty());
 
         byte[] payload = objectMapper.writeValueAsBytes(request);
 

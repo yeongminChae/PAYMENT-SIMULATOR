@@ -1,5 +1,7 @@
 package com.chaeyeongmin.van_sim.transaction.approval.tcp;
 
+import com.chaeyeongmin.van_sim.control.scenario.approval.model.TransportBehavior;
+import com.chaeyeongmin.van_sim.control.scenario.approval.registry.ApprovalScenarioRegistry;
 import com.chaeyeongmin.van_sim.protocol.approval.ApprovalRequestMessage;
 import com.chaeyeongmin.van_sim.protocol.approval.ApprovalResponseMessage;
 import com.chaeyeongmin.van_sim.transaction.approval.service.ApprovalService;
@@ -27,6 +29,7 @@ public class ApprovalTcpHandler {
     private final ObjectMapper objectMapper;
     private final ApprovalTcpMessageMapper tcpMessageMapper;
     private final ApprovalService approvalService;
+    private final ApprovalScenarioRegistry scenarioRegistry;
 
     /**
      * 승인 TCP 요청 payload를 처리하고 응답 payload를 반환한다.
@@ -39,7 +42,14 @@ public class ApprovalTcpHandler {
         ApprovalCommand approvalCommand = tcpMessageMapper.toCommand(approvalRequest);
 
         // 승인 서비스에 커맨드를 전달해 카드 승인 가능 여부와 응답에 필요한 처리 결과를 계산한다.
+        // 이 호출이 반환된 시점에는 ApprovalService의 @Transactional 경계가 끝나 원장 저장도 commit된 뒤다.
         ApprovalResult approvalResult = approvalService.processApproval(approvalCommand);
+
+        // DROP_RESPONSE는 발급사 승인 처리는 끝내되 TCP 응답만 유실시키는 transport 계층 시나리오다.
+        // 따라서 서비스 트랜잭션 안에 넣지 않고, 업무 처리 완료 후 응답 payload를 만들기 전에 적용한다.
+        if (shouldDropResponse(approvalRequest)) {
+            return null;
+        }
 
         // 원 요청 전문의 식별 정보와 서비스 처리 결과를 조합해 TCP 응답 전문 객체를 만든다.
         ApprovalResponseMessage approvalResponse =
@@ -79,4 +89,9 @@ public class ApprovalTcpHandler {
 
     }
 
+    private boolean shouldDropResponse(ApprovalRequestMessage request) {
+        return scenarioRegistry.find(request.posTrx())
+                .map(scenario -> scenario.transportBehavior() == TransportBehavior.DROP_RESPONSE)
+                .orElse(false);
+    }
 }

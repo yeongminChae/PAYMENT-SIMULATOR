@@ -1,5 +1,9 @@
 package com.chaeyeongmin.van_sim.transaction.approval.tcp;
 
+import com.chaeyeongmin.van_sim.control.scenario.approval.model.ApprovalScenario;
+import com.chaeyeongmin.van_sim.control.scenario.approval.model.IssuerResult;
+import com.chaeyeongmin.van_sim.control.scenario.approval.model.TransportBehavior;
+import com.chaeyeongmin.van_sim.control.scenario.approval.registry.ApprovalScenarioRegistry;
 import com.chaeyeongmin.van_sim.ledger.approval.entity.VanApproval;
 import com.chaeyeongmin.van_sim.ledger.approval.repository.VanApprovalRepository;
 import com.chaeyeongmin.van_sim.ledger.approval.status.VanApprovalStatus;
@@ -7,6 +11,7 @@ import com.chaeyeongmin.van_sim.protocol.approval.ApprovalRequestMessage;
 import com.chaeyeongmin.van_sim.protocol.approval.ApprovalResponseMessage;
 import com.chaeyeongmin.van_sim.protocol.approval.ApprovalResponseStatus;
 import com.chaeyeongmin.van_sim.support.PostgresTestcontainersConfig;
+import com.chaeyeongmin.van_sim.transaction.approval.service.command.ApprovalCommand;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,9 +23,12 @@ import org.springframework.test.context.ActiveProfiles;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.EOFException;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest(properties = "van.tcp.port=0")
 @ActiveProfiles("postgres")
@@ -35,6 +43,9 @@ class VanTcpServerIntegrationTest {
 
     @Autowired
     private VanApprovalRepository repository;
+
+    @Autowired
+    private ApprovalScenarioRegistry scenarioRegistry;
 
     /**
      * 테스트 간 승인 원장 중복을 막기 위해 기존 PostgreSQL 통합 테스트와 동일하게 원장을 비운다.
@@ -86,6 +97,54 @@ class VanTcpServerIntegrationTest {
         assertThat(saved.getApprovalStatus()).isEqualTo(VanApprovalStatus.APPROVED);
     }
 
+    @Test
+    void 승인_완료후_DROP_RESPONSE면_응답은_없지만_APPROVED_원장은_남는다() throws Exception {
+        // given
+        // TCP 승인 요청 생성
+        ApprovalRequestMessage request = new ApprovalRequestMessage(
+                "1",
+                "APPROVAL",
+                "REQ-TCP-001",
+                "2301-20260808-9999-0002",
+                1,
+                10_000,
+                "1234567812345678",
+                "2812"
+        );
+
+        // APPROVED + DROP_RESPONSE scenario 등록
+        ApprovalScenario scenario = new ApprovalScenario(
+                IssuerResult.APPROVED,
+                TransportBehavior.DROP_RESPONSE
+        );
+
+        scenarioRegistry.register(request.posTrx(), scenario);
+
+        byte[] requestPayload = objectMapper.writeValueAsBytes(request);
+
+        // when
+        // 실제 socket 요청
+        assertThatThrownBy(() -> sendLengthPrefixedRequest(requestPayload))
+                .isInstanceOfAny(
+                        SocketTimeoutException.class,
+                        EOFException.class
+                );
+
+        // then
+        // 응답을 받지 못했어도 VAN 승인 원장은 이미 저장되어 있어야 한다.
+        VanApproval saved = repository.findByPosTrxAndAttemptSeq(
+                        request.posTrx(),
+                        request.attemptSeq()
+                )
+                .orElseThrow();
+
+        // VAN DB는 APPROVED인지 확인
+        assertThat(saved.getApprovalStatus()).isEqualTo(VanApprovalStatus.APPROVED);
+        assertThat(saved.getApprovalNo()).isNotBlank();
+        assertThat(saved.getVanTrxId()).isNotBlank();
+
+    }
+
     /**
      * 테스트용 실제 TCP client 역할을 한다.
      * <p>
@@ -114,4 +173,5 @@ class VanTcpServerIntegrationTest {
         }
 
     }
+
 }
