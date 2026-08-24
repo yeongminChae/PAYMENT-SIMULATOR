@@ -8,11 +8,17 @@ import com.chaeyeongmin.payment_sim.van.factory.VanCancelResponseFactory;
 import com.chaeyeongmin.payment_sim.van.factory.VanInquiryResponseFactory;
 import com.chaeyeongmin.payment_sim.van.validate.VanApproveRequestValidator;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 
 @Component
+@ConditionalOnProperty(
+        name = "payment.van.mode",
+        havingValue = "simulated",
+        matchIfMissing = true
+)
 @RequiredArgsConstructor
 public class SimulatedVanGateway implements VanGateway {
 
