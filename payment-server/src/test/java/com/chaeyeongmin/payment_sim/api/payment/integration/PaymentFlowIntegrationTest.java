@@ -196,8 +196,7 @@ class PaymentFlowIntegrationTest {
 
         assertEquals("41111111", cardSummary.path("cardBin").asText());
         assertEquals("1111", cardSummary.path("cardLast4").asText());
-        // 이번 PR의 응답 정책은 "필드 자체 제거"가 아니라 BIN_CATALOG 식별 brand 값을 응답에 세팅하지 않는 것이다.
-        assertNotEquals("VISA", textOrNull(cardSummary, "cardBrand"));
+        assertEquals("VISA", textOrNull(cardSummary, "cardBrand"));
         assertTrue(cardSummary.path("issuer").isMissingNode());
         assertTrue(cardSummary.path("country").isMissingNode());
         assertTrue(cardSummary.path("vanProvider").isMissingNode());

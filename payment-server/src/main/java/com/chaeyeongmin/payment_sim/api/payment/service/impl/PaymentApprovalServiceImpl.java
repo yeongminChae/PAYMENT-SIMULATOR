@@ -298,7 +298,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
                     attemptSeq,
                     row.approvalNo(),
                     row.declineCode(),
-                    CardSummaryFactory.fromStoredCard(row.cardBin(), row.cardLast4())
+                    CardSummaryFactory.fromStoredCard(row.cardBin(), row.cardLast4(), cardIdentity.brand())
             );
         }
 

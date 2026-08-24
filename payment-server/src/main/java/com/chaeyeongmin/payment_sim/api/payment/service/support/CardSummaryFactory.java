@@ -11,4 +11,8 @@ public final class CardSummaryFactory {
         return new CardSummary(cardBin, cardLast4, null);
     }
 
+    public static CardSummary fromStoredCard(String cardBin, String cardLast4, String cardBrand) {
+        return new CardSummary(cardBin, cardLast4, cardBrand);
+    }
+
 }

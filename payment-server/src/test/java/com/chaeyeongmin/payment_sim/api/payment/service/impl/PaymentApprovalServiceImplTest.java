@@ -539,10 +539,10 @@ class PaymentApprovalServiceImplTest {
      * [UT_ID] UT-2-BIN-CATALOG-005
      *
      * <p>
-     * BIN 식별 결과는 PAYMENT_EXTERNAL_INFO에만 저장하고 외부 승인 응답 DTO에는 확장 노출하지 않는다.
+     * BIN 식별 결과 중 카드 브랜드는 승인 응답의 카드 요약에 보존한다.
      */
     @Test
-    void approve_newAttempt_shouldNotExposeBinCatalogIdentityInApproveResponse() {
+    void approve_newAttempt_shouldPreserveCardBrandInApproveResponse() {
         String trx = baseReq.getPosTrx();
         int attemptSeq = 1;
         VanApproveRequest vanReq = vanApproveReq(trx, attemptSeq, 10000);
@@ -559,7 +559,7 @@ class PaymentApprovalServiceImplTest {
 
         assertEquals("41111111", response.cardSummary().cardBin());
         assertEquals("1111", response.cardSummary().cardLast4());
-        assertNull(response.cardSummary().cardBrand());
+        assertEquals("VISA", response.cardSummary().cardBrand());
         assertResponseFieldDoesNotExist("issuer");
         assertResponseFieldDoesNotExist("country");
         assertResponseFieldDoesNotExist("vanProvider");

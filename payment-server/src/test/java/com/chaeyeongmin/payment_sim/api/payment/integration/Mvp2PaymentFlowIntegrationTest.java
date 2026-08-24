@@ -383,8 +383,8 @@ class Mvp2PaymentFlowIntegrationTest {
     }
 
     @Test
-    @DisplayName("IT-2-BIN-003 API 응답에 BIN_CATALOG 식별값 미반영")
-    void approveWithActiveBin_shouldNotExposeBinCatalogIdentifiersInApiResponse() throws Exception {
+    @DisplayName("IT-2-BIN-003 API 응답에 카드 브랜드 보존 및 상세 식별값 미반영")
+    void approveWithActiveBin_shouldExposeCardBrandOnlyInApiResponse() throws Exception {
         // Given:
         // - BIN_CATALOG로 VISA / KB_CARD_TEST / KR / MOCK_VAN을 내부 식별할 수 있다.
         //
@@ -392,18 +392,16 @@ class Mvp2PaymentFlowIntegrationTest {
         // - Approve API 응답을 확인한다.
         //
         // Then:
-        // - 식별값은 내부 DB 스냅샷에만 남고 외부 API 응답에는 노출되지 않는다.
-        // - 기존 DTO 구조상 cardBrand 필드는 null일 수 있지만, BIN_CATALOG의 VISA 값이 세팅되면 안 된다.
+        // - 카드 요약에는 brand만 보존하고 issuer/country/vanProvider는 외부 API 응답에 노출하지 않는다.
         JsonNode approveResponse = approveDeclined(APPROVE_POS_TRX_IT_2_BIN);
         JsonNode cardSummary = approveResponse.path("data").path("cardSummary");
 
-        assertNotEquals("VISA", textOrNull(cardSummary, "cardBrand"));
+        assertEquals("VISA", textOrNull(cardSummary, "cardBrand"));
         assertTrue(cardSummary.path("issuer").isMissingNode());
         assertTrue(cardSummary.path("country").isMissingNode());
         assertTrue(cardSummary.path("vanProvider").isMissingNode());
 
         String responseBody = approveResponse.toString();
-        assertFalse(responseBody.contains("VISA"));
         assertFalse(responseBody.contains("KB_CARD_TEST"));
         assertFalse(responseBody.contains("KR"));
         assertFalse(responseBody.contains("MOCK_VAN"));
