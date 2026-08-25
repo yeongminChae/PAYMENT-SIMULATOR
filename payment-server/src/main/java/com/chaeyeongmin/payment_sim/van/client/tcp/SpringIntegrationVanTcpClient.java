@@ -1,6 +1,8 @@
 package com.chaeyeongmin.payment_sim.van.client.tcp;
 
 import com.chaeyeongmin.payment_sim.van.client.tcp.exception.VanTcpClientException;
+import com.chaeyeongmin.payment_sim.van.client.tcp.exception.VanTcpResponseTimeoutException;
+import org.springframework.integration.MessageTimeoutException;
 import org.springframework.integration.support.MessageBuilder;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -35,19 +37,28 @@ public class SpringIntegrationVanTcpClient implements VanTcpClient {
     @Override
     public byte[] send(byte[] requestPayload) {
         Message<byte[]> requestMessage = MessageBuilder.withPayload(requestPayload).build();
-        Message<?> responseMessage = messagingTemplate.sendAndReceive(outboundChannel, requestMessage);
+        Message<?> responseMessage;
 
-        if (responseMessage == null) {
-            // 응답 대기 시간이 지나면 Payment 상위 계층이 통신 실패로 다룰 수 있도록 RuntimeException으로 올린다.
-            throw new VanTcpClientException("VAN_TCP_RESPONSE_TIMEOUT");
+        try {
+            responseMessage = messagingTemplate.sendAndReceive(outboundChannel, requestMessage);
+
+            if (responseMessage == null) {
+                // 응답 대기 시간이 지나면 Payment 상위 계층이 통신 실패로 다룰 수 있도록 RuntimeException으로 올린다.
+                throw new VanTcpResponseTimeoutException();
+            }
+
+            Object responsePayload = responseMessage.getPayload();
+            if (responsePayload instanceof byte[] bytes) {
+                return bytes;
+            }
+
+            // 이 transport의 계약은 byte[] 응답이다. 타입이 다르면 설정 또는 메시지 흐름 오류로 본다.
+            throw new VanTcpClientException("VAN_TCP_RESPONSE_PAYLOAD_TYPE_INVALID");
+
+        } catch (MessageTimeoutException e) {
+            throw new VanTcpResponseTimeoutException(e);
         }
 
-        Object responsePayload = responseMessage.getPayload();
-        if (responsePayload instanceof byte[] bytes) {
-            return bytes;
-        }
-
-        // 이 transport의 계약은 byte[] 응답이다. 타입이 다르면 설정 또는 메시지 흐름 오류로 본다.
-        throw new VanTcpClientException("VAN_TCP_RESPONSE_PAYLOAD_TYPE_INVALID");
     }
+
 }

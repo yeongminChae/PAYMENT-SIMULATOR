@@ -4,6 +4,7 @@ import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdateParam;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveResponse;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResponse;
+import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
 
 public final class AttemptResultUpdateParamFactory {
 
@@ -71,6 +72,19 @@ public final class AttemptResultUpdateParamFactory {
                     vanTrxId
             );
         };
+
+    }
+
+    public static AttemptResultUpdateParam fromApprovalTimeout(
+            String posTrx,
+            int attemptSeq
+    ) {
+        return AttemptResultUpdateParam.unknownTimeout(
+                posTrx,
+                attemptSeq,
+                VanDeclineCode.TIMEOUT.code(),
+                null
+        );
     }
 
 }

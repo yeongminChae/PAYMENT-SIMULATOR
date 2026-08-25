@@ -5,10 +5,12 @@ import com.chaeyeongmin.payment_sim.van.client.dto.*;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanResult;
 import com.chaeyeongmin.payment_sim.van.client.tcp.VanTcpClient;
+import com.chaeyeongmin.payment_sim.van.client.tcp.exception.VanTcpResponseTimeoutException;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.approval.VanApprovalStatus;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.approval.VanApprovalTcpRequest;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.approval.VanApprovalTcpResponse;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.TcpVanGatewayException;
+import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -48,13 +50,19 @@ public class TcpVanGateway implements VanGateway {
      */
     @Override
     public VanApproveResponse approve(VanApproveRequest request) {
-        VanApprovalTcpRequest tcpRequest = toTcpRequest(request);
-        byte[] requestPayload = writeRequest(tcpRequest);
-        byte[] responsePayload = vanTcpClient.send(requestPayload);
-        VanApprovalTcpResponse tcpResponse = readResponse(responsePayload);
+        try {
+            VanApprovalTcpRequest tcpRequest = toTcpRequest(request);
+            byte[] requestPayload = writeRequest(tcpRequest);
+            byte[] responsePayload = vanTcpClient.send(requestPayload);
+            VanApprovalTcpResponse tcpResponse = readResponse(responsePayload);
 
-        validateResponse(tcpRequest, tcpResponse);
-        return toApproveResponse(request, tcpResponse);
+            validateResponse(tcpRequest, tcpResponse);
+            return toApproveResponse(request, tcpResponse);
+
+        } catch (VanTcpResponseTimeoutException e) {
+            throw new VanGatewayTimeoutException(e);
+        }
+
     }
 
     @Override

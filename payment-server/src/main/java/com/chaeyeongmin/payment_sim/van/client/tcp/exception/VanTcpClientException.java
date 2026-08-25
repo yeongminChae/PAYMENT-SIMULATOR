@@ -12,4 +12,5 @@ public class VanTcpClientException extends RuntimeException {
     public VanTcpClientException(String message, Throwable cause) {
         super(message, cause);
     }
+
 }

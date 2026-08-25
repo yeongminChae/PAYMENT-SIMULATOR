@@ -21,6 +21,7 @@ import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentExternalInfoRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.*;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveResponse;
+import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -440,6 +441,23 @@ public class PaymentApprovalTransactionService {
                 )
         );
 
+    }
+
+    @Transactional
+    public ApproveResponse finalizeUnknownTimeout(PaymentApprovalPrepareResult prepared) {
+        String trx = prepared.posTrx();
+        int attemptSeq = prepared.attemptSeq();
+
+        AttemptResultUpdateParam updateParam =
+                AttemptResultUpdateParamFactory.fromApprovalTimeout(trx, attemptSeq);
+
+        Optional<PaymentAttemptUpdatedRow> updated =
+                repository.updateAttemptResult(updateParam);
+
+        // 여기부터 네가 기존 finalizeApproval()의
+        // A8 ~ A10 정책을 참고해서 처리
+
+        return null;
     }
 
     private CardIdentity getCardIdentity(String cardBin, String cardLast4) {
