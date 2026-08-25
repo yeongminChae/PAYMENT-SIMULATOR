@@ -21,5 +21,7 @@ public record PaymentAttemptUpdatedRow(
         String declineCode,
         String cardBin,
         String cardLast4,
+        // update RETURNING 결과에 CARD_BRAND를 포함해 승인 확정 직후 응답도 DB 저장값 기준으로 만든다.
+        String cardBrand,
         String vanTrxId
 ) {}

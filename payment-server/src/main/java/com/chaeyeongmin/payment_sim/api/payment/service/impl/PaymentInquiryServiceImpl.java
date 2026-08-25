@@ -113,8 +113,11 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
         PaymentFinalStatus attemptFinalStatus = attempt.getFinalStatusEnum();
         String approvalNo = attempt.approvalNo();
         String storedDeclineCode = attempt.declineCode();
+
+        // 조회 응답의 카드 요약은 승인 당시 저장된 PAYMENT_ATTEMPT 값을 기준으로 만든다.
+        // cardBrand까지 포함해야 승인 직후 응답과 사후 조회 응답의 카드 표시가 서로 어긋나지 않는다.
         CardSummary cardSummary =
-                CardSummaryFactory.fromStoredCard(attempt.cardBin(), attempt.cardLast4());
+                CardSummaryFactory.fromStoredCard(attempt.cardBin(), attempt.cardLast4(), attempt.cardBrand());
 
         return switch (attemptFinalStatus) {
             case APPROVED -> InquiryResponse.approved(
@@ -220,13 +223,18 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
         if (finalizedRowOpt.isPresent()) {
             PaymentAttemptUpdatedRow finalizedRow = finalizedRowOpt.get();
 
+            // CARD_BRAND도 update RETURNING row에 포함해 승인/조회 응답 카드 요약을 동일한 DB 저장값 기준으로 만든다.
             return getInquiryResponse(
                     finalizedRow.finalStatus(),
                     posTrx,
                     attemptSeq,
                     finalizedRow.approvalNo(),
                     finalizedRow.declineCode(),
-                    CardSummaryFactory.fromStoredCard(finalizedRow.cardBin(), finalizedRow.cardLast4())
+                    CardSummaryFactory.fromStoredCard(
+                            finalizedRow.cardBin(),
+                            finalizedRow.cardLast4(),
+                            finalizedRow.cardBrand()
+                    )
             );
 
         }
@@ -290,13 +298,18 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
 
             // 재조회한 DB 상태를 그대로 응답한다.
             // - 이 경로에서도 VAN 응답보다 DB에 실제 저장된 값을 우선한다.
+            // - 카드 요약도 재조회한 PAYMENT_ATTEMPT의 cardBrand를 따라간다.
             return getInquiryResponse(
                     dbStatus,
                     posTrx,
                     attemptSeq,
                     rereadAttempt.approvalNo(),
                     rereadAttempt.declineCode(),
-                    CardSummaryFactory.fromStoredCard(rereadAttempt.cardBin(), rereadAttempt.cardLast4())
+                    CardSummaryFactory.fromStoredCard(
+                            rereadAttempt.cardBin(),
+                            rereadAttempt.cardLast4(),
+                            rereadAttempt.cardBrand()
+                    )
             );
 
         }

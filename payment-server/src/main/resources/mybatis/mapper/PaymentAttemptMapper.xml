@@ -99,6 +99,8 @@
                 A.DECLINE_CODE AS declineCode,
                 A.CARD_BIN AS cardBin,
                 A.CARD_LAST4 AS cardLast4,
+                <!-- 승인 멱등 재응답에서도 저장된 브랜드로 카드 요약을 재구성한다. -->
+                A.CARD_BRAND AS cardBrand,
                 A.CARD_FINGERPRINT as cardFingerprint,
                 A.ATTEMPT_SEQ AS attemptSeq,
                 A.AMOUNT AS amount,
@@ -124,6 +126,8 @@
             A.DECLINE_CODE AS declineCode,
             A.CARD_BIN AS cardBin,
             A.CARD_LAST4 AS cardLast4,
+            <!-- A7 update miss 후 재조회 응답도 승인 당시 저장된 브랜드를 따른다. -->
+            A.CARD_BRAND AS cardBrand,
             A.CARD_FINGERPRINT AS cardFingerprint,
             A.ATTEMPT_SEQ AS attemptSeq,
             A.AMOUNT AS amount,
@@ -172,6 +176,8 @@
         DECLINE_CODE AS declineCode,
         CARD_BIN as cardBin,
         CARD_LAST4 as cardLast4,
+        <!-- A8 확정 직후 응답 카드 요약을 DB 저장값 기준으로 만들기 위한 RETURNING 컬럼. -->
+        CARD_BRAND AS cardBrand,
         VAN_TRX_ID AS vanTrxId;
     </select>
 

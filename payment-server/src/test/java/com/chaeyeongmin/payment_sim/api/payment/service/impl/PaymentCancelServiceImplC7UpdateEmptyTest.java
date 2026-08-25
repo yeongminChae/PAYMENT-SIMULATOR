@@ -260,6 +260,7 @@ public class PaymentCancelServiceImplC7UpdateEmptyTest {
                 null,
                 "42424242",
                 "4242",
+                "VISA",
                 CARD_FINGERPRINT_POLICY.generate("4242424242424242"),
                 1,
                 10000,

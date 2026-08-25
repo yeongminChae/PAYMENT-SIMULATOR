@@ -26,6 +26,8 @@
             DECLINE_CODE AS declineCode,
             CARD_BIN AS cardBin,
             CARD_LAST4 AS cardLast4,
+            <!-- UNKNOWN_TIMEOUT 후속조회 확정 응답도 승인 저장 브랜드를 유지한다. -->
+            CARD_BRAND AS cardBrand,
             VAN_TRX_ID AS vanTrxId;
     </select>
 

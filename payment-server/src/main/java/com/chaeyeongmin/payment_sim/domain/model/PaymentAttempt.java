@@ -30,6 +30,9 @@ public record PaymentAttempt(
         String declineCode,
         String cardBin,
         String cardLast4,
+        // 응답 카드 요약을 DB 재응답/조회/확정 경로에서 동일하게 만들기 위한 저장 브랜드.
+        // PAYMENT_ATTEMPT.CARD_BRAND를 매핑하며, 미등록 BIN이면 UNKNOWN 계열 값이 들어올 수 있다.
+        String cardBrand,
         String cardFingerprint,
         // [20260208] MyBatis 결과 매핑: ATTEMPT_SEQ -> attempt 매핑 불일치 가능성 있어 변수명 수정
         int attemptSeq,

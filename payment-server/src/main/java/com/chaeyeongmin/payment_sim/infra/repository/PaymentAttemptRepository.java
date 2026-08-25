@@ -16,7 +16,7 @@ import java.util.Optional;
 public interface PaymentAttemptRepository {
 
     /**
-     * 동일 posTrx 승인 처리를 직렬화하기 위한 PAYMENT_ATTEMPT_SEQ row를 확보한다.
+     * 동일 posTrx 승인 요청이 동시에 처리되지 않도록 PAYMENT_ATTEMPT_SEQ row lock을 확보한다.
      * <p>
      * - row가 없으면 LAST_SEQ=0으로 만든다. 실제 attemptSeq 발급은 하지 않는다.
      * - row가 있으면 no-op update로 현재 트랜잭션이 해당 posTrx row lock을 획득한다.

@@ -35,11 +35,11 @@ public class CancelEventRecorder {
             String declineCode,
             String note
     ) {
-        PaymentEventLogInsertParam event = new PaymentEventLogInsertParam(
+        // 취소 이벤트는 현재 취소 거래번호(posTrx)와 원승인 거래(originalPosTrx/originalAttemptSeq)를 함께 남긴다.
+        // PaymentEventLogInsertParam.cancel()을 사용해 승인 이벤트용 attemptSeq 컬럼과 섞이지 않게 고정한다.
+        PaymentEventLogInsertParam event = PaymentEventLogInsertParam.cancel(
                 eventType,
                 posTrx,
-                null,
-                null,
                 originalPosTrx,
                 originalAttemptSeq,
                 resultCode,
@@ -47,7 +47,6 @@ public class CancelEventRecorder {
                 vanTrxId,
                 approvalNo,
                 declineCode,
-                null,
                 note
         );
 
@@ -72,11 +71,11 @@ public class CancelEventRecorder {
             String declineCode,
             String note
     ) {
-        PaymentEventLogInsertParam event = new PaymentEventLogInsertParam(
+        // rollback 이후 기록해야 하는 취소 이벤트도 동일한 cancel factory를 사용한다.
+        // 실패/충돌 이벤트가 롤백 밖에서 저장되더라도 컬럼 배치는 일반 취소 이벤트와 같아야 한다.
+        PaymentEventLogInsertParam event = PaymentEventLogInsertParam.cancel(
                 eventType,
                 posTrx,
-                null,
-                null,
                 originalPosTrx,
                 originalAttemptSeq,
                 resultCode,
@@ -84,7 +83,6 @@ public class CancelEventRecorder {
                 vanTrxId,
                 approvalNo,
                 declineCode,
-                null,
                 note
         );
 

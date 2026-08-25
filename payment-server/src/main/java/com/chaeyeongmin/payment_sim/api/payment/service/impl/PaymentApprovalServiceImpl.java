@@ -1,26 +1,16 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.impl;
 
-import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
-import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardSummary;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.ApproveRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.ApproveResponse;
 import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
-import com.chaeyeongmin.payment_sim.api.payment.service.BinCatalogService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
-import com.chaeyeongmin.payment_sim.api.payment.service.support.AttemptResultUpdateParamFactory;
-import com.chaeyeongmin.payment_sim.api.payment.service.support.CardSummaryFactory;
 import com.chaeyeongmin.payment_sim.api.payment.service.support.PaymentResultCodeMapper;
 import com.chaeyeongmin.payment_sim.api.payment.service.support.VanDeclineCodeMapper;
+import com.chaeyeongmin.payment_sim.api.payment.service.transaction.PaymentApprovalTransactionService;
+import com.chaeyeongmin.payment_sim.api.payment.service.transaction.model.PaymentApprovalPrepareResult;
 import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveRequestValidator;
-import com.chaeyeongmin.payment_sim.common.api.ResultCode;
-import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
-import com.chaeyeongmin.payment_sim.domain.model.CardIdentity;
-import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
-import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
 import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
-import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
-import com.chaeyeongmin.payment_sim.infra.repository.PaymentExternalInfoRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.*;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanApproveAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveRequest;
@@ -29,11 +19,6 @@ import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDateTime;
-import java.util.Objects;
-import java.util.Optional;
 
 /**
  * [Service]
@@ -43,6 +28,10 @@ import java.util.Optional;
  * - 승인은 "외부 VAN 호출"이 포함되므로, 같은 posTrx에 대해 VAN을 중복 호출하지 않는 것이 중요하다.
  * - 그래서 먼저 DB에 attempt row를 만들고, 이후 VAN 결과를 조건부 update(FINAL_STATUS IS NULL)로 확정한다.
  * - 이미 확정된 attempt가 있으면 DB에 실제 저장된 값을 기준으로 재응답한다.
+ * - 이번 구조에서는 DB lock/insert/update를 {@link PaymentApprovalTransactionService}로 분리했다.
+ *   이 서비스는 A2 검증, A5/A6 VAN 호출, VAN 전후 이벤트 기록만 조립한다.
+ * - 의도: 긴 외부 VAN 호출 시간을 DB 트랜잭션에 포함하지 않아서 row lock 점유 시간을 줄이고,
+ *   승인 처리의 "DB 준비(TX1) -> 외부 호출(무 TX) -> DB 확정(TX2)" 경계를 코드에서 드러낸다.
  * <p>
  * 상태 정책:
  * - FINAL_STATUS == NULL        : 아직 확정되지 않은 처리중(PROCESSING)
@@ -55,184 +44,51 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class PaymentApprovalServiceImpl implements PaymentApprovalService {
 
-    private final PaymentAttemptRepository repository;
+    private final PaymentApprovalTransactionService transactionService;
     private final VanGateway vanGateway;
-    private final ApproveRequestValidator validator;
     private final VanApproveAssembler vanApproveAssembler;
+    private final ApproveRequestValidator validator;
     private final PaymentEventLogRecorder paymentEventLogRecorder;
-    private final BinCatalogService binCatalogService;
-    private final PaymentExternalInfoRepository paymentExternalInfoRepository;
-    private final CardFingerprintPolicy cardFingerprintPolicy;
 
-    @Transactional
     @Override
     public ApproveResponse approve(ApproveRequest request) {
 
         // A2: 입력 검증.
-        // - 이 단계에서 실패하면 DB row를 만들거나 VAN을 호출하면 안 된다.
-        // - 카드번호 검증은 저장 목적이 아니라 "승인 요청으로 받을 수 있는 입력인가"를 판단하기 위한 선행 방어선이다.
+        // - 유효하지 않은 승인 요청이면 DB row 생성이나 VAN 호출 전에 차단한다.
+        // - 이후 TX1은 "검증이 끝난 승인 요청"만 받아 attempt 생성/재응답 여부를 판단한다.
         validator.validate(request);
 
-        String trx = request.getPosTrx();
+        // TX1: 승인 준비 트랜잭션.
+        // - posTrx row lock을 잡고 기존 attempt를 확인한다.
+        // - 재응답 가능하면 existingResponse를 돌려주고, 신규 승인만 PROCESSING attempt를 만든다.
+        // - 여기서 커밋된 뒤에만 외부 VAN 호출로 넘어가므로 lock을 잡은 채 네트워크 호출하지 않는다.
+        PaymentApprovalPrepareResult prepared = transactionService.prepare(request);
 
-        // A3-0: posTrx 단위 승인 처리 직렬화.
-        // - 동시 최초 승인 요청들이 모두 findLatestByPosTrx()에서 empty를 보고
-        //   각자 VAN을 호출하는 것을 막기 위해, 조회 전에 PAYMENT_ATTEMPT_SEQ row lock을 획득한다.
-        // - 최초 row는 LAST_SEQ=0이며 실제 attemptSeq가 아니다.
-        // - 실제 attemptSeq 증가는 신규 attempt 생성이 확정된 뒤 insertAttemptSeq()에서만 수행한다.
-        repository.acquireApprovalSerializationLock(trx);
-
-        // A4: posTrx 기준 최신 attempt 조회.
-        // - 동일 posTrx로 승인 요청이 다시 들어온 경우, 먼저 DB에 이미 처리 흔적이 있는지 확인한다.
-        // - 이 조회 결과가 있으면 "신규 승인"이 아니라 "재요청/중복요청/이전 거절 후 재시도" 중 하나다.
-        Optional<PaymentAttempt> latestOpt = repository.findLatestByPosTrx(trx);
-
-        if (latestOpt.isPresent()) {
-            PaymentAttempt latest = latestOpt.get();
-            PaymentFinalStatus status = latest.getFinalStatusEnum();
-
-            // A4 분기 기준:
-            // - APPROVED / UNKNOWN_TIMEOUT / PROCESSING: 이미 진행 중이거나 결론이 난 요청이므로 VAN 재호출 금지.
-            // - DECLINED: 승인 거절은 같은 posTrx로 다시 시도할 수 있게 열어둔 MVP 정책.
-            //   따라서 DECLINED일 때만 아래 A3 신규 attempt 발급 흐름으로 내려간다.
-            if (status != PaymentFinalStatus.DECLINED) {
-                // MVP2 승인 멱등성 기준:
-                // - posTrx가 같아도 "같은 승인 요청"이라고 보려면 payload까지 같아야 한다.
-                // - full PAN은 저장하지 않으므로 DB에 남긴 amount/cardBin/cardLast4만 비교한다.
-                // - payload가 같으면 DB 재응답, 다르면 같은 거래번호 재사용으로 보고 차단한다.
-                if (isSameApprovalPayload(request, latest)) {
-                    log.info("[approve][A4] reuse db result. posTrx={}, attemptSeq={}, status={}",
-                            trx, latest.attemptSeq(), status);
-
-                    insertApproveEvent(
-                            PaymentEventType.APPROVE_REUSED,
-                            trx,
-                            latest.attemptSeq(),
-                            PaymentResultCodeMapper.codeName(status),
-                            status.name(),
-                            latest.vanTrxId(),
-                            latest.approvalNo(),
-                            latest.declineCode(),
-                            "approval result reused by same posTrx and same payload"
-                    );
-
-                    // DB 재응답.
-                    // - 저장된 attempt row를 기준으로 삼으므로, 응답도 DB 컬럼에서 조립한다.
-                    // - 처리중(PROCESSING)도 "아직 확정되지 않은 DB 상태"를 응답 DTO로 표현한 것이다.
-                    return getApproveResponse(
-                            status,
-                            trx,
-                            latest.attemptSeq(),
-                            latest.approvalNo(),
-                            latest.declineCode(),
-                            CardSummaryFactory.fromStoredCard(latest.cardBin(), latest.cardLast4())
-                    );
-                }
-
-                log.warn("[approve][A4-conflict] posTrx already used with different payload. posTrx={}, attemptSeq={}, status={}",
-                        trx, latest.attemptSeq(), status);
-
-                // 같은 posTrx로 카드/금액을 바꿔 승인하면 멱등 재요청이 아니라 거래번호 재사용이다.
-                // 외부 VAN 호출 전에 끊어야 중복 승인이나 서로 다른 승인 결과가 생기지 않는다.
-                insertApproveEvent(
-                        PaymentEventType.APPROVE_CONFLICT,
-                        trx,
-                        latest.attemptSeq(),
-                        ResultCode.CONFLICT.name(),
-                        status.name(),
-                        latest.vanTrxId(),
-                        latest.approvalNo(),
-                        latest.declineCode(),
-                        "POS_TRX_ALREADY_USED"
-                );
-                throw new BusinessException(ResultCode.CONFLICT, "POS_TRX_ALREADY_USED");
-
-            }
-
+        // A4 재응답: 기존 DB 결과 재사용이면 VAN 호출 없음.
+        // - 승인 멱등성의 핵심 분기다. 같은 posTrx + 같은 payload는 DB 값 그대로 응답한다.
+        // - prepared가 existing이면 cardIdentity가 없으므로 아래 A5/A6 경로로 내려가면 안 된다.
+        if (prepared.isExisting()) {
+            return prepared.existingResponse();
         }
 
-        // A3: attemptSeq 발급.
-        // - attemptSeq는 클라이언트가 보내는 값이 아니라 서버가 posTrx별로 발급하는 승인 시도 번호다.
-        // - 같은 posTrx에서 여러 번 시도될 수 있으므로, DB 레벨 시퀀스/업서트로 중복을 막는다.
-        int attemptSeq = repository.insertAttemptSeq(trx);
-
-        CardInput card = request.getCard();
-        String cardBin = card.bin8();
-        String cardLast4 = card.last4();
-        // BIN_CATALOG 기반 식별은 8자리 BIN만 사용한다.
-        // active BIN이면 catalog 값을, 미등록/비활성이면 UNKNOWN 값을 저장한다.
-        CardIdentity cardIdentity = binCatalogService.identify(cardBin, cardLast4);
-        LocalDateTime createdAt = LocalDateTime.now();
-
-        // A3-1: PAYMENT_ATTEMPT row 생성.
-        // - 이 row는 VAN 호출 전 "처리중 상태"를 남기는 기준점이다.
-        // - FINAL_STATUS를 null로 저장해서 PROCESSING을 표현한다.
-        // - PAN 원문은 저장하지 않는다.
-        // - 표시용 BIN/last4와 동일 카드 식별용 HMAC fingerprint만 저장한다.
-        repository.insertAttempt(new AttemptInsertParam(
-                trx,
-                attemptSeq,
-                request.getAmount(),
-                cardIdentity.cardBin(),
-                cardIdentity.cardLast4(),
-                cardIdentity.brand(),
-                cardFingerprintPolicy.generate(card.getPan()),
-                createdAt
-        ));
-
-        // PAYMENT_EXTERNAL_INFO는 attempt와 1:1로 연결되는 카드/VAN/대외 식별 상세다.
-        // PAYMENT_ATTEMPT.CARD_BIN과 같은 8자리 BIN을 저장하고, PAN 원문은 저장하지 않는다.
-        paymentExternalInfoRepository.insert(new PaymentExternalInfoInsertParam(
-                trx,
-                attemptSeq,
-                cardIdentity.cardBin(),
-                cardIdentity.cardLast4(),
-                maskedCardNo(cardIdentity.cardBin(), cardIdentity.cardLast4()),
-                cardIdentity.brand(),
-                cardIdentity.issuer(),
-                cardIdentity.country(),
-                cardIdentity.vanProvider(),
-                createdAt
-        ));
-
-        insertApproveEvent(
-                PaymentEventType.APPROVE_ATTEMPT_CREATED,
-                trx,
-                attemptSeq,
-                null,
-                PaymentFinalStatus.PROCESSING.name(),
-                null,
-                null,
-                null,
-                "approval attempt created"
-        );
-
-        // 요청 카드정보에서 만든 응답용 카드 요약.
-        // - 이후 update miss 등으로 DB row를 응답 소스로 쓰기 어려운 방어 분기에서 fallback으로 사용한다.
-        // - 민감정보 없이 BIN/last4만 담기 때문에 로그/응답에 노출 가능한 최소 정보다.
-        CardSummary summaryFromReq = CardSummaryFactory.fromStoredCard(
-                cardIdentity.cardBin(),
-                cardIdentity.cardLast4()
-        );
-
-        // A5: VAN 승인 요청 DTO 구성.
-        // - 내부 API 요청(ApproveRequest)을 그대로 VAN에 넘기지 않고, VAN 계약에 맞는 DTO로 변환한다.
-        // - assembler는 posTrx/attemptSeq/request를 합쳐 VAN이 추적 가능한 승인 전문을 만든다.
-        VanApproveRequest vanApproveRequest =
+        // A5: VAN 승인 요청 DTO 구성. (트랜잭션 없음)
+        // - TX1에서 확정한 posTrx/attemptSeq/cardIdentity를 사용해 VAN 추적 가능한 요청을 만든다.
+        // - PAN은 저장하지 않고, 여기서만 VAN 전송용으로 request에서 꺼내 assembler에 넘긴다.
+        VanApproveRequest vanRequest =
                 vanApproveAssembler.assemble(
-                        trx,
-                        attemptSeq,
+                        prepared.posTrx(),
+                        prepared.attemptSeq(),
                         request.getAmount(),
-                        card.getPan(),
-                        card.getExpiryYyMm(),
-                        cardBin,
-                        cardLast4
+                        request.getCard().getPan(),
+                        request.getCard().getExpiryYyMm(),
+                        prepared.cardIdentity().cardBin(),
+                        prepared.cardIdentity().cardLast4()
                 );
 
         insertApproveEvent(
                 PaymentEventType.APPROVE_VAN_REQUESTED,
-                trx,
-                attemptSeq,
+                prepared.posTrx(),
+                prepared.attemptSeq(),
                 null,
                 PaymentFinalStatus.PROCESSING.name(),
                 null,
@@ -241,14 +97,15 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
                 "VAN approve requested"
         );
 
-        // A6: VAN 승인 호출.
-        // - 이 흐름에서 실제 외부 승인 시도는 여기서 1번만 발생해야 한다.
-        // - 위 A4에서 재요청을 걸러낸 이유도 이 중복 호출을 막기 위해서다.
-        VanApproveResponse vanResponse = vanGateway.approve(vanApproveRequest);
+        // A6: 외부 VAN 승인 호출. (트랜잭션 없음)
+        // - 네트워크 지연/타임아웃이 DB 트랜잭션 시간을 늘리지 않도록 TX1과 TX2 사이에서 수행한다.
+        // - 동시성 제어는 TX1에서 만든 PROCESSING attempt와 이후 TX2 조건부 update가 담당한다.
+        VanApproveResponse vanResponse = vanGateway.approve(vanRequest);
+
         insertApproveEvent(
                 PaymentEventType.APPROVE_VAN_RESULT_RECEIVED,
-                trx,
-                attemptSeq,
+                prepared.posTrx(),
+                prepared.attemptSeq(),
                 PaymentResultCodeMapper.codeName(vanResponse.finalStatus()),
                 vanResponse.finalStatus().name(),
                 vanResponse.vanTrxId(),
@@ -257,155 +114,10 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
                 "VAN approve result received"
         );
 
-        // A7: VAN 결과를 DB update 파라미터로 변환.
-        // - VAN 응답 객체는 외부 시스템 관점의 결과다.
-        // - AttemptResultUpdateParam은 PAYMENT_ATTEMPT 테이블에 저장할 내부 확정 결과다.
-        // - 조건부 update(FINAL_STATUS IS NULL)에 사용되므로 멱등성의 핵심 파라미터다.
-        AttemptResultUpdateParam updateParam =
-                AttemptResultUpdateParamFactory.fromVanApprove(vanResponse, trx, attemptSeq);
-
-        // A7-1: VAN 결과 DB 확정 저장.
-        // - 이번 요청이 최초 확정 저장에 성공하면 RETURNING row로 결과를 받는다.
-        // - 이미 다른 요청이 먼저 확정했거나 대상 row가 사라졌다면 Optional.empty()가 될 수 있다.
-        // - 응답은 VAN 응답 원문보다 DB에 실제 저장된 값을 우선한다.
-        Optional<PaymentAttemptUpdatedRow> attemptUpdatedRowOpt =
-                repository.updateAttemptResult(updateParam);
-
-        // A8: 이번 호출이 확정 저장 “승자”인 경우.
-        // - 이번 요청이 최초 확정 저장에 성공하면 RETURNING row로 결과를 받는다.
-        // - VAN 응답을 그대로 쓰기보다, DB에 "실제로 저장된 값"을 응답 소스로 사용한다.
-        if (attemptUpdatedRowOpt.isPresent()) {
-            PaymentAttemptUpdatedRow row = attemptUpdatedRowOpt.get();
-
-            log.info("[approve][A7] finalized. posTrx={}, attemptSeq={}, finalStatus={}, vanTrxId={}",
-                    trx, attemptSeq, row.finalStatus(), row.vanTrxId());
-
-            insertApproveEvent(
-                    PaymentEventType.APPROVE_FINALIZED,
-                    trx,
-                    attemptSeq,
-                    PaymentResultCodeMapper.codeName(row.finalStatus()),
-                    row.finalStatus().name(),
-                    row.vanTrxId(),
-                    row.approvalNo(),
-                    row.declineCode(),
-                    "approval finalized"
-            );
-
-            return getApproveResponse(
-                    row.finalStatus(),
-                    trx,
-                    attemptSeq,
-                    row.approvalNo(),
-                    row.declineCode(),
-                    CardSummaryFactory.fromStoredCard(row.cardBin(), row.cardLast4(), cardIdentity.brand())
-            );
-        }
-
-        // A7 저장 실패(0 rows) 후처리.
-        // - 정상 경합: 같은 attemptSeq를 다른 요청/스레드가 먼저 확정했을 수 있다.
-        // - 비정상 가능성: VAN 응답은 받았는데 DB update가 반영되지 않아 row가 여전히 PROCESSING일 수 있다.
-        // - 그래서 같은 posTrx + attemptSeq를 재조회해서 DB의 현재 상태를 다시 판단한다.
-        Optional<PaymentAttempt> latestAttemptFromDb =
-                repository.findByPosTrxAndAttemptSeq(trx, attemptSeq);
-
-        if (latestAttemptFromDb.isPresent()) {
-            PaymentAttempt row = latestAttemptFromDb.get();
-
-            if (row.finalStatus() != null) {
-
-                PaymentFinalStatus dbStatus = PaymentFinalStatus.valueOf(row.finalStatus());
-                PaymentFinalStatus vanStatus = updateParam.finalStatus();
-
-                // DB 확정값과 방금 받은 VAN 결과가 다르면 정합성 확인이 필요한 신호다.
-                // 그래도 응답은 DB에 실제 저장된 상태를 기준으로 내린다.
-                // 결제 시스템에서는 "실제로 저장된 상태"가 우선이다.
-                if (dbStatus.equals(vanStatus) == false) {
-                    log.error("[approve][A7-0rows][MISMATCH] db finalStatus != van finalStatus. posTrx={}, attemptSeq={}, dbStatus={}, vanStatus={}, vanTrxId={}",
-                            trx, attemptSeq, dbStatus, vanStatus, vanResponse.vanTrxId());
-                }
-
-                // A9: 이미 확정된 결과가 있으면 DB값 그대로 재응답.
-                return getApproveResponse(
-                        dbStatus,
-                        trx,
-                        attemptSeq,
-                        row.approvalNo(),
-                        row.declineCode(),
-                        CardSummaryFactory.fromStoredCard(row.cardBin(), row.cardLast4())
-                );
-            }
-
-            // A10: row는 있는데 FINAL_STATUS가 여전히 null인 경우.
-            // - VAN 응답 이후에도 DB가 PROCESSING이면 정합성 이상 또는 update 실패 가능성이 있다.
-            // - 클라이언트에게 확정 결과를 단정하지 않고 retryLater(PROCESSING)로 응답한다.
-            log.error("[approve][A7-0rows][PROCESSING_AFTER_VAN] update miss; attempt still processing after VAN response. posTrx={}, attemptSeq={}, vanStatus={}, vanTrxId={}",
-                    trx, attemptSeq, vanResponse.finalStatus(), vanResponse.vanTrxId());
-
-            return ApproveResponse.retryLater(trx, attemptSeq, summaryFromReq);
-        }
-
-        // row 자체가 없음.
-        // - A3에서 insert한 attempt row를 A7 후처리에서 찾지 못한 상황이라 정상 흐름에서는 거의 없어야 한다.
-        // - 이 경우에도 승인 성공/거절을 임의로 만들면 위험하므로 UNKNOWN_TIMEOUT 계열로 방어 응답한다.
-        log.error("[approve][A7-0rows][CRITICAL_ATTEMPT_NOT_FOUND] update miss; attempt row not found after VAN response. posTrx={}, attemptSeq={}, vanStatus={}, vanTrxId={}",
-                trx, attemptSeq, vanResponse.finalStatus(), vanResponse.vanTrxId());
-
-        insertApproveEvent(
-                PaymentEventType.APPROVE_UNKNOWN_TIMEOUT,
-                trx,
-                attemptSeq,
-                ResultCode.UNKNOWN_TIMEOUT.name(),
-                PaymentFinalStatus.UNKNOWN_TIMEOUT.name(),
-                vanResponse.vanTrxId(),
-                null,
-                "UNKNOWN_AFTER_UPDATE_MISS",
-                "approval unknown timeout after update miss"
-        );
-
-        return ApproveResponse.unknownTimeout(
-                trx,
-                attemptSeq,
-                "UNKNOWN_AFTER_UPDATE_MISS",
-                summaryFromReq
-        );
-
-    }
-
-    /**
-     * PaymentFinalStatus를 승인 API 응답 DTO로 변환한다.
-     * <p>
-     * 이 함수의 역할:
-     * - DB 재응답, VAN 처리 직후 응답, update miss 후 재조회 응답이 모두 같은 규칙을 쓰게 한다.
-     * - 상태별 필수/선택 필드를 한 곳에서 맞춘다.
-     * <p>
-     * 분기 기준:
-     * - APPROVED        : approvalNo를 포함한 승인 성공 응답
-     * - DECLINED        : declineCode를 포함한 승인 거절 응답
-     * - UNKNOWN_TIMEOUT : 확정 불가/타임아웃 응답
-     * - PROCESSING      : 아직 확정 전이므로 retryLater 성격의 응답
-     */
-    private ApproveResponse getApproveResponse(
-            PaymentFinalStatus status,
-            String trx,
-            int attemptSeq,
-            String approvalNo,
-            String declineCode,
-            CardSummary cardSummary
-    ) {
-        return switch (status) {
-            case APPROVED -> ApproveResponse.approved(trx, attemptSeq, approvalNo, cardSummary);
-            case DECLINED -> ApproveResponse.declined(trx, attemptSeq, declineCode, cardSummary);
-            case UNKNOWN_TIMEOUT -> ApproveResponse.unknownTimeout(trx, attemptSeq, declineCode, cardSummary);
-            case PROCESSING -> ApproveResponse.retryLater(trx, attemptSeq, cardSummary);
-        };
-    }
-
-    /**
-     * 저장 정책: 앞 8자리 BIN + 별표 6개 + 마지막 4자리.
-     */
-    private String maskedCardNo(String cardBin, String cardLast4) {
-        return cardBin + "******" + cardLast4;
+        // TX2: VAN 결과 확정 트랜잭션.
+        // - FINAL_STATUS IS NULL 조건부 update로 최초 확정 요청만 저장한다.
+        // - update miss가 나면 DB를 다시 읽어 저장된 값을 우선 응답한다.
+        return transactionService.finalizeApproval(prepared, vanResponse);
     }
 
     /**
@@ -425,7 +137,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
             String declineCode,
             String note
     ) {
-        PaymentEventLogInsertParam event = getPaymentEventLogInsertParam(
+        PaymentEventLogInsertParam event = PaymentEventLogInsertParam.approval(
                 eventType,
                 posTrx,
                 attemptSeq,
@@ -444,48 +156,6 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         }
 
         paymentEventLogRecorder.record(event);
-    }
-
-    private static PaymentEventLogInsertParam getPaymentEventLogInsertParam(PaymentEventType eventType, String posTrx, int attemptSeq, String resultCode, String statusSnapshot, String vanTrxId, String approvalNo, String declineCode, String note) {
-        return new PaymentEventLogInsertParam(
-                eventType,
-                posTrx,
-                attemptSeq,
-                null,
-                null,
-                null,
-                resultCode,
-                statusSnapshot,
-                vanTrxId,
-                approvalNo,
-                declineCode,
-                null,
-                note
-        );
-    }
-
-    /**
-     * 승인 멱등 재응답이 가능한 "동일 payload"인지 판단한다.
-     *
-     * <p>
-     * 신규 attempt는 cardFingerprint로 동일 카드를 판단한다.
-     * 기존 DB row에 cardFingerprint가 없는 legacy attempt만 cardBin/cardLast4로 fallback 비교한다.
-     * 이 비교가 false면 APPROVED/PROCESSING/UNKNOWN_TIMEOUT 상태에서는 POS_TRX_ALREADY_USED로 차단한다.
-     */
-    private boolean isSameApprovalPayload(ApproveRequest request, PaymentAttempt latest) {
-        CardInput reqCard = request.getCard();
-
-        if (latest.amount() != request.getAmount()) {
-            return false;
-        }
-
-        if (latest.cardFingerprint() == null || latest.cardFingerprint().isBlank()) {
-            return Objects.equals(latest.cardBin(), reqCard.bin8())
-                    && Objects.equals(latest.cardLast4(), reqCard.last4());
-        }
-
-        String requestFingerprint = cardFingerprintPolicy.generate(reqCard.getPan());
-        return cardFingerprintPolicy.matchesFingerprint(requestFingerprint, latest.cardFingerprint());
     }
 
 }

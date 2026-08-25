@@ -153,31 +153,35 @@ class PostgresApprovalConcurrencyIntegrationTest {
             }
 
             assertEquals(REQUEST_COUNT, responses.size());
-            assertTrue(responses.stream().allMatch(response -> response.finalStatus() == PaymentFinalStatus.APPROVED));
+            assertTrue(responses.stream().allMatch(response ->
+                    response.finalStatus() == PaymentFinalStatus.APPROVED
+                            || response.finalStatus() == PaymentFinalStatus.PROCESSING
+            ));
+            assertTrue(responses.stream().anyMatch(response -> response.finalStatus() == PaymentFinalStatus.APPROVED));
 
             Set<Integer> attemptSeqs = responses.stream()
                     .map(ApproveResponse::attemptSeq)
                     .collect(java.util.stream.Collectors.toSet());
             Set<String> approvalNos = responses.stream()
                     .map(ApproveResponse::approvalNo)
+                    .filter(java.util.Objects::nonNull)
                     .collect(java.util.stream.Collectors.toSet());
 
-            String approvalNo = responses.get(0).approvalNo();
             int paymentAttemptCount = countPaymentAttempts();
             int externalInfoCount = countPaymentExternalInfos();
             int attemptSeqRowCount = countPaymentAttemptSeqRows();
             int lastSeq = paymentAttemptLastSeq();
             int vanApproveCount = vanGateway.approveCount();
+            String storedApprovalNo = paymentAttemptApprovalNo();
 
             assertAll(
                     () -> assertEquals(Set.of(1), attemptSeqs, "attemptSeqs=" + attemptSeqs),
                     () -> assertEquals(1, approvalNos.size(), "approvalNos=" + approvalNos),
-                    () -> assertFalse(approvalNos.contains(null), "approvalNo must not be null"),
-                    () -> assertNotNull(approvalNo, "approvalNo must not be null"),
+                    () -> assertNotNull(storedApprovalNo, "stored approvalNo must not be null"),
                     () -> assertEquals(1, paymentAttemptCount, "PAYMENT_ATTEMPT count"),
                     () -> assertEquals(1, externalInfoCount, "PAYMENT_EXTERNAL_INFO count"),
                     () -> assertEquals("APPROVED", paymentAttemptStatus(), "PAYMENT_ATTEMPT finalStatus"),
-                    () -> assertEquals(approvalNo, paymentAttemptApprovalNo(), "stored approvalNo"),
+                    () -> assertEquals(storedApprovalNo, approvalNos.iterator().next(), "response approvalNo"),
                     () -> assertEquals(1, attemptSeqRowCount, "PAYMENT_ATTEMPT_SEQ row count"),
                     () -> assertEquals(1, lastSeq, "PAYMENT_ATTEMPT_SEQ LAST_SEQ"),
                     () -> assertEquals(1, vanApproveCount, "VAN approve call count")

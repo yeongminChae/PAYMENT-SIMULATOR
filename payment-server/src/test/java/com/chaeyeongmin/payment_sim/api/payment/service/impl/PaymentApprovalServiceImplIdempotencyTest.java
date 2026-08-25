@@ -6,6 +6,7 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.response.ApproveResponse;
 import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.api.payment.service.BinCatalogService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
+import com.chaeyeongmin.payment_sim.api.payment.service.transaction.PaymentApprovalTransactionService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveRequestValidator;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
@@ -49,6 +50,7 @@ class PaymentApprovalServiceImplIdempotencyTest {
     private BinCatalogService binCatalogService;
     private PaymentExternalInfoRepository paymentExternalInfoRepository;
     private CardFingerprintPolicy cardFingerprintPolicy;
+    private PaymentApprovalTransactionService transactionService;
 
     @BeforeEach
     void setUp() {
@@ -60,16 +62,20 @@ class PaymentApprovalServiceImplIdempotencyTest {
         binCatalogService = mock(BinCatalogService.class);
         paymentExternalInfoRepository = mock(PaymentExternalInfoRepository.class);
         cardFingerprintPolicy = mock(CardFingerprintPolicy.class);
+        transactionService = new PaymentApprovalTransactionService(
+                binCatalogService,
+                repository,
+                paymentExternalInfoRepository,
+                cardFingerprintPolicy,
+                paymentEventLogRecorder
+        );
 
         service = new PaymentApprovalServiceImpl(
-                repository,
+                transactionService,
                 vanGateway,
-                validator,
                 vanApproveAssembler,
-                paymentEventLogRecorder,
-                binCatalogService,
-                paymentExternalInfoRepository,
-                cardFingerprintPolicy
+                validator,
+                paymentEventLogRecorder
         );
         when(binCatalogService.identify(anyString(), anyString())).thenAnswer(invocation ->
                 CardIdentity.unknown(invocation.getArgument(0), invocation.getArgument(1))
@@ -645,6 +651,7 @@ class PaymentApprovalServiceImplIdempotencyTest {
                 declineCode,
                 cardBin,
                 cardLast4,
+                "VISA",
                 "fp:4242424242424242",
                 attemptSeq,
                 amount,
@@ -667,6 +674,7 @@ class PaymentApprovalServiceImplIdempotencyTest {
                 declineCode,
                 cardBin,
                 cardLast4,
+                "VISA",
                 null,
                 attemptSeq,
                 amount,
@@ -732,6 +740,7 @@ class PaymentApprovalServiceImplIdempotencyTest {
                 null,
                 cardBin,
                 cardLast4,
+                "VISA",
                 "VAN-TRX-APPROVED"
         );
     }

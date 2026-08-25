@@ -756,6 +756,7 @@ class PaymentInquiryServiceImplTest {
                 declineCode,
                 cardBin,
                 cardLast4,
+                "VISA",
                 "test-card-fingerprint",
                 attemptSeq,
                 10000,
@@ -780,6 +781,7 @@ class PaymentInquiryServiceImplTest {
                 null,
                 cardBin,
                 cardLast4,
+                "VISA",
                 posTrx + "-" + String.format("%02d", attemptSeq)
         );
     }
@@ -801,6 +803,7 @@ class PaymentInquiryServiceImplTest {
                 declineCode,
                 cardBin,
                 cardLast4,
+                "VISA",
                 posTrx + "-" + String.format("%02d", attemptSeq)
         );
     }

@@ -6,6 +6,7 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.response.ApproveResponse;
 import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.api.payment.service.BinCatalogService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
+import com.chaeyeongmin.payment_sim.api.payment.service.transaction.PaymentApprovalTransactionService;
 import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveRequestValidator;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
@@ -58,6 +59,7 @@ class PaymentApprovalServiceImplTest {
     private BinCatalogService binCatalogService;
     private PaymentExternalInfoRepository paymentExternalInfoRepository;
     private CardFingerprintPolicy cardFingerprintPolicy;
+    private PaymentApprovalTransactionService transactionService;
 
     // 기본 정상 요청 (필드 세팅은 각 테스트에서 수정해서 사용)
     private ApproveRequest baseReq;
@@ -72,17 +74,22 @@ class PaymentApprovalServiceImplTest {
         binCatalogService = mock(BinCatalogService.class);
         paymentExternalInfoRepository = mock(PaymentExternalInfoRepository.class);
         cardFingerprintPolicy = mock(CardFingerprintPolicy.class);
+        transactionService = new PaymentApprovalTransactionService(
+                binCatalogService,
+                repository,
+                paymentExternalInfoRepository,
+                cardFingerprintPolicy,
+                paymentEventLogRecorder
+        );
 
         service = new PaymentApprovalServiceImpl(
-                repository,
+                transactionService,
                 gateway,
-                validator,
                 assembler,
-                paymentEventLogRecorder,
-                binCatalogService,
-                paymentExternalInfoRepository,
-                cardFingerprintPolicy
+                validator,
+                paymentEventLogRecorder
         );
+
         when(binCatalogService.identify(anyString(), anyString())).thenAnswer(invocation ->
                 CardIdentity.unknown(invocation.getArgument(0), invocation.getArgument(1))
         );
@@ -684,6 +691,7 @@ class PaymentApprovalServiceImplTest {
                 declineCode,         // declineCode
                 "41111111",      // cardBin: baseReq.getCard().bin8()과 동일해야 멱등 재응답 payload로 인정된다.
                 "1111",        // cardLast4
+                "VISA",
                 "fp:4111111111111111",
                 attemptSeq,
                 10000,
@@ -768,6 +776,7 @@ class PaymentApprovalServiceImplTest {
                 null,
                 "41111111",
                 "1111",
+                "VISA",
                 "VAN-TRX-0001"
         );
     }
@@ -781,6 +790,7 @@ class PaymentApprovalServiceImplTest {
                 "05",           // declineCode는 여기 String이니까 "05"/"TIMEOUT" 같은 값
                 "41111111",
                 "1111",
+                "VISA",
                 "VAN-TRX-0002"
         );
     }
@@ -794,6 +804,7 @@ class PaymentApprovalServiceImplTest {
                 "TIMEOUT",
                 "41111111",
                 "1111",
+                "VISA",
                 null
         );
     }
