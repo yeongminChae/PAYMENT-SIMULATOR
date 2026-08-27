@@ -5,9 +5,11 @@ import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveResponse;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanResult;
 import com.chaeyeongmin.payment_sim.van.client.tcp.VanTcpClient;
+import com.chaeyeongmin.payment_sim.van.client.tcp.exception.VanTcpResponseTimeoutException;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.approval.VanApprovalStatus;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.approval.VanApprovalTcpRequest;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.approval.VanApprovalTcpResponse;
+import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
@@ -22,6 +24,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -111,4 +114,29 @@ class TcpVanGatewayTest {
         assertThat(response.declineCode()).isNull();
         assertThat(response.respondedAt()).isEqualTo(LocalDateTime.of(2026, 8, 24, 10, 30));
     }
+
+    @Test
+    void TCP_응답_timeout이면_gateway_timeout으로_변환한다() {
+        // given
+        VanApproveRequest request = VanApproveRequest.builder()
+                .posTrx("2301-20260808-9999-0002")
+                .attemptSeq(1)
+                .amount(10_000)
+                .pan("1234567812345678")
+                .expiryYyMm("2812")
+                .cardBin("12345678")
+                .cardLast4("5678")
+                .build();
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenThrow(new VanTcpResponseTimeoutException(
+                        new RuntimeException("timeout")
+                ));
+
+        // when & then
+        assertThatThrownBy(() -> tcpVanGateway.approve(request))
+                .isInstanceOf(VanGatewayTimeoutException.class)
+                .hasCauseInstanceOf(VanTcpResponseTimeoutException.class);
+    }
+
 }
