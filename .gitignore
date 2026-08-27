@@ -1,4 +1,7 @@
 # ---- Payment-Sim (dev local artifacts) ----
+# Local backups
+backup/
+
 # SQLite DB (local)
 data/
 *.db
