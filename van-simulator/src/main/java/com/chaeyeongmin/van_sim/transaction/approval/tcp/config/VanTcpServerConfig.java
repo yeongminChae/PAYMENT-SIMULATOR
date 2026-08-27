@@ -1,6 +1,6 @@
 package com.chaeyeongmin.van_sim.transaction.approval.tcp.config;
 
-import com.chaeyeongmin.van_sim.transaction.approval.tcp.ApprovalTcpHandler;
+import com.chaeyeongmin.van_sim.transaction.tcp.VanTcpMessageDispatcher;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -13,8 +13,8 @@ import org.springframework.integration.ip.tcp.serializer.ByteArrayLengthHeaderSe
 /**
  * VAN 승인 TCP 서버의 연결, 프레이밍, 핸들러 라우팅을 구성한다.
  * <p>
- * 이 설정은 TCP 연결 계층만 담당하고, 승인 전문 해석과 업무 처리는
- * {@link ApprovalTcpHandler} 이후의 기존 승인 흐름에 위임한다.
+ * 이 설정은 TCP 연결 계층만 담당하고, 전문 해석과 업무 처리는
+ * {@link VanTcpMessageDispatcher} 이후의 업무별 핸들러에 위임한다.
  */
 @Configuration
 @Profile("postgres")
@@ -51,19 +51,19 @@ public class VanTcpServerConfig {
     }
 
     /**
-     * TCP inbound gateway를 승인 핸들러에 연결한다.
+     * TCP inbound gateway를 messageType dispatcher에 연결한다.
      * <p>
      * Spring Integration이 length header를 제거한 JSON payload byte[]를 전달하면,
-     * 기존 {@link ApprovalTcpHandler#handle(byte[])}가 승인 처리 후 응답 payload byte[]를 반환한다.
+     * dispatcher가 APPROVAL 또는 INQUIRY 핸들러의 응답 payload를 반환한다.
      */
     @Bean
     public IntegrationFlow vanApprovalTcpInboundGateway(
             TcpNetServerConnectionFactory vanTcpServerConnectionFactory,
-            ApprovalTcpHandler approvalTcpHandler
+            VanTcpMessageDispatcher vanTcpMessageDispatcher
     ) {
         return IntegrationFlow.from(Tcp.inboundGateway(vanTcpServerConnectionFactory))
-                // 요청마다 실행되는 지점이다. TCP 설정 클래스는 라우팅만 하고 업무 책임은 핸들러에 둔다.
-                .handle(byte[].class, (payload, headers) -> approvalTcpHandler.handle(payload))
+                // length header가 제거된 JSON payload를 messageType dispatcher에 전달한다.
+                .handle(byte[].class, (payload, headers) -> vanTcpMessageDispatcher.dispatch(payload))
                 .get();
     }
 }

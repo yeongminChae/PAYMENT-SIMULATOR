@@ -10,6 +10,9 @@ import com.chaeyeongmin.van_sim.ledger.approval.status.VanApprovalStatus;
 import com.chaeyeongmin.van_sim.protocol.approval.ApprovalRequestMessage;
 import com.chaeyeongmin.van_sim.protocol.approval.ApprovalResponseMessage;
 import com.chaeyeongmin.van_sim.protocol.approval.ApprovalResponseStatus;
+import com.chaeyeongmin.van_sim.protocol.inquiry.InquiryRequestMessage;
+import com.chaeyeongmin.van_sim.protocol.inquiry.InquiryResponseMessage;
+import com.chaeyeongmin.van_sim.protocol.inquiry.InquiryResponseStatus;
 import com.chaeyeongmin.van_sim.support.PostgresTestcontainersConfig;
 import com.chaeyeongmin.van_sim.transaction.approval.service.command.ApprovalCommand;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -26,6 +29,7 @@ import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
+import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -143,6 +147,49 @@ class VanTcpServerIntegrationTest {
         assertThat(saved.getApprovalNo()).isNotBlank();
         assertThat(saved.getVanTrxId()).isNotBlank();
 
+    }
+
+    @Test
+    void length_prefixed_JSON_Inquiry_요청으로_저장된_APPROVED_원장을_조회한다() throws Exception {
+        // given: Inquiry가 조회할 기존 승인 원장
+        VanApproval approval = VanApproval.builder()
+                .vanTrxId("VAN-INQUIRY-TCP-001")
+                .posTrx("2301-20260808-9999-0003")
+                .attemptSeq(1)
+                .amount(10_000)
+                .cardBin("12345678")
+                .cardLast4("5678")
+                .approvalStatus(VanApprovalStatus.APPROVED)
+                .approvalNo("APPROVAL-INQUIRY-001")
+                .processedAt(LocalDateTime.of(2026, 8, 27, 10, 0))
+                .build();
+        repository.saveAndFlush(approval);
+
+        InquiryRequestMessage request = new InquiryRequestMessage(
+                "1",
+                "INQUIRY",
+                "REQ-INQUIRY-TCP-001",
+                approval.getPosTrx(),
+                approval.getAttemptSeq()
+        );
+
+        // when
+        byte[] responsePayload = sendLengthPrefixedRequest(
+                objectMapper.writeValueAsBytes(request)
+        );
+        InquiryResponseMessage response =
+                objectMapper.readValue(responsePayload, InquiryResponseMessage.class);
+
+        // then
+        assertThat(response.protocolVersion()).isEqualTo("1");
+        assertThat(response.messageType()).isEqualTo("INQUIRY_RESPONSE");
+        assertThat(response.requestId()).isEqualTo(request.requestId());
+        assertThat(response.posTrx()).isEqualTo(request.posTrx());
+        assertThat(response.attemptSeq()).isEqualTo(request.attemptSeq());
+        assertThat(response.status()).isEqualTo(InquiryResponseStatus.APPROVED);
+        assertThat(response.vanTrxId()).isEqualTo("VAN-INQUIRY-TCP-001");
+        assertThat(response.approvalNo()).isEqualTo("APPROVAL-INQUIRY-001");
+        assertThat(repository.count()).isEqualTo(1);
     }
 
     /**
