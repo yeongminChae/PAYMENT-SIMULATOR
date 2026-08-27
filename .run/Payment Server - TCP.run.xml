@@ -1,0 +1,17 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Payment Server - TCP" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+    <option name="ACTIVE_PROFILES" value="postgres" />
+    <module name="payment-sim.payment-server.main" />
+    <option name="PROGRAM_PARAMETERS" value="--payment.van.mode=tcp --payment.van.tcp.host=localhost --payment.van.tcp.port=9090" />
+    <option name="SPRING_BOOT_MAIN_CLASS" value="com.chaeyeongmin.payment_sim.PaymentSimApplication" />
+    <extension name="coverage">
+      <pattern>
+        <option name="PATTERN" value="com.chaeyeongmin.payment_sim.*" />
+        <option name="ENABLED" value="true" />
+      </pattern>
+    </extension>
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>
