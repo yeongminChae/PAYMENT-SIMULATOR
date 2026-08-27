@@ -306,6 +306,15 @@ public class PaymentApprovalTransactionService {
         return cardFingerprintPolicy.matchesFingerprint(requestFingerprint, latest.cardFingerprint());
     }
 
+    /**
+     * VAN 응답을 정상적으로 받은 뒤 해당 결과를 PAYMENT_ATTEMPT에 최종 반영한다.
+     *
+     * <p>핵심 원칙:
+     * - VAN 응답은 외부 시스템의 결과이고, 최종 응답의 정본은 Payment DB다.
+     * - FINAL_STATUS IS NULL 조건부 UPDATE로 최초 확정 요청만 상태를 변경한다.
+     * - UPDATE 0건이면 동시 요청이 먼저 확정했을 수 있으므로 DB를 재조회한다.
+     * - DB에 이미 확정 결과가 있다면 VAN 응답보다 DB 값을 우선한다.
+     */
     @Transactional
     public ApproveResponse finalizeApproval(
             PaymentApprovalPrepareResult prepared,
@@ -315,29 +324,19 @@ public class PaymentApprovalTransactionService {
         int attemptSeq = prepared.attemptSeq();
         CardIdentity cardIdentity = prepared.cardIdentity();
 
-        // A7: VAN 결과를 DB update 파라미터로 변환.
-        // - VAN 응답 객체는 외부 시스템 관점의 결과다.
-        // - AttemptResultUpdateParam은 PAYMENT_ATTEMPT 테이블에 저장할 내부 확정 결과다.
-        // - 조건부 update(FINAL_STATUS IS NULL)에 사용되므로 멱등성의 핵심 파라미터다.
+        // A7: 실제로 수신한 VAN 결과를 Payment DB 저장 형식으로 변환한다.
         AttemptResultUpdateParam updateParam =
                 AttemptResultUpdateParamFactory.fromVanApprove(vanResponse, trx, attemptSeq);
 
-        // A7-1: VAN 결과 DB 확정 저장.
-        // - 이번 요청이 최초 확정 저장에 성공하면 RETURNING row로 결과를 받는다.
-        // - 이미 다른 요청이 먼저 확정했거나 대상 row가 사라졌다면 Optional.empty()가 될 수 있다.
-        // - 응답은 VAN 응답 원문보다 DB에 실제 저장된 값을 우선한다.
-        Optional<PaymentAttemptUpdatedRow> attemptUpdatedRowOpt =
-                repository.updateAttemptResult(updateParam);
+        // FINAL_STATUS IS NULL인 PROCESSING attempt만 최초 1회 확정한다.
+        // 성공하면 DB에 실제 저장된 값을 RETURNING으로 받는다.
+        Optional<PaymentAttemptUpdatedRow> attemptUpdatedRowOpt = repository.updateAttemptResult(updateParam);
 
-        // A8: 이번 호출이 확정 저장 “승자”인 경우.
-        // - 이번 요청이 최초 확정 저장에 성공하면 RETURNING row로 결과를 받는다.
-        // - VAN 응답을 그대로 쓰기보다, DB에 "실제로 저장된 값"을 응답 소스로 사용한다.
-        // - RETURNING에 cardBrand를 포함해서 승인 직후 응답도 저장된 카드 브랜드 기준으로 만든다.
+        // A8: 이번 호출이 최초 확정 저장에 성공한 경우.
         if (attemptUpdatedRowOpt.isPresent()) {
             PaymentAttemptUpdatedRow row = attemptUpdatedRowOpt.get();
 
-            log.info("[approve][A7] finalized. posTrx={}, attemptSeq={}, finalStatus={}, vanTrxId={}",
-                    trx, attemptSeq, row.finalStatus(), row.vanTrxId());
+            log.info("[approve][FINALIZE] finalized. posTrx={}, attemptSeq={}, finalStatus={}, vanTrxId={}", trx, attemptSeq, row.finalStatus(), row.vanTrxId());
 
             insertApproveEvent(
                     PaymentEventType.APPROVE_FINALIZED,
@@ -351,55 +350,61 @@ public class PaymentApprovalTransactionService {
                     "approval finalized"
             );
 
+            // VAN 응답 원문이 아니라 실제 DB 저장값으로 응답한다.
             return getApproveResponse(
                     row.finalStatus(),
                     trx,
                     attemptSeq,
                     row.approvalNo(),
                     row.declineCode(),
-                    CardSummaryFactory.fromStoredCard(row.cardBin(), row.cardLast4(), row.cardBrand())
+                    CardSummaryFactory.fromStoredCard(
+                            row.cardBin(),
+                            row.cardLast4(),
+                            row.cardBrand()
+                    )
             );
         }
 
-        // A7 저장 실패(0 rows) 후처리.
-        // - 정상 경합: 같은 attemptSeq를 다른 요청/스레드가 먼저 확정했을 수 있다.
-        // - 비정상 가능성: VAN 응답은 받았는데 DB update가 반영되지 않아 row가 여전히 PROCESSING일 수 있다.
-        // - 그래서 같은 posTrx + attemptSeq를 재조회해서 DB의 현재 상태를 다시 판단한다.
-        Optional<PaymentAttempt> latestAttemptFromDb =
-                repository.findByPosTrxAndAttemptSeq(trx, attemptSeq);
+        // UPDATE 0건:
+        // - 다른 요청이 같은 attempt를 먼저 확정했거나
+        // - 비정상적으로 update가 반영되지 않았을 수 있다.
+        // 현재 DB 상태를 다시 읽어 판단한다.
+        Optional<PaymentAttempt> latestAttemptFromDb = repository.findByPosTrxAndAttemptSeq(trx, attemptSeq);
 
         if (latestAttemptFromDb.isPresent()) {
             PaymentAttempt row = latestAttemptFromDb.get();
 
+            // A9: 이미 다른 요청이 확정한 결과가 있는 경우.
             if (row.finalStatus() != null) {
-
                 PaymentFinalStatus dbStatus = PaymentFinalStatus.valueOf(row.finalStatus());
                 PaymentFinalStatus vanStatus = updateParam.finalStatus();
 
-                // DB 확정값과 방금 받은 VAN 결과가 다르면 정합성 확인이 필요한 신호다.
-                // 그래도 응답은 DB에 실제 저장된 상태를 기준으로 내린다.
-                // 결제 시스템에서는 "실제로 저장된 상태"가 우선이다.
-                if (dbStatus.equals(vanStatus) == false) {
-                    log.error("[approve][A7-0rows][MISMATCH] db finalStatus != van finalStatus. posTrx={}, attemptSeq={}, dbStatus={}, vanStatus={}, vanTrxId={}",
-                            trx, attemptSeq, dbStatus, vanStatus, vanResponse.vanTrxId());
+                // VAN에서 받은 결과와 DB에 이미 확정된 결과가 다르면
+                // 정합성 확인이 필요한 상태다.
+                // 외부 응답보다 DB 정본을 우선하여 반환한다.
+                if (dbStatus != vanStatus) {
+                    log.error("[approve][FINALIZE][MISMATCH] db finalStatus != van finalStatus. "
+                        + "posTrx={}, attemptSeq={}, dbStatus={}, vanStatus={}, vanTrxId={}", trx, attemptSeq, dbStatus, vanStatus, vanResponse.vanTrxId());
                 }
 
-                // A9: 이미 확정된 결과가 있으면 DB값 그대로 재응답.
                 return getApproveResponse(
                         dbStatus,
                         trx,
                         attemptSeq,
                         row.approvalNo(),
                         row.declineCode(),
-                        CardSummaryFactory.fromStoredCard(row.cardBin(), row.cardLast4(), row.cardBrand())
+                        CardSummaryFactory.fromStoredCard(
+                                row.cardBin(),
+                                row.cardLast4(),
+                                row.cardBrand()
+                        )
                 );
             }
 
-            // A10: row는 있는데 FINAL_STATUS가 여전히 null인 경우.
-            // - VAN 응답 이후에도 DB가 PROCESSING이면 정합성 이상 또는 update 실패 가능성이 있다.
-            // - 클라이언트에게 확정 결과를 단정하지 않고 retryLater(PROCESSING)로 응답한다.
-            log.error("[approve][A7-0rows][PROCESSING_AFTER_VAN] update miss; attempt still processing after VAN response. posTrx={}, attemptSeq={}, vanStatus={}, vanTrxId={}",
-                    trx, attemptSeq, vanResponse.finalStatus(), vanResponse.vanTrxId());
+            // A10: VAN 응답까지 받았는데 DB는 여전히 PROCESSING이다.
+            // 확정 결과를 임의로 단정하지 않고 재시도를 유도한다.
+            log.error("[approve][FINALIZE][UPDATE_MISS_PROCESSING] attempt still processing after VAN response. "
+                            + "posTrx={}, attemptSeq={}, vanStatus={}, vanTrxId={}", trx, attemptSeq, vanResponse.finalStatus(), vanResponse.vanTrxId());
 
             return ApproveResponse.retryLater(
                     trx,
@@ -412,11 +417,11 @@ public class PaymentApprovalTransactionService {
             );
         }
 
-        // row 자체가 없음.
-        // - A3에서 insert한 attempt row를 A7 후처리에서 찾지 못한 상황이라 정상 흐름에서는 거의 없어야 한다.
-        // - 이 경우에도 승인 성공/거절을 임의로 만들면 위험하므로 UNKNOWN_TIMEOUT 계열로 방어 응답한다.
-        log.error("[approve][A7-0rows][CRITICAL_ATTEMPT_NOT_FOUND] update miss; attempt row not found after VAN response. posTrx={}, attemptSeq={}, vanStatus={}, vanTrxId={}",
-                trx, attemptSeq, vanResponse.finalStatus(), vanResponse.vanTrxId());
+        // A3에서 생성한 attempt 자체를 찾지 못했다.
+        // VAN 응답은 받았더라도 Payment DB에 확정 사실을 남기지 못했으므로
+        // 승인/거절을 임의로 반환하지 않고 UNKNOWN_TIMEOUT 계열로 방어한다.
+        log.error("[approve][FINALIZE][ATTEMPT_NOT_FOUND] attempt row not found after VAN response. "
+                        + "posTrx={}, attemptSeq={}, vanStatus={}, vanTrxId={}", trx, attemptSeq, vanResponse.finalStatus(), vanResponse.vanTrxId());
 
         insertApproveEvent(
                 PaymentEventType.APPROVE_UNKNOWN_TIMEOUT,
@@ -427,7 +432,7 @@ public class PaymentApprovalTransactionService {
                 vanResponse.vanTrxId(),
                 null,
                 "UNKNOWN_AFTER_UPDATE_MISS",
-                "approval unknown timeout after update miss"
+                "approval unknown after finalize update miss"
         );
 
         return ApproveResponse.unknownTimeout(
@@ -440,24 +445,155 @@ public class PaymentApprovalTransactionService {
                         cardIdentity.brand()
                 )
         );
-
     }
 
+    /**
+     * VAN 요청은 전송했지만 제한 시간 안에 응답을 받지 못한 경우,
+     * PROCESSING attempt를 UNKNOWN_TIMEOUT으로 확정한다.
+     *
+     * <p>이 경로에서는 VanApproveResponse가 존재하지 않는다.
+     * 따라서 Payment는 VAN의 실제 승인 여부, 승인번호, VAN 거래번호를 알 수 없다.
+     *
+     * <p>핵심 원칙:
+     * - UNKNOWN_TIMEOUT은 VAN이 보내준 결과가 아니라 Payment가 관측한 통신 결과다.
+     * - approvalNo와 vanTrxId는 알 수 없으므로 저장하지 않는다.
+     * - FINAL_STATUS IS NULL 조건부 UPDATE로 최초 1회만 UNKNOWN_TIMEOUT을 저장한다.
+     * - UPDATE 0건이면 DB를 재조회하고, 이미 확정된 상태가 있다면 DB 값을 우선한다.
+     */
     @Transactional
-    public ApproveResponse finalizeUnknownTimeout(PaymentApprovalPrepareResult prepared) {
+    public ApproveResponse finalizeUnknownTimeout(
+            PaymentApprovalPrepareResult prepared
+    ) {
         String trx = prepared.posTrx();
         int attemptSeq = prepared.attemptSeq();
+        CardIdentity cardIdentity = prepared.cardIdentity();
 
+        // 응답을 받지 못했다는 사실을 Payment DB 저장 형식으로 변환한다.
+        // 저장 목표:
+        // - finalStatus = UNKNOWN_TIMEOUT
+        // - declineCode = TIMEOUT
+        // - approvalNo = null
+        // - vanTrxId = null
         AttemptResultUpdateParam updateParam =
                 AttemptResultUpdateParamFactory.fromApprovalTimeout(trx, attemptSeq);
 
-        Optional<PaymentAttemptUpdatedRow> updated =
-                repository.updateAttemptResult(updateParam);
+        // PROCESSING 상태인 attempt만 UNKNOWN_TIMEOUT으로 최초 1회 확정한다.
+        Optional<PaymentAttemptUpdatedRow> attemptUpdatedRowOpt = repository.updateAttemptResult(updateParam);
 
-        // 여기부터 네가 기존 finalizeApproval()의
-        // A8 ~ A10 정책을 참고해서 처리
+        // TIMEOUT-1: 이번 호출이 UNKNOWN_TIMEOUT 저장에 성공한 경우.
+        if (attemptUpdatedRowOpt.isPresent()) {
+            PaymentAttemptUpdatedRow row = attemptUpdatedRowOpt.get();
 
-        return null;
+            log.info("[approve][TIMEOUT] finalized as UNKNOWN_TIMEOUT. posTrx={}, attemptSeq={}", trx, attemptSeq);
+
+            insertApproveEvent(
+                    PaymentEventType.APPROVE_UNKNOWN_TIMEOUT,
+                    trx,
+                    attemptSeq,
+                    ResultCode.UNKNOWN_TIMEOUT.name(),
+                    PaymentFinalStatus.UNKNOWN_TIMEOUT.name(),
+                    null,
+                    null,
+                    row.declineCode(),
+                    "VAN response timeout"
+            );
+
+            // 실제 DB에 저장된 TIMEOUT 결과와 카드정보를 기준으로 응답한다.
+            return ApproveResponse.unknownTimeout(
+                    trx,
+                    attemptSeq,
+                    row.declineCode(),
+                    CardSummaryFactory.fromStoredCard(
+                            row.cardBin(),
+                            row.cardLast4(),
+                            row.cardBrand()
+                    )
+            );
+        }
+
+        // UPDATE 0건:
+        // 다른 요청이 먼저 상태를 확정했거나,
+        // 비정상적으로 UNKNOWN_TIMEOUT update가 반영되지 않았을 수 있다.
+        // 현재 DB 상태를 다시 읽어 판단한다.
+        Optional<PaymentAttempt> latestAttemptFromDb = repository.findByPosTrxAndAttemptSeq(trx, attemptSeq);
+
+        if (latestAttemptFromDb.isPresent()) {
+            PaymentAttempt row = latestAttemptFromDb.get();
+
+            // TIMEOUT-2: 이미 다른 처리에 의해 최종 상태가 확정된 경우.
+            if (row.finalStatus() != null) {
+                PaymentFinalStatus dbStatus = PaymentFinalStatus.valueOf(row.finalStatus());
+                PaymentFinalStatus targetStatus = updateParam.finalStatus();
+
+                // UNKNOWN_TIMEOUT 저장 경쟁에서는
+                // DB가 APPROVED/DECLINED 등 더 구체적인 상태로 이미 확정됐을 수 있다.
+                // 이 경우 오류로 덮어쓰지 않고 DB 정본을 그대로 사용한다.
+                if (dbStatus != targetStatus) {
+                    log.info("[approve][TIMEOUT][ALREADY_FINALIZED] timeout finalization lost race. "
+                            + "posTrx={}, attemptSeq={}, dbStatus={}, targetStatus={}", trx, attemptSeq, dbStatus, targetStatus);
+                }
+
+                return getApproveResponse(
+                        dbStatus,
+                        trx,
+                        attemptSeq,
+                        row.approvalNo(),
+                        row.declineCode(),
+                        CardSummaryFactory.fromStoredCard(
+                                row.cardBin(),
+                                row.cardLast4(),
+                                row.cardBrand()
+                        )
+                );
+            }
+
+            // TIMEOUT-3:
+            // UNKNOWN_TIMEOUT 저장을 시도했지만 DB가 여전히 PROCESSING이다.
+            // DB에 확정되지 않은 상태이므로 UNKNOWN_TIMEOUT을 임의로 반환하지 않고
+            // 현재 정본에 맞춰 재시도를 유도한다.
+            log.error("[approve][TIMEOUT][UPDATE_MISS_PROCESSING] attempt still processing after timeout finalization update miss. "
+                            + "posTrx={}, attemptSeq={}, targetStatus={}", trx, attemptSeq, PaymentFinalStatus.UNKNOWN_TIMEOUT);
+
+            return ApproveResponse.retryLater(
+                    trx,
+                    attemptSeq,
+                    CardSummaryFactory.fromStoredCard(
+                            row.cardBin(),
+                            row.cardLast4(),
+                            row.cardBrand()
+                    )
+            );
+        }
+
+        // TIMEOUT-4:
+        // TX1에서 생성한 attempt 자체를 찾지 못했다.
+        // 정상 흐름에서는 발생하기 어려운 정합성 이상이다.
+        // 확정 상태를 추측하지 않고 UNKNOWN_TIMEOUT 계열의 방어 응답을 반환한다.
+        log.error("[approve][TIMEOUT][ATTEMPT_NOT_FOUND] attempt row not found after response timeout. "
+                        + "posTrx={}, attemptSeq={}", trx, attemptSeq);
+
+        insertApproveEvent(
+                PaymentEventType.APPROVE_UNKNOWN_TIMEOUT,
+                trx,
+                attemptSeq,
+                ResultCode.UNKNOWN_TIMEOUT.name(),
+                PaymentFinalStatus.UNKNOWN_TIMEOUT.name(),
+                null,
+                null,
+                "UNKNOWN_AFTER_UPDATE_MISS",
+                "approval unknown after timeout update miss"
+        );
+
+        return ApproveResponse.unknownTimeout(
+                trx,
+                attemptSeq,
+                "UNKNOWN_AFTER_UPDATE_MISS",
+                CardSummaryFactory.fromStoredCard(
+                        cardIdentity.cardBin(),
+                        cardIdentity.cardLast4(),
+                        cardIdentity.brand()
+                )
+        );
     }
 
     private CardIdentity getCardIdentity(String cardBin, String cardLast4) {

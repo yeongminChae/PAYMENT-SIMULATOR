@@ -6,7 +6,9 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.response.ApproveResponse;
 import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.api.payment.service.BinCatalogService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
+import com.chaeyeongmin.payment_sim.api.payment.service.support.CardSummaryFactory;
 import com.chaeyeongmin.payment_sim.api.payment.service.transaction.PaymentApprovalTransactionService;
+import com.chaeyeongmin.payment_sim.api.payment.service.transaction.model.PaymentApprovalPrepareResult;
 import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveRequestValidator;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
@@ -26,6 +28,7 @@ import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveResponse;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanResult;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
+import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -34,6 +37,7 @@ import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -539,7 +543,7 @@ class PaymentApprovalServiceImplTest {
         assertFalse(storedFingerprint.isBlank());
         assertFalse(storedFingerprint.contains(pan));
         assertFalse(pan.contains(storedFingerprint));
-        org.assertj.core.api.Assertions.assertThat(storedFingerprint).matches("^[0-9a-f]{64}$");
+        assertThat(storedFingerprint).matches("^[0-9a-f]{64}$");
     }
 
     /**
@@ -630,8 +634,73 @@ class PaymentApprovalServiceImplTest {
         verify(binCatalogService, never()).identify(anyString(), anyString());
     }
 
-    // 테스트용 객체 생성 메소드
+    @Test
+    void VAN_gateway_timeout이면_UNKNOWN_TIMEOUT_확정으로_전환한다() {
+        // given
+        String trx = baseReq.getPosTrx();
+        PaymentApprovalTransactionService trServiceMock = mock(PaymentApprovalTransactionService.class);
 
+        PaymentApprovalService serviceUnderTest =
+                new PaymentApprovalServiceImpl(
+                        trServiceMock,
+                        gateway,
+                        assembler,
+                        validator,
+                        paymentEventLogRecorder
+                );
+
+        CardIdentity cardIdentity = CardIdentity.unknown("41111111", "1111");
+
+        PaymentApprovalPrepareResult prepared = PaymentApprovalPrepareResult.created(trx, 1, cardIdentity);
+
+        VanApproveRequest vanRequest = VanApproveRequest.builder()
+                .posTrx(trx)
+                .attemptSeq(1)
+                .amount(baseReq.getAmount())
+                .pan(baseReq.getCard().getPan())
+                .expiryYyMm(baseReq.getCard().getExpiryYyMm())
+                .cardBin(cardIdentity.cardBin())
+                .cardLast4(cardIdentity.cardLast4())
+                .build();
+
+        ApproveResponse timeoutResponse =
+                ApproveResponse.unknownTimeout(
+                        trx,
+                        1,
+                        VanDeclineCode.TIMEOUT.code(),
+                        CardSummaryFactory.fromStoredCard(
+                                cardIdentity.cardBin(),
+                                cardIdentity.cardLast4(),
+                                cardIdentity.brand()
+                        )
+                );
+
+        when(trServiceMock.prepare(baseReq)).thenReturn(prepared);
+        when(assembler.assemble(
+                prepared.posTrx(),
+                prepared.attemptSeq(),
+                baseReq.getAmount(),
+                baseReq.getCard().getPan(),
+                baseReq.getCard().getExpiryYyMm(),
+                prepared.cardIdentity().cardBin(),
+                prepared.cardIdentity().cardLast4()
+        )).thenReturn(vanRequest);
+        when(gateway.approve(vanRequest)).thenThrow(
+                new VanGatewayTimeoutException(new RuntimeException("timeout"))
+        );
+        when(trServiceMock.finalizeUnknownTimeout(prepared)).thenReturn(timeoutResponse);
+
+        // when
+        ApproveResponse response = serviceUnderTest.approve(baseReq);
+
+        // then
+        assertThat(response).isSameAs(timeoutResponse);
+        verify(gateway).approve(vanRequest);
+        verify(trServiceMock).finalizeUnknownTimeout(prepared);
+        verify(trServiceMock, never()).finalizeApproval(eq(prepared), any(VanApproveResponse.class));
+    }
+
+    // 테스트용 객체 생성 메소드
     private void assertResponseFieldDoesNotExist(String fieldName) {
         boolean exists = Arrays.stream(ApproveResponse.class.getRecordComponents())
                 .anyMatch(component -> component.getName().equals(fieldName));

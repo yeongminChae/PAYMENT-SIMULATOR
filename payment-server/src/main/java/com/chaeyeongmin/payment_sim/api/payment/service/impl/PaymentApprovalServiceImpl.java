@@ -35,10 +35,11 @@ import org.springframework.stereotype.Service;
  *   승인 처리의 "DB 준비(TX1) -> 외부 호출(무 TX) -> DB 확정(TX2)" 경계를 코드에서 드러낸다.
  * <p>
  * 상태 정책:
- * - FINAL_STATUS == NULL        : 아직 확정되지 않은 처리중(PROCESSING)
- * - FINAL_STATUS == APPROVED    : 승인 확정, approvalNo 존재
- * - FINAL_STATUS == DECLINED    : 승인 거절, 정책상 같은 posTrx로 새 attempt 허용
- * - FINAL_STATUS == UNKNOWN_TIMEOUT : VAN 응답/후속조회로도 확정하지 못한 미확정 종료 상태
+ * - FINAL_STATUS == NULL            : 아직 확정되지 않은 처리중(PROCESSING)
+ * - FINAL_STATUS == APPROVED        : 승인 확정, approvalNo 존재
+ * - FINAL_STATUS == DECLINED        : 승인 거절, 정책상 같은 posTrx로 새 attempt 허용
+ * - FINAL_STATUS == UNKNOWN_TIMEOUT : VAN 요청 후 응답을 받지 못해 승인 여부를 확정할 수 없는 상태.
+ *                                     이후 VAN 조회(Inquiry)를 통해 APPROVED/DECLINED로 복구할 수 있다.
  */
 @Slf4j
 @Service
@@ -64,64 +65,67 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         // - 여기서 커밋된 뒤에만 외부 VAN 호출로 넘어가므로 lock을 잡은 채 네트워크 호출하지 않는다.
         PaymentApprovalPrepareResult prepared = transactionService.prepare(request);
 
+        // A4 재응답: 기존 DB 결과 재사용이면 VAN 호출 없음.
+        // - 승인 멱등성의 핵심 분기다. 같은 posTrx + 같은 payload는 DB 값 그대로 응답한다.
+        // - prepared가 existing이면 cardIdentity가 없으므로 아래 A5/A6 경로로 내려가면 안 된다.
+        if (prepared.isExisting()) return prepared.existingResponse();
+
+        // A5: VAN 승인 요청 DTO 구성. (트랜잭션 없음)
+        // - TX1에서 확정한 posTrx/attemptSeq/cardIdentity를 사용해 VAN 추적 가능한 요청을 만든다.
+        // - PAN은 저장하지 않고, 여기서만 VAN 전송용으로 request에서 꺼내 assembler에 넘긴다.
+        VanApproveRequest vanRequest =
+                vanApproveAssembler.assemble(
+                        prepared.posTrx(),
+                        prepared.attemptSeq(),
+                        request.getAmount(),
+                        request.getCard().getPan(),
+                        request.getCard().getExpiryYyMm(),
+                        prepared.cardIdentity().cardBin(),
+                        prepared.cardIdentity().cardLast4()
+                );
+
+        insertApproveEvent(
+                PaymentEventType.APPROVE_VAN_REQUESTED,
+                prepared.posTrx(),
+                prepared.attemptSeq(),
+                null,
+                PaymentFinalStatus.PROCESSING.name(),
+                null,
+                null,
+                null,
+                "VAN approve requested"
+        );
+
+        final VanApproveResponse vanResponse;
         try {
-            // A4 재응답: 기존 DB 결과 재사용이면 VAN 호출 없음.
-            // - 승인 멱등성의 핵심 분기다. 같은 posTrx + 같은 payload는 DB 값 그대로 응답한다.
-            // - prepared가 existing이면 cardIdentity가 없으므로 아래 A5/A6 경로로 내려가면 안 된다.
-            if (prepared.isExisting()) return prepared.existingResponse();
-
-            // A5: VAN 승인 요청 DTO 구성. (트랜잭션 없음)
-            // - TX1에서 확정한 posTrx/attemptSeq/cardIdentity를 사용해 VAN 추적 가능한 요청을 만든다.
-            // - PAN은 저장하지 않고, 여기서만 VAN 전송용으로 request에서 꺼내 assembler에 넘긴다.
-            VanApproveRequest vanRequest =
-                    vanApproveAssembler.assemble(
-                            prepared.posTrx(),
-                            prepared.attemptSeq(),
-                            request.getAmount(),
-                            request.getCard().getPan(),
-                            request.getCard().getExpiryYyMm(),
-                            prepared.cardIdentity().cardBin(),
-                            prepared.cardIdentity().cardLast4()
-                    );
-
-            insertApproveEvent(
-                    PaymentEventType.APPROVE_VAN_REQUESTED,
-                    prepared.posTrx(),
-                    prepared.attemptSeq(),
-                    null,
-                    PaymentFinalStatus.PROCESSING.name(),
-                    null,
-                    null,
-                    null,
-                    "VAN approve requested"
-            );
-
             // A6: 외부 VAN 승인 호출. (트랜잭션 없음)
             // - 네트워크 지연/타임아웃이 DB 트랜잭션 시간을 늘리지 않도록 TX1과 TX2 사이에서 수행한다.
             // - 동시성 제어는 TX1에서 만든 PROCESSING attempt와 이후 TX2 조건부 update가 담당한다.
-            VanApproveResponse vanResponse = vanGateway.approve(vanRequest);
-
-            insertApproveEvent(
-                    PaymentEventType.APPROVE_VAN_RESULT_RECEIVED,
-                    prepared.posTrx(),
-                    prepared.attemptSeq(),
-                    PaymentResultCodeMapper.codeName(vanResponse.finalStatus()),
-                    vanResponse.finalStatus().name(),
-                    vanResponse.vanTrxId(),
-                    vanResponse.approvalNo(),
-                    VanDeclineCodeMapper.toCode(vanResponse.declineCode()),
-                    "VAN approve result received"
-            );
-
-            // TX2: VAN 결과 확정 트랜잭션.
-            // - FINAL_STATUS IS NULL 조건부 update로 최초 확정 요청만 저장한다.
-            // - update miss가 나면 DB를 다시 읽어 저장된 값을 우선 응답한다.
-            return transactionService.finalizeApproval(prepared, vanResponse);
+            vanResponse = vanGateway.approve(vanRequest);
 
         } catch (VanGatewayTimeoutException e) {
-
+            // 요청은 VAN에 전달됐을 수 있지만 응답을 받지 못했다.
+            // 승인/거절 여부를 추측하지 않고 별도 TX에서 UNKNOWN_TIMEOUT으로 확정한다.
             return transactionService.finalizeUnknownTimeout(prepared);
         }
+
+        // 이 이벤트는 실제 VanApproveResponse를 받은 경우에만 기록한다.
+        insertApproveEvent(
+                PaymentEventType.APPROVE_VAN_RESULT_RECEIVED,
+                prepared.posTrx(),
+                prepared.attemptSeq(),
+                PaymentResultCodeMapper.codeName(vanResponse.finalStatus()),
+                vanResponse.finalStatus().name(),
+                vanResponse.vanTrxId(),
+                vanResponse.approvalNo(),
+                VanDeclineCodeMapper.toCode(vanResponse.declineCode()),
+                "VAN approve result received"
+        );
+
+        // TX2: VAN 결과 확정 트랜잭션.
+        // - FINAL_STATUS IS NULL 조건부 update로 최초 확정 요청만 저장한다.
+        // - update miss가 나면 DB를 다시 읽어 저장된 값을 우선 응답한다.
+        return transactionService.finalizeApproval(prepared, vanResponse);
     }
 
     /**
