@@ -496,7 +496,7 @@ class PaymentApprovalServiceImplIdempotencyTest {
                         && ResultCode.UNKNOWN_TIMEOUT.name().equals(event.resultCode())
                         && PaymentFinalStatus.UNKNOWN_TIMEOUT.name().equals(event.statusSnapshot())
                         && "UNKNOWN_AFTER_UPDATE_MISS".equals(event.declineCode())
-                        && "approval unknown timeout after update miss".equals(event.note())
+                        && "VAN-TRX-APPROVED".equals(event.vanTrxId())
         ));
     }
 
