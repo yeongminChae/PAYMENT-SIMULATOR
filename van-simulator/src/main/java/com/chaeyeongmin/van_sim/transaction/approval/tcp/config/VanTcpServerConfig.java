@@ -15,6 +15,10 @@ import org.springframework.integration.ip.tcp.serializer.ByteArrayLengthHeaderSe
  * <p>
  * 이 설정은 TCP 연결 계층만 담당하고, 전문 해석과 업무 처리는
  * {@link VanTcpMessageDispatcher} 이후의 업무별 핸들러에 위임한다.
+ * <p>
+ * 클래스 이름에는 기존 승인 TCP 서버라는 의미가 남아 있지만,
+ * Release 4부터는 같은 TCP port에서 APPROVAL과 INQUIRY를 함께 처리한다.
+ * 실제 업무 구분은 inbound gateway가 아니라 {@link VanTcpMessageDispatcher}가 messageType으로 수행한다.
  */
 @Configuration
 @Profile("postgres")
@@ -55,6 +59,7 @@ public class VanTcpServerConfig {
      * <p>
      * Spring Integration이 length header를 제거한 JSON payload byte[]를 전달하면,
      * dispatcher가 APPROVAL 또는 INQUIRY 핸들러의 응답 payload를 반환한다.
+     * 이 메서드는 어떤 업무인지 직접 판단하지 않고, 단일 TCP 입구를 dispatcher에 연결하는 배선 역할만 한다.
      */
     @Bean
     public IntegrationFlow vanApprovalTcpInboundGateway(

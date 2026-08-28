@@ -23,14 +23,17 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 
 /**
- * 기존 VanGateway 경계를 유지하면서 승인 요청만 실제 TCP VAN Simulator로 전달하는 어댑터다.
+ * 기존 VanGateway 경계를 유지하면서 Payment 업무 DTO를 실제 TCP VAN Simulator 호출로 바꾸는 어댑터다.
  * <p>
  * 책임:
- * - 기존 업무 DTO({@link VanApproveRequest}, {@link VanApproveResponse})와 TCP 전문 DTO 사이를 변환한다.
+ * - 기존 업무 DTO({@link VanApproveRequest}, {@link VanApproveResponse}, {@link VanInquiryRequest}, {@link VanInquiryResponse})와 TCP 전문 DTO 사이를 변환한다.
  * - TCP 전문 DTO를 JSON byte[]로 직렬화/역직렬화한다.
+ * - 응답 correlation 검증을 수행해 다른 요청의 응답을 업무 결과로 사용하지 않도록 막는다.
+ * - TCP 응답 대기 timeout을 Payment 계층의 {@link VanGatewayTimeoutException}으로 변환한다.
  * - byte[] 송수신은 {@link VanTcpClient}에 위임한다.
  * <p>
  * PaymentService는 이 구현체를 직접 알지 않고 VanGateway만 의존한다.
+ * 즉, TCP 계약 변경은 최대한 이 boundary 안에서 흡수하고 업무 서비스의 흐름은 유지한다.
  */
 @Component
 @ConditionalOnProperty(name = "payment.van.mode", havingValue = "tcp")
@@ -79,15 +82,23 @@ public class TcpVanGateway implements VanGateway {
     @Override
     public VanInquiryResponse inquiry(VanInquiryRequest request) {
         try {
+            // Payment의 업무 조회 요청을 VAN TCP 계약에 맞는 INQUIRY JSON 전문으로 바꾼다.
+            // 이때 조회 key는 posTrx/attemptSeq뿐이며, 업무 DTO의 cardLast4/vanTrxId는 보내지 않는다.
             VanInquiryTcpRequest tcpRequest = toTcpRequest(request);
+
+            // 아래 흐름은 approve()와 같은 구조다.
+            // Gateway는 JSON 변환과 protocol 검증을 맡고, 실제 socket 송수신은 VanTcpClient에 맡긴다.
             byte[] requestPayload = writeRequest(tcpRequest);
             byte[] responsePayload = vanTcpClient.send(requestPayload);
             VanInquiryTcpResponse tcpResponse = readInquiryResponse(responsePayload);
 
+            // VAN 응답이 내가 보낸 Inquiry 요청과 같은 거래를 가리키는지 확인한 뒤에만 업무 DTO로 변환한다.
             validateInquiryResponse(tcpRequest, tcpResponse);
             return toInquiryResponse(tcpResponse);
 
         } catch (VanTcpResponseTimeoutException e) {
+            // transport 계층의 read timeout 예외를 업무 gateway boundary 예외로 감싼다.
+            // PaymentInquiryServiceImpl은 별도 timeout 복구 정책을 만들지 않았으므로 상위 예외 처리로 전파된다.
             throw new VanGatewayTimeoutException(e);
         }
     }
@@ -140,6 +151,9 @@ public class TcpVanGateway implements VanGateway {
 
     /**
      * TCP 조회 요청 전문 DTO를 JSON payload byte[]로 직렬화한다.
+     * <p>
+     * 반환값은 length header가 없는 JSON body다.
+     * SpringIntegrationVanTcpClient 뒤의 TCP serializer가 실제 4-byte length header를 붙인다.
      */
     private byte[] writeRequest(VanInquiryTcpRequest tcpRequest) {
         try {
@@ -192,6 +206,10 @@ public class TcpVanGateway implements VanGateway {
 
     /**
      * 요청과 응답이 같은 조회 거래를 가리키는지 검증한다.
+     * <p>
+     * protocolVersion/messageType은 VAN Simulator와 같은 TCP 계약을 보고 있는지 확인하는 값이다.
+     * requestId/posTrx/attemptSeq는 응답 correlation 값이다.
+     * 하나라도 다르면 다른 요청의 응답이거나 프로토콜 불일치이므로 Payment 업무 상태로 반영하지 않는다.
      */
     private void validateInquiryResponse(
             VanInquiryTcpRequest tcpRequest,
@@ -235,6 +253,13 @@ public class TcpVanGateway implements VanGateway {
 
     /**
      * TCP 조회 응답 전문을 기존 Payment 업무 조회 응답 DTO로 변환한다.
+     * <p>
+     * 이 변환 결과는 PaymentInquiryServiceImpl이 UNKNOWN_TIMEOUT row를 복구할 때 바로 사용한다.
+     * APPROVED/DECLINED는 DB의 UNKNOWN_TIMEOUT attempt를 최종 상태로 바꾸는 입력이 되고,
+     * UNKNOWN은 기존 UNKNOWN_TIMEOUT 상태를 유지하게 만든다.
+     * <p>
+     * VAN 응답의 vanTrxId/approvalNo/declineCode는 여기서 버리지 않고 업무 DTO에 보존한다.
+     * 그래야 Inquiry 이후 Payment DB가 VAN 원장의 approvalNo/vanTrxId로 복구될 수 있다.
      */
     private VanInquiryResponse toInquiryResponse(VanInquiryTcpResponse tcpResponse) {
         return VanInquiryResponse.builder()
@@ -275,6 +300,10 @@ public class TcpVanGateway implements VanGateway {
 
     /**
      * VAN TCP 조회 프로토콜 상태를 Payment 최종 승인 상태로 변환한다.
+     * <p>
+     * UNKNOWN을 APPROVED나 DECLINED로 추론하면 안 된다.
+     * VAN이 아직 확정 상태를 알려주지 못했다는 뜻이므로,
+     * Payment 관점의 기존 미확정 상태인 UNKNOWN_TIMEOUT으로 유지한다.
      */
     private PaymentFinalStatus toFinalStatus(VanInquiryStatus status) {
         return switch (status) {
@@ -309,6 +338,10 @@ public class TcpVanGateway implements VanGateway {
 
     /**
      * VAN TCP 조회 응답의 declineCode 문자열을 Payment 내부 VanDeclineCode enum으로 변환한다.
+     * <p>
+     * 현재 내부 enum은 제한된 코드만 표현한다.
+     * VAN이 "05" 또는 알 수 없는 거절 코드를 보내면 일반 거절인 DO_NOT_HONOR로 접고,
+     * UNKNOWN 또는 TIMEOUT 문자열은 후속조회에서도 아직 미확정이라는 의미로 TIMEOUT에 매핑한다.
      */
     private VanDeclineCode toDeclineCode(VanInquiryTcpResponse tcpResponse) {
         if (tcpResponse.status() == VanInquiryStatus.APPROVED) {
@@ -338,6 +371,9 @@ public class TcpVanGateway implements VanGateway {
 
     /**
      * Payment Server가 생성하는 TCP 조회 요청 식별자다.
+     * <p>
+     * VAN Simulator는 requestId를 응답에 그대로 돌려준다.
+     * Payment는 이 값과 posTrx/attemptSeq를 함께 비교해 응답이 현재 요청에 대한 것인지 검증한다.
      */
     private String inquiryRequestId(VanInquiryRequest request) {
         return "INQUIRY-" + request.posTrx() + "-" + request.attemptSeq();
