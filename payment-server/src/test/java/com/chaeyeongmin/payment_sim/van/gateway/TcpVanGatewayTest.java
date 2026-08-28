@@ -3,12 +3,19 @@ package com.chaeyeongmin.payment_sim.van.gateway;
 import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveResponse;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryRequest;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResponse;
+import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanResult;
 import com.chaeyeongmin.payment_sim.van.client.tcp.VanTcpClient;
 import com.chaeyeongmin.payment_sim.van.client.tcp.exception.VanTcpResponseTimeoutException;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.approval.VanApprovalStatus;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.approval.VanApprovalTcpRequest;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.approval.VanApprovalTcpResponse;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryStatus;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTcpRequest;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTcpResponse;
+import com.chaeyeongmin.payment_sim.van.gateway.exception.TcpVanGatewayException;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -137,6 +144,173 @@ class TcpVanGatewayTest {
         assertThatThrownBy(() -> tcpVanGateway.approve(request))
                 .isInstanceOf(VanGatewayTimeoutException.class)
                 .hasCauseInstanceOf(VanTcpResponseTimeoutException.class);
+    }
+
+    @Test
+    void 기존_조회요청을_TCP_조회전문으로_변환하고_APPROVED_응답을_업무응답으로_변환한다() throws Exception {
+        // given
+        VanInquiryRequest request = inquiryRequest("2301-20260808-9999-0101", 1);
+        LocalDateTime respondedAt = LocalDateTime.of(2026, 8, 24, 11, 30);
+        VanInquiryTcpResponse tcpResponse = inquiryTcpResponse(
+                request,
+                VanInquiryStatus.APPROVED,
+                "VAN-INQ-001",
+                "APPROVAL-INQ-001",
+                null,
+                respondedAt
+        );
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        // when
+        VanInquiryResponse response = tcpVanGateway.inquiry(request);
+
+        // then
+        ArgumentCaptor<byte[]> requestPayloadCaptor = ArgumentCaptor.forClass(byte[].class);
+        verify(vanTcpClient).send(requestPayloadCaptor.capture());
+
+        VanInquiryTcpRequest tcpRequest =
+                objectMapper.readValue(requestPayloadCaptor.getValue(), VanInquiryTcpRequest.class);
+
+        assertThat(tcpRequest.protocolVersion()).isEqualTo("1");
+        assertThat(tcpRequest.messageType()).isEqualTo("INQUIRY");
+        assertThat(tcpRequest.requestId()).isEqualTo("INQUIRY-2301-20260808-9999-0101-1");
+        assertThat(tcpRequest.posTrx()).isEqualTo(request.posTrx());
+        assertThat(tcpRequest.attemptSeq()).isEqualTo(request.attemptSeq());
+
+        assertThat(response.posTrx()).isEqualTo(request.posTrx());
+        assertThat(response.attemptSeq()).isEqualTo(request.attemptSeq());
+        assertThat(response.finalStatus()).isEqualTo(PaymentFinalStatus.APPROVED);
+        assertThat(response.vanTrxId()).isEqualTo("VAN-INQ-001");
+        assertThat(response.approvalNo()).isEqualTo("APPROVAL-INQ-001");
+        assertThat(response.declineCode()).isNull();
+        assertThat(response.respondedAt()).isEqualTo(respondedAt);
+    }
+
+    @Test
+    void TCP_DECLINED_조회응답을_DECLINED_업무응답으로_변환한다() throws Exception {
+        // given
+        VanInquiryRequest request = inquiryRequest("2301-20260808-9999-0102", 1);
+        VanInquiryTcpResponse tcpResponse = inquiryTcpResponse(
+                request,
+                VanInquiryStatus.DECLINED,
+                "VAN-INQ-002",
+                null,
+                "05",
+                LocalDateTime.of(2026, 8, 24, 11, 31)
+        );
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        // when
+        VanInquiryResponse response = tcpVanGateway.inquiry(request);
+
+        // then
+        assertThat(response.finalStatus()).isEqualTo(PaymentFinalStatus.DECLINED);
+        assertThat(response.approvalNo()).isNull();
+        assertThat(response.declineCode()).isEqualTo(VanDeclineCode.DO_NOT_HONOR);
+        assertThat(response.vanTrxId()).isEqualTo("VAN-INQ-002");
+    }
+
+    @Test
+    void TCP_UNKNOWN_조회응답을_UNKNOWN_TIMEOUT_업무응답으로_변환한다() throws Exception {
+        // given
+        VanInquiryRequest request = inquiryRequest("2301-20260808-9999-0103", 1);
+        VanInquiryTcpResponse tcpResponse = inquiryTcpResponse(
+                request,
+                VanInquiryStatus.UNKNOWN,
+                "VAN-INQ-003",
+                null,
+                null,
+                LocalDateTime.of(2026, 8, 24, 11, 32)
+        );
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        // when
+        VanInquiryResponse response = tcpVanGateway.inquiry(request);
+
+        // then
+        assertThat(response.finalStatus()).isEqualTo(PaymentFinalStatus.UNKNOWN_TIMEOUT);
+        assertThat(response.approvalNo()).isNull();
+        assertThat(response.declineCode()).isEqualTo(VanDeclineCode.TIMEOUT);
+        assertThat(response.vanTrxId()).isEqualTo("VAN-INQ-003");
+    }
+
+    @Test
+    void TCP_조회응답의_correlation이_다르면_gateway_예외를_던진다() throws Exception {
+        // given
+        VanInquiryRequest request = inquiryRequest("2301-20260808-9999-0104", 1);
+        VanInquiryTcpResponse mismatchedResponse = new VanInquiryTcpResponse(
+                "1",
+                "INQUIRY_RESPONSE",
+                "INQUIRY-2301-20260808-9999-0104-1",
+                request.posTrx(),
+                2,
+                "VAN-INQ-004",
+                VanInquiryStatus.APPROVED,
+                "APPROVAL-INQ-004",
+                null,
+                LocalDateTime.of(2026, 8, 24, 11, 33)
+        );
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenReturn(objectMapper.writeValueAsBytes(mismatchedResponse));
+
+        // when & then
+        assertThatThrownBy(() -> tcpVanGateway.inquiry(request))
+                .isInstanceOf(TcpVanGatewayException.class)
+                .hasMessage("VAN_TCP_INQUIRY_RESPONSE_MISMATCH");
+    }
+
+    @Test
+    void TCP_조회응답_timeout이면_gateway_timeout으로_변환한다() {
+        // given
+        VanInquiryRequest request = inquiryRequest("2301-20260808-9999-0105", 1);
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenThrow(new VanTcpResponseTimeoutException(
+                        new RuntimeException("timeout")
+                ));
+
+        // when & then
+        assertThatThrownBy(() -> tcpVanGateway.inquiry(request))
+                .isInstanceOf(VanGatewayTimeoutException.class)
+                .hasCauseInstanceOf(VanTcpResponseTimeoutException.class);
+    }
+
+    private VanInquiryRequest inquiryRequest(String posTrx, int attemptSeq) {
+        return VanInquiryRequest.builder()
+                .posTrx(posTrx)
+                .attemptSeq(attemptSeq)
+                .vanTrxId("STORED-VAN-TRX")
+                .cardLast4("4242")
+                .build();
+    }
+
+    private VanInquiryTcpResponse inquiryTcpResponse(
+            VanInquiryRequest request,
+            VanInquiryStatus status,
+            String vanTrxId,
+            String approvalNo,
+            String declineCode,
+            LocalDateTime respondedAt
+    ) {
+        return new VanInquiryTcpResponse(
+                "1",
+                "INQUIRY_RESPONSE",
+                "INQUIRY-" + request.posTrx() + "-" + request.attemptSeq(),
+                request.posTrx(),
+                request.attemptSeq(),
+                vanTrxId,
+                status,
+                approvalNo,
+                declineCode,
+                respondedAt
+        );
     }
 
 }

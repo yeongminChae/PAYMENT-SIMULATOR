@@ -9,6 +9,9 @@ import com.chaeyeongmin.payment_sim.van.client.tcp.exception.VanTcpResponseTimeo
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.approval.VanApprovalStatus;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.approval.VanApprovalTcpRequest;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.approval.VanApprovalTcpResponse;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryStatus;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTcpRequest;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTcpResponse;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.TcpVanGatewayException;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutException;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -37,6 +40,8 @@ public class TcpVanGateway implements VanGateway {
     private static final String PROTOCOL_VERSION = "1";
     private static final String APPROVAL_MESSAGE_TYPE = "APPROVAL";
     private static final String APPROVAL_RESPONSE_MESSAGE_TYPE = "APPROVAL_RESPONSE";
+    private static final String INQUIRY_MESSAGE_TYPE = "INQUIRY";
+    private static final String INQUIRY_RESPONSE_MESSAGE_TYPE = "INQUIRY_RESPONSE";
 
     private final ObjectMapper objectMapper;
     private final VanTcpClient vanTcpClient;
@@ -73,8 +78,18 @@ public class TcpVanGateway implements VanGateway {
 
     @Override
     public VanInquiryResponse inquiry(VanInquiryRequest request) {
-        // 이번 단계는 승인 TCP 정상 흐름만 연결한다. 조회는 기존 범위 밖이므로 명시적으로 막아둔다.
-        throw new UnsupportedOperationException("TCP VAN inquiry is not implemented yet");
+        try {
+            VanInquiryTcpRequest tcpRequest = toTcpRequest(request);
+            byte[] requestPayload = writeRequest(tcpRequest);
+            byte[] responsePayload = vanTcpClient.send(requestPayload);
+            VanInquiryTcpResponse tcpResponse = readInquiryResponse(responsePayload);
+
+            validateInquiryResponse(tcpRequest, tcpResponse);
+            return toInquiryResponse(tcpResponse);
+
+        } catch (VanTcpResponseTimeoutException e) {
+            throw new VanGatewayTimeoutException(e);
+        }
     }
 
     /**
@@ -109,6 +124,32 @@ public class TcpVanGateway implements VanGateway {
     }
 
     /**
+     * 기존 업무 조회 요청 DTO를 VAN TCP 조회 요청 전문 DTO로 변환한다.
+     * <p>
+     * Release 4 TCP Inquiry 조회 key는 posTrx/attemptSeq이므로 업무 DTO의 vanTrxId/cardLast4는 전문에 싣지 않는다.
+     */
+    private VanInquiryTcpRequest toTcpRequest(VanInquiryRequest request) {
+        return new VanInquiryTcpRequest(
+                PROTOCOL_VERSION,
+                INQUIRY_MESSAGE_TYPE,
+                inquiryRequestId(request),
+                request.posTrx(),
+                request.attemptSeq()
+        );
+    }
+
+    /**
+     * TCP 조회 요청 전문 DTO를 JSON payload byte[]로 직렬화한다.
+     */
+    private byte[] writeRequest(VanInquiryTcpRequest tcpRequest) {
+        try {
+            return objectMapper.writeValueAsBytes(tcpRequest);
+        } catch (JsonProcessingException e) {
+            throw new TcpVanGatewayException("VAN_TCP_INQUIRY_REQUEST_SERIALIZE_FAILED", e);
+        }
+    }
+
+    /**
      * VAN Simulator가 반환한 JSON payload byte[]를 TCP 승인 응답 전문 DTO로 역직렬화한다.
      */
     private VanApprovalTcpResponse readResponse(byte[] responsePayload) {
@@ -116,6 +157,17 @@ public class TcpVanGateway implements VanGateway {
             return objectMapper.readValue(responsePayload, VanApprovalTcpResponse.class);
         } catch (IOException e) {
             throw new TcpVanGatewayException("VAN_TCP_APPROVAL_RESPONSE_DESERIALIZE_FAILED", e);
+        }
+    }
+
+    /**
+     * VAN Simulator가 반환한 JSON payload byte[]를 TCP 조회 응답 전문 DTO로 역직렬화한다.
+     */
+    private VanInquiryTcpResponse readInquiryResponse(byte[] responsePayload) {
+        try {
+            return objectMapper.readValue(responsePayload, VanInquiryTcpResponse.class);
+        } catch (IOException e) {
+            throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_DESERIALIZE_FAILED", e);
         }
     }
 
@@ -139,6 +191,22 @@ public class TcpVanGateway implements VanGateway {
     }
 
     /**
+     * 요청과 응답이 같은 조회 거래를 가리키는지 검증한다.
+     */
+    private void validateInquiryResponse(
+            VanInquiryTcpRequest tcpRequest,
+            VanInquiryTcpResponse tcpResponse
+    ) {
+        if (!PROTOCOL_VERSION.equals(tcpResponse.protocolVersion())
+                || !INQUIRY_RESPONSE_MESSAGE_TYPE.equals(tcpResponse.messageType())
+                || !tcpRequest.requestId().equals(tcpResponse.requestId())
+                || !tcpRequest.posTrx().equals(tcpResponse.posTrx())
+                || tcpRequest.attemptSeq() != tcpResponse.attemptSeq()) {
+            throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_MISMATCH");
+        }
+    }
+
+    /**
      * TCP 승인 응답 전문을 기존 Payment 업무 승인 응답 DTO로 변환한다.
      * <p>
      * 카드 BIN/last4는 VAN 응답에 없으므로 기존 요청 DTO에서 보존한다.
@@ -157,6 +225,22 @@ public class TcpVanGateway implements VanGateway {
                 .cardLast4(request.cardLast4())
                 .vanResult(vanResult)
                 .finalStatus(finalStatus)
+                .approvalNo(tcpResponse.approvalNo())
+                .declineCode(toDeclineCode(tcpResponse))
+                .vanTrxId(tcpResponse.vanTrxId())
+                .message(tcpResponse.status().name())
+                .respondedAt(tcpResponse.respondedAt())
+                .build();
+    }
+
+    /**
+     * TCP 조회 응답 전문을 기존 Payment 업무 조회 응답 DTO로 변환한다.
+     */
+    private VanInquiryResponse toInquiryResponse(VanInquiryTcpResponse tcpResponse) {
+        return VanInquiryResponse.builder()
+                .posTrx(tcpResponse.posTrx())
+                .attemptSeq(tcpResponse.attemptSeq())
+                .finalStatus(toFinalStatus(tcpResponse.status()))
                 .approvalNo(tcpResponse.approvalNo())
                 .declineCode(toDeclineCode(tcpResponse))
                 .vanTrxId(tcpResponse.vanTrxId())
@@ -190,6 +274,17 @@ public class TcpVanGateway implements VanGateway {
     }
 
     /**
+     * VAN TCP 조회 프로토콜 상태를 Payment 최종 승인 상태로 변환한다.
+     */
+    private PaymentFinalStatus toFinalStatus(VanInquiryStatus status) {
+        return switch (status) {
+            case APPROVED -> PaymentFinalStatus.APPROVED;
+            case DECLINED -> PaymentFinalStatus.DECLINED;
+            case UNKNOWN -> PaymentFinalStatus.UNKNOWN_TIMEOUT;
+        };
+    }
+
+    /**
      * VAN TCP 응답의 declineCode 문자열을 Payment 내부 VanDeclineCode enum으로 변환한다.
      * <p>
      * 현재 VAN Simulator 승인 정상 흐름은 APPROVED 중심이지만,
@@ -213,11 +308,38 @@ public class TcpVanGateway implements VanGateway {
     }
 
     /**
+     * VAN TCP 조회 응답의 declineCode 문자열을 Payment 내부 VanDeclineCode enum으로 변환한다.
+     */
+    private VanDeclineCode toDeclineCode(VanInquiryTcpResponse tcpResponse) {
+        if (tcpResponse.status() == VanInquiryStatus.APPROVED) {
+            return null;
+        }
+
+        if ("TIMEOUT".equals(tcpResponse.declineCode())
+                || tcpResponse.status() == VanInquiryStatus.UNKNOWN) {
+            return VanDeclineCode.TIMEOUT;
+        }
+
+        if ("INVALID_REQUEST".equals(tcpResponse.declineCode())) {
+            return VanDeclineCode.INVALID_REQUEST;
+        }
+
+        return VanDeclineCode.DO_NOT_HONOR;
+    }
+
+    /**
      * Payment Server가 생성하는 TCP 승인 요청 식별자다.
      * <p>
      * VAN Simulator는 requestId를 응답에 그대로 돌려주므로, posTrx/attemptSeq와 함께 응답 매칭에 사용한다.
      */
     private String approvalRequestId(VanApproveRequest request) {
         return "APPROVAL-" + request.posTrx() + "-" + request.attemptSeq();
+    }
+
+    /**
+     * Payment Server가 생성하는 TCP 조회 요청 식별자다.
+     */
+    private String inquiryRequestId(VanInquiryRequest request) {
+        return "INQUIRY-" + request.posTrx() + "-" + request.attemptSeq();
     }
 }
