@@ -1,4 +1,4 @@
-package com.chaeyeongmin.van_sim.transaction.approval.tcp;
+package com.chaeyeongmin.van_sim.transaction.tcp;
 
 import com.chaeyeongmin.van_sim.control.scenario.approval.model.ApprovalScenario;
 import com.chaeyeongmin.van_sim.control.scenario.approval.model.IssuerResult;
