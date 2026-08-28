@@ -111,9 +111,18 @@ class ApprovalTcpHandlerTest {
                 assertThrows(ApprovalTcpMessageException.class, () -> handler.handle(payload));
 
         assertThat(exception.getMessage()).isEqualTo("APPROVAL_TCP_REQUEST_INVALID");
+
+        // invalid 전문은 mapper/service 이전 단계에서 중단되어야 한다.
+        // 그래야 잘못된 protocolVersion, 깨진 posTrx, malformed PAN이 VAN 승인 원장 저장으로 이어지지 않는다.
         verifyNoInteractions(approvalService, scenarioRegistry);
     }
 
+    /**
+     * Approval TCP handler가 막아야 하는 protocol boundary 케이스들이다.
+     * <p>
+     * Payment Server도 승인 입력을 검증하지만, VAN Simulator는 별도 프로세스이므로
+     * TCP로 직접 들어온 malformed JSON 전문을 스스로 방어해야 한다.
+     */
     private static Stream<Arguments> invalidRequests() {
         return Stream.of(
                 Arguments.of("unsupported protocolVersion", requestWith("2", "APPROVAL", "REQ-001", "2301-20260808-9999-0001", 1, 10_000, "1234567812345678", "2812")),
@@ -133,6 +142,10 @@ class ApprovalTcpHandlerTest {
         );
     }
 
+    /**
+     * 정상 승인 전문의 기준값이다.
+     * invalidRequests()는 이 값에서 한 필드씩 깨뜨려 validation 실패 지점을 명확히 만든다.
+     */
     private static ApprovalRequestMessage validRequest() {
         return requestWith(
                 "1",
@@ -146,6 +159,9 @@ class ApprovalTcpHandlerTest {
         );
     }
 
+    /**
+     * 테스트 데이터 생성을 한곳으로 모아, 각 케이스가 어떤 필드를 깨뜨리는지만 눈에 보이게 한다.
+     */
     private static ApprovalRequestMessage requestWith(
             String protocolVersion,
             String messageType,

@@ -30,9 +30,23 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class ApprovalTcpHandler {
 
+    /**
+     * Approval TCP v1에서 이 handler가 처리할 수 있는 고정 protocol 식별자다.
+     * dispatcher는 messageType만 보고 handler를 고르므로, 실제 side effect를 만들기 전
+     * handler에서 protocolVersion까지 다시 확인한다.
+     */
     private static final String PROTOCOL_VERSION = "1";
     private static final String MESSAGE_TYPE = "APPROVAL";
+
+    /**
+     * Payment Server가 발급하는 POS 거래번호 형식이다.
+     * storeCd(4)-bizDate(8)-posNo(4)-seq(4) 구조이며, VAN 원장 멱등 key의 일부로 쓰인다.
+     */
     private static final Pattern POS_TRX_PATTERN = Pattern.compile("^\\d{4}-\\d{8}-\\d{4}-\\d{4}$");
+
+    /**
+     * posTrx 안의 bizDate가 20260230 같은 허위 날짜로 들어오는 것을 막기 위한 strict parser다.
+     */
     private static final DateTimeFormatter BIZ_DATE_FORMATTER =
             DateTimeFormatter.ofPattern("uuuuMMdd")
                     .withResolverStyle(ResolverStyle.STRICT);
@@ -106,6 +120,11 @@ public class ApprovalTcpHandler {
         }
     }
 
+    /**
+     * posTrx는 VAN 승인 원장의 멱등 key로 사용된다.
+     * 형식이 깨진 값이 원장까지 내려가면 이후 Inquiry와 재응답 기준도 함께 흔들리므로
+     * 서비스 호출 전에 protocol boundary에서 차단한다.
+     */
     private boolean isInvalidPosTrx(String posTrx) {
         if (isBlank(posTrx) || POS_TRX_PATTERN.matcher(posTrx).matches() == false) {
             return true;
@@ -120,10 +139,18 @@ public class ApprovalTcpHandler {
         }
     }
 
+    /**
+     * mapper는 PAN에서 cardBin/cardLast4를 substring으로 파생한다.
+     * null, 짧은 값, 숫자가 아닌 값은 mapper에서 런타임 예외가 나기 전에 invalid 전문으로 처리한다.
+     */
     private boolean isInvalidPan(String pan) {
         return pan == null || pan.length() != 16 || isNumeric(pan) == false;
     }
 
+    /**
+     * expiryYyMm은 VAN 원장에 저장하지 않지만 승인 요청 전문의 필수 필드다.
+     * 여기서는 TCP protocol 형식만 검증하고, 카드 만료 여부 같은 업무 판정은 Payment 입력 검증에 둔다.
+     */
     private boolean isInvalidExpiry(String expiryYyMm) {
         if (expiryYyMm == null || expiryYyMm.length() != 4 || isNumeric(expiryYyMm) == false) {
             return true;
