@@ -8,13 +8,17 @@ import com.chaeyeongmin.van_sim.transaction.approval.service.ApprovalService;
 import com.chaeyeongmin.van_sim.transaction.approval.service.command.ApprovalCommand;
 import com.chaeyeongmin.van_sim.transaction.approval.service.result.ApprovalResult;
 import com.chaeyeongmin.van_sim.transaction.approval.tcp.exception.ApprovalTcpMessageException;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
+import java.util.regex.Pattern;
 
 /**
  * 승인 TCP 요청 전문을 승인 서비스에 연결하는 진입 핸들러다.
@@ -25,6 +29,13 @@ import java.io.IOException;
 @Profile("postgres")
 @RequiredArgsConstructor
 public class ApprovalTcpHandler {
+
+    private static final String PROTOCOL_VERSION = "1";
+    private static final String MESSAGE_TYPE = "APPROVAL";
+    private static final Pattern POS_TRX_PATTERN = Pattern.compile("^\\d{4}-\\d{8}-\\d{4}-\\d{4}$");
+    private static final DateTimeFormatter BIZ_DATE_FORMATTER =
+            DateTimeFormatter.ofPattern("uuuuMMdd")
+                    .withResolverStyle(ResolverStyle.STRICT);
 
     private final ObjectMapper objectMapper;
     private final ApprovalTcpMessageMapper tcpMessageMapper;
@@ -37,6 +48,8 @@ public class ApprovalTcpHandler {
     public byte[] handle(byte[] payload) {
         // TCP 서버가 수신한 원본 JSON 바이트 payload를 승인 요청 전문 객체로 역직렬화한다.
         ApprovalRequestMessage approvalRequest = readApprovalRequest(payload);
+
+        validate(approvalRequest);
 
         // 승인 요청 전문에 담긴 거래 정보를 서비스 계층이 처리할 수 있는 커맨드 모델로 변환한다.
         ApprovalCommand approvalCommand = tcpMessageMapper.toCommand(approvalRequest);
@@ -72,6 +85,69 @@ public class ApprovalTcpHandler {
             );
         }
 
+    }
+
+    /**
+     * 승인 요청 전문의 최소 프로토콜 계약을 검증한다.
+     * <p>
+     * 이 검증은 TCP boundary 방어용이다. 서비스 커맨드 변환 전에 실행해서
+     * 지원하지 않는 전문이나 malformed PAN/expiry가 VAN 원장 처리로 내려가지 않게 막는다.
+     */
+    private void validate(ApprovalRequestMessage request) {
+        if (!PROTOCOL_VERSION.equals(request.protocolVersion())
+                || !MESSAGE_TYPE.equals(request.messageType())
+                || isBlank(request.requestId())
+                || isInvalidPosTrx(request.posTrx())
+                || request.attemptSeq() <= 0
+                || request.amount() <= 0
+                || isInvalidPan(request.pan())
+                || isInvalidExpiry(request.expiryYyMm())) {
+            throw new ApprovalTcpMessageException("APPROVAL_TCP_REQUEST_INVALID");
+        }
+    }
+
+    private boolean isInvalidPosTrx(String posTrx) {
+        if (isBlank(posTrx) || POS_TRX_PATTERN.matcher(posTrx).matches() == false) {
+            return true;
+        }
+
+        String bizDate = posTrx.substring(5, 13);
+        try {
+            LocalDate.parse(bizDate, BIZ_DATE_FORMATTER);
+            return false;
+        } catch (DateTimeParseException e) {
+            return true;
+        }
+    }
+
+    private boolean isInvalidPan(String pan) {
+        return pan == null || pan.length() != 16 || isNumeric(pan) == false;
+    }
+
+    private boolean isInvalidExpiry(String expiryYyMm) {
+        if (expiryYyMm == null || expiryYyMm.length() != 4 || isNumeric(expiryYyMm) == false) {
+            return true;
+        }
+
+        int month = Integer.parseInt(expiryYyMm.substring(2, 4));
+        return month < 1 || month > 12;
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private boolean isNumeric(String value) {
+        if (value == null || value.isEmpty()) {
+            return false;
+        }
+
+        for (char c : value.toCharArray()) {
+            if (c < '0' || c > '9') {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
