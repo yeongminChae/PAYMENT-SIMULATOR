@@ -181,4 +181,25 @@
         VAN_TRX_ID AS vanTrxId;
     </select>
 
+    <!--
+      request-not-sent 정리는 정확한 attempt가 아직 PROCESSING일 때만 수행한다.
+      no-op UPDATE는 PostgreSQL/SQLite 모두에서 cleanup TX의 쓰기 경합 기준이 되며,
+      이후 연관 row와 attempt 삭제가 끝날 때까지 동시 finalization을 막는다.
+    -->
+    <select id="lockProcessingAttemptForCleanup" resultType="int">
+        UPDATE PAYMENT_ATTEMPT
+        SET UPDATED_AT = UPDATED_AT
+        WHERE POS_TRX = #{posTrx}
+          AND ATTEMPT_SEQ = #{attemptSeq}
+          AND FINAL_STATUS IS NULL
+        RETURNING ATTEMPT_SEQ
+    </select>
+
+    <delete id="deleteProcessingAttempt">
+        DELETE FROM PAYMENT_ATTEMPT
+        WHERE POS_TRX = #{posTrx}
+          AND ATTEMPT_SEQ = #{attemptSeq}
+          AND FINAL_STATUS IS NULL
+    </delete>
+
 </mapper>

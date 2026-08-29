@@ -7,4 +7,9 @@ import org.apache.ibatis.annotations.Param;
 @Mapper
 public interface PaymentExternalInfoMapper {
     void insert(@Param("externalInfo") PaymentExternalInfoInsertParam externalInfo);
+
+    int deleteByPosTrxAndAttemptSeq(
+            @Param("posTrx") String posTrx,
+            @Param("attemptSeq") int attemptSeq
+    );
 }

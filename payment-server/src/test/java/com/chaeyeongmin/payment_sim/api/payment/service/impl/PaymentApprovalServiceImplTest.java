@@ -28,6 +28,7 @@ import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveResponse;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanResult;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
+import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayRequestNotSentException;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -698,6 +699,53 @@ class PaymentApprovalServiceImplTest {
         verify(gateway).approve(vanRequest);
         verify(trServiceMock).finalizeUnknownTimeout(prepared);
         verify(trServiceMock, never()).finalizeApproval(eq(prepared), any(VanApproveResponse.class));
+    }
+
+    @Test
+    void VAN_request_not_sent이면_PROCESSING을_정리하고_예외를_전파한다() {
+        String trx = baseReq.getPosTrx();
+        PaymentApprovalTransactionService trServiceMock = mock(PaymentApprovalTransactionService.class);
+        PaymentApprovalService serviceUnderTest = new PaymentApprovalServiceImpl(
+                trServiceMock,
+                gateway,
+                assembler,
+                validator,
+                paymentEventLogRecorder
+        );
+        CardIdentity cardIdentity = CardIdentity.unknown("41111111", "1111");
+        PaymentApprovalPrepareResult prepared = PaymentApprovalPrepareResult.created(trx, 1, cardIdentity);
+        VanApproveRequest vanRequest = VanApproveRequest.builder()
+                .posTrx(trx)
+                .attemptSeq(1)
+                .amount(baseReq.getAmount())
+                .pan(baseReq.getCard().getPan())
+                .expiryYyMm(baseReq.getCard().getExpiryYyMm())
+                .cardBin(cardIdentity.cardBin())
+                .cardLast4(cardIdentity.cardLast4())
+                .build();
+        VanGatewayRequestNotSentException requestNotSent =
+                new VanGatewayRequestNotSentException(new RuntimeException("connect failed"));
+
+        when(trServiceMock.prepare(baseReq)).thenReturn(prepared);
+        when(assembler.assemble(
+                prepared.posTrx(),
+                prepared.attemptSeq(),
+                baseReq.getAmount(),
+                baseReq.getCard().getPan(),
+                baseReq.getCard().getExpiryYyMm(),
+                prepared.cardIdentity().cardBin(),
+                prepared.cardIdentity().cardLast4()
+        )).thenReturn(vanRequest);
+        when(gateway.approve(vanRequest)).thenThrow(requestNotSent);
+
+        assertSame(
+                requestNotSent,
+                assertThrows(VanGatewayRequestNotSentException.class, () -> serviceUnderTest.approve(baseReq))
+        );
+
+        verify(trServiceMock).cleanupRequestNotSent(prepared);
+        verify(trServiceMock, never()).finalizeUnknownTimeout(any());
+        verify(trServiceMock, never()).finalizeApproval(any(), any());
     }
 
     // 테스트용 객체 생성 메소드

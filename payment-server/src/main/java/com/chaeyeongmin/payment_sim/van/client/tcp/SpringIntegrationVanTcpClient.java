@@ -1,12 +1,18 @@
 package com.chaeyeongmin.payment_sim.van.client.tcp;
 
 import com.chaeyeongmin.payment_sim.van.client.tcp.exception.VanTcpClientException;
+import com.chaeyeongmin.payment_sim.van.client.tcp.exception.VanTcpRequestNotSentException;
 import com.chaeyeongmin.payment_sim.van.client.tcp.exception.VanTcpResponseTimeoutException;
 import org.springframework.integration.MessageTimeoutException;
 import org.springframework.integration.support.MessageBuilder;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
+import org.springframework.messaging.MessageHandlingException;
 import org.springframework.messaging.core.GenericMessagingTemplate;
+
+import java.io.UncheckedIOException;
+import java.net.ConnectException;
+import java.net.SocketTimeoutException;
 
 /**
  * Spring Integration TCP outbound gateway를 호출하는 transport 구현체다.
@@ -57,8 +63,79 @@ public class SpringIntegrationVanTcpClient implements VanTcpClient {
 
         } catch (MessageTimeoutException e) {
             throw new VanTcpResponseTimeoutException(e);
+        } catch (MessageHandlingException e) {
+            if (isTcpConnectBeforeSendFailure(e)) {
+                throw new VanTcpRequestNotSentException(e);
+            }
+            if (isTcpResponseReadTimeout(e)) {
+                throw new VanTcpResponseTimeoutException(e);
+            }
+            throw e;
         }
 
+    }
+
+    /**
+     * 실제 재현된 Spring Integration connection 생성 실패만 request-not-sent로 분류한다.
+     *
+     * <p>root cause가 ConnectException이라는 사실만으로는 부족하다. outbound gateway가
+     * TcpNetClientConnectionFactory에서 새 socket을 만들다가 실패한 정확한 cause 구조와
+     * stack frame을 모두 확인해 write/reset/EOF 등 전달 여부가 불확실한 실패를 제외한다.
+     */
+    private boolean isTcpConnectBeforeSendFailure(MessageHandlingException exception) {
+        if (!(exception.getCause() instanceof UncheckedIOException uncheckedIOException)) {
+            return false;
+        }
+        if (!(uncheckedIOException.getCause() instanceof ConnectException connectException)) {
+            return false;
+        }
+
+        return hasFrame(
+                uncheckedIOException,
+                "org.springframework.integration.ip.tcp.connection.TcpNetClientConnectionFactory",
+                "buildNewConnection"
+        ) && hasFrame(
+                connectException,
+                "java.net.Socket",
+                "connect"
+        ) && hasFrame(
+                connectException,
+                "org.springframework.integration.ip.tcp.connection.TcpNetClientConnectionFactory",
+                "createSocket"
+        );
+    }
+
+    /**
+     * Spring Integration이 socket read timeout을 MessageHandlingException으로 감싼 실제 경로다.
+     * connect timeout이나 임의의 SocketTimeoutException과 섞지 않도록 TCP response deserialize
+     * stack을 함께 확인하고 기존 response-timeout 정책으로 보낸다.
+     */
+    private boolean isTcpResponseReadTimeout(MessageHandlingException exception) {
+        Throwable current = exception;
+        while (current != null && current.getCause() != current) {
+            if (current instanceof SocketTimeoutException) {
+                return hasFrame(
+                        current,
+                        "org.springframework.integration.ip.tcp.serializer.ByteArrayLengthHeaderSerializer",
+                        "deserialize"
+                ) && hasFrame(
+                        current,
+                        "org.springframework.integration.ip.tcp.connection.TcpNetConnection",
+                        "receiveAndProcessMessage"
+                );
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private boolean hasFrame(Throwable throwable, String className, String methodName) {
+        for (StackTraceElement frame : throwable.getStackTrace()) {
+            if (frame.getClassName().equals(className) && frame.getMethodName().equals(methodName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
 }

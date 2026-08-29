@@ -11,4 +11,6 @@ import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentExternalInfoInse
  */
 public interface PaymentExternalInfoRepository {
     void insert(PaymentExternalInfoInsertParam externalInfo);
+
+    int deleteByPosTrxAndAttemptSeq(String posTrx, int attemptSeq);
 }

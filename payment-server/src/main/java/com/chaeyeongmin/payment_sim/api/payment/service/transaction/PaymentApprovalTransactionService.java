@@ -596,6 +596,36 @@ public class PaymentApprovalTransactionService {
         );
     }
 
+    /**
+     * connect-before-send가 검증된 경우 TX1에서 만든 PROCESSING 데이터를 재시도 가능하게 정리한다.
+     *
+     * <p>정확한 posTrx + attemptSeq row가 여전히 PROCESSING일 때만 잠금에 성공한다.
+     * 잠금 이후 PAYMENT_EXTERNAL_INFO를 먼저 삭제하고 FK parent인 PAYMENT_ATTEMPT를 삭제한다.
+     * 둘 중 하나라도 예상한 1건이 아니면 전체 cleanup TX를 rollback한다. 발급 이력인
+     * PAYMENT_ATTEMPT_SEQ.LAST_SEQ는 되돌리지 않는다.
+     */
+    @Transactional
+    public void cleanupRequestNotSent(PaymentApprovalPrepareResult prepared) {
+        String trx = prepared.posTrx();
+        int attemptSeq = prepared.attemptSeq();
+
+        if (repository.lockProcessingAttemptForCleanup(trx, attemptSeq).isEmpty()) {
+            log.info("[approve][REQUEST_NOT_SENT][SKIP] attempt is absent or no longer processing. "
+                    + "posTrx={}, attemptSeq={}", trx, attemptSeq);
+            return;
+        }
+
+        int externalInfoDeleted = infoRepository.deleteByPosTrxAndAttemptSeq(trx, attemptSeq);
+        int attemptDeleted = repository.deleteProcessingAttempt(trx, attemptSeq);
+
+        if (externalInfoDeleted != 1 || attemptDeleted != 1) {
+            throw new IllegalStateException("REQUEST_NOT_SENT_CLEANUP_INCONSISTENT");
+        }
+
+        log.info("[approve][REQUEST_NOT_SENT] processing attempt cleaned. posTrx={}, attemptSeq={}",
+                trx, attemptSeq);
+    }
+
     private CardIdentity getCardIdentity(String cardBin, String cardLast4) {
         return binCatalogService.identify(cardBin, cardLast4);
     }

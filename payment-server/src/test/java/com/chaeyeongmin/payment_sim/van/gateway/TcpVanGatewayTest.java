@@ -9,6 +9,7 @@ import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanResult;
 import com.chaeyeongmin.payment_sim.van.client.tcp.VanTcpClient;
 import com.chaeyeongmin.payment_sim.van.client.tcp.exception.VanTcpResponseTimeoutException;
+import com.chaeyeongmin.payment_sim.van.client.tcp.exception.VanTcpRequestNotSentException;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.approval.VanApprovalStatus;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.approval.VanApprovalTcpRequest;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.approval.VanApprovalTcpResponse;
@@ -17,6 +18,7 @@ import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTc
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTcpResponse;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.TcpVanGatewayException;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutException;
+import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayRequestNotSentException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
@@ -144,6 +146,26 @@ class TcpVanGatewayTest {
         assertThatThrownBy(() -> tcpVanGateway.approve(request))
                 .isInstanceOf(VanGatewayTimeoutException.class)
                 .hasCauseInstanceOf(VanTcpResponseTimeoutException.class);
+    }
+
+    @Test
+    void TCP_request_not_sent이면_gateway_request_not_sent로_변환한다() {
+        VanApproveRequest request = VanApproveRequest.builder()
+                .posTrx("2301-20260808-9999-0003")
+                .attemptSeq(1)
+                .amount(10_000)
+                .pan("1234567812345678")
+                .expiryYyMm("2812")
+                .cardBin("12345678")
+                .cardLast4("5678")
+                .build();
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenThrow(new VanTcpRequestNotSentException(new RuntimeException("connect failed")));
+
+        assertThatThrownBy(() -> tcpVanGateway.approve(request))
+                .isInstanceOf(VanGatewayRequestNotSentException.class)
+                .hasCauseInstanceOf(VanTcpRequestNotSentException.class);
     }
 
     @Test

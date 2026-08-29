@@ -32,4 +32,10 @@
                 #{externalInfo.createdAt},
                 CURRENT_TIMESTAMP);
     </insert>
+
+    <delete id="deleteByPosTrxAndAttemptSeq">
+        DELETE FROM PAYMENT_EXTERNAL_INFO
+        WHERE POS_TRX = #{posTrx}
+          AND ATTEMPT_SEQ = #{attemptSeq}
+    </delete>
 </mapper>

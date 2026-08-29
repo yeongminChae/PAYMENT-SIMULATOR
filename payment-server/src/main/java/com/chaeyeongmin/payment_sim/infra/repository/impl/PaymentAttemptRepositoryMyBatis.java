@@ -53,5 +53,14 @@ public class PaymentAttemptRepositoryMyBatis implements PaymentAttemptRepository
         return mapper.updateAttemptResult(attempt);
     }
 
+    @Override
+    public Optional<Integer> lockProcessingAttemptForCleanup(String posTrx, int attemptSeq) {
+        return mapper.lockProcessingAttemptForCleanup(posTrx, attemptSeq);
+    }
+
+    @Override
+    public int deleteProcessingAttempt(String posTrx, int attemptSeq) {
+        return mapper.deleteProcessingAttempt(posTrx, attemptSeq);
+    }
 
 }

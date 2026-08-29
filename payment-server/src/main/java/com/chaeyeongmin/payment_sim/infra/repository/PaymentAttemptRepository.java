@@ -81,4 +81,14 @@ public interface PaymentAttemptRepository {
      */
     Optional<PaymentAttemptUpdatedRow> updateAttemptResult(AttemptResultUpdateParam param);
 
+    /**
+     * request-not-sent 정리 전에 대상 attempt가 여전히 PROCESSING인지 확인하면서 row lock을 잡는다.
+     */
+    Optional<Integer> lockProcessingAttemptForCleanup(String posTrx, int attemptSeq);
+
+    /**
+     * 정확한 키의 PROCESSING attempt만 삭제한다. sequence row는 변경하지 않는다.
+     */
+    int deleteProcessingAttempt(String posTrx, int attemptSeq);
+
 }

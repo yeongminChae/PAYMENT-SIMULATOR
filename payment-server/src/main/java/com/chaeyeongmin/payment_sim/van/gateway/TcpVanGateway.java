@@ -5,6 +5,7 @@ import com.chaeyeongmin.payment_sim.van.client.dto.*;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanResult;
 import com.chaeyeongmin.payment_sim.van.client.tcp.VanTcpClient;
+import com.chaeyeongmin.payment_sim.van.client.tcp.exception.VanTcpRequestNotSentException;
 import com.chaeyeongmin.payment_sim.van.client.tcp.exception.VanTcpResponseTimeoutException;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.approval.VanApprovalStatus;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.approval.VanApprovalTcpRequest;
@@ -13,6 +14,7 @@ import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquirySt
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTcpRequest;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTcpResponse;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.TcpVanGatewayException;
+import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayRequestNotSentException;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -67,6 +69,8 @@ public class TcpVanGateway implements VanGateway {
             validateResponse(tcpRequest, tcpResponse);
             return toApproveResponse(request, tcpResponse);
 
+        } catch (VanTcpRequestNotSentException e) {
+            throw new VanGatewayRequestNotSentException(e);
         } catch (VanTcpResponseTimeoutException e) {
             throw new VanGatewayTimeoutException(e);
         }
@@ -96,6 +100,8 @@ public class TcpVanGateway implements VanGateway {
             validateInquiryResponse(tcpRequest, tcpResponse);
             return toInquiryResponse(tcpResponse);
 
+        } catch (VanTcpRequestNotSentException e) {
+            throw new VanGatewayRequestNotSentException(e);
         } catch (VanTcpResponseTimeoutException e) {
             // transport 계층의 read timeout 예외를 업무 gateway boundary 예외로 감싼다.
             // PaymentInquiryServiceImpl은 별도 timeout 복구 정책을 만들지 않았으므로 상위 예외 처리로 전파된다.

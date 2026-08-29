@@ -27,18 +27,20 @@ import java.util.Optional;
 class PaymentApprovalTransactionServiceTest {
 
     private PaymentAttemptRepository repository;
+    private PaymentExternalInfoRepository infoRepository;
     private PaymentApprovalTransactionService transactionService;
     private PaymentEventLogRecorder paymentEventLogRecorder;
 
     @BeforeEach
     void setUp() {
         repository = mock(PaymentAttemptRepository.class);
+        infoRepository = mock(PaymentExternalInfoRepository.class);
         paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
 
         transactionService = new PaymentApprovalTransactionService(
                 mock(BinCatalogService.class),
                 repository,
-                mock(PaymentExternalInfoRepository.class),
+                infoRepository,
                 mock(CardFingerprintPolicy.class),
                 paymentEventLogRecorder
         );
@@ -94,6 +96,43 @@ class PaymentApprovalTransactionServiceTest {
         verify(paymentEventLogRecorder).record(eventCaptor.capture());
         PaymentEventLogInsertParam event = eventCaptor.getValue();
         assertThat(event.eventType()).isEqualTo(PaymentEventType.APPROVE_UNKNOWN_TIMEOUT);
+    }
+
+    @Test
+    void request_not_sent이면_잠근_PROCESSING_attempt와_external_info를_함께_정리한다() {
+        PaymentApprovalPrepareResult prepared = PaymentApprovalPrepareResult.created(
+                "2376-20260828-9991-0001",
+                2,
+                CardIdentity.unknown("41111111", "1111")
+        );
+        when(repository.lockProcessingAttemptForCleanup(prepared.posTrx(), prepared.attemptSeq()))
+                .thenReturn(Optional.of(prepared.attemptSeq()));
+        when(infoRepository.deleteByPosTrxAndAttemptSeq(prepared.posTrx(), prepared.attemptSeq()))
+                .thenReturn(1);
+        when(repository.deleteProcessingAttempt(prepared.posTrx(), prepared.attemptSeq()))
+                .thenReturn(1);
+
+        transactionService.cleanupRequestNotSent(prepared);
+
+        verify(infoRepository).deleteByPosTrxAndAttemptSeq(prepared.posTrx(), prepared.attemptSeq());
+        verify(repository).deleteProcessingAttempt(prepared.posTrx(), prepared.attemptSeq());
+        verify(repository, never()).insertAttemptSeq(anyString());
+    }
+
+    @Test
+    void request_not_sent정리_시점에_더는_PROCESSING이_아니면_삭제하지_않는다() {
+        PaymentApprovalPrepareResult prepared = PaymentApprovalPrepareResult.created(
+                "2376-20260828-9991-0002",
+                1,
+                CardIdentity.unknown("41111111", "1111")
+        );
+        when(repository.lockProcessingAttemptForCleanup(prepared.posTrx(), prepared.attemptSeq()))
+                .thenReturn(Optional.empty());
+
+        transactionService.cleanupRequestNotSent(prepared);
+
+        verifyNoInteractions(infoRepository);
+        verify(repository, never()).deleteProcessingAttempt(anyString(), anyInt());
     }
 
     private PaymentAttemptUpdatedRow updatedRowUnknownTimeout(

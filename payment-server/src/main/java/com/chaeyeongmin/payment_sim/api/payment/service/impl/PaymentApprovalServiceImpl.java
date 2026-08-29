@@ -16,6 +16,7 @@ import com.chaeyeongmin.payment_sim.van.client.assembler.VanApproveAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveResponse;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
+import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayRequestNotSentException;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -103,6 +104,11 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
             // - 동시성 제어는 TX1에서 만든 PROCESSING attempt와 이후 TX2 조건부 update가 담당한다.
             vanResponse = vanGateway.approve(vanRequest);
 
+        } catch (VanGatewayRequestNotSentException e) {
+            // Socket.connect 단계에서 실패해 request bytes가 전송되지 않은 경우에만
+            // 방금 만든 PROCESSING attempt를 별도 TX에서 정리해 동일 payload 재시도를 허용한다.
+            transactionService.cleanupRequestNotSent(prepared);
+            throw e;
         } catch (VanGatewayTimeoutException e) {
             // 요청은 VAN에 전달됐을 수 있지만 응답을 받지 못했다.
             // 승인/거절 여부를 추측하지 않고 별도 TX에서 UNKNOWN_TIMEOUT으로 확정한다.

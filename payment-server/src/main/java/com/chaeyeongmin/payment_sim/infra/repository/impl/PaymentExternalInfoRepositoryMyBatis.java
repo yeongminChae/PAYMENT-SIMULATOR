@@ -19,4 +19,9 @@ public class PaymentExternalInfoRepositoryMyBatis implements PaymentExternalInfo
     public void insert(PaymentExternalInfoInsertParam externalInfo) {
         mapper.insert(externalInfo);
     }
+
+    @Override
+    public int deleteByPosTrxAndAttemptSeq(String posTrx, int attemptSeq) {
+        return mapper.deleteByPosTrxAndAttemptSeq(posTrx, attemptSeq);
+    }
 }

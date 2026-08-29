@@ -95,4 +95,14 @@ public interface PaymentAttemptMapper {
             @Param("attempt") AttemptResultUpdateParam attempt
     );
 
+    Optional<Integer> lockProcessingAttemptForCleanup(
+            @Param("posTrx") String posTrx,
+            @Param("attemptSeq") int attemptSeq
+    );
+
+    int deleteProcessingAttempt(
+            @Param("posTrx") String posTrx,
+            @Param("attemptSeq") int attemptSeq
+    );
+
 }
