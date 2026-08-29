@@ -1,0 +1,16 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="VAN Simulator - Postgres" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+    <option name="ACTIVE_PROFILES" value="postgres" />
+    <module name="payment-sim.van-simulator.main" />
+    <option name="SPRING_BOOT_MAIN_CLASS" value="com.chaeyeongmin.van_sim.VanSimulatorApplication" />
+    <extension name="coverage">
+      <pattern>
+        <option name="PATTERN" value="com.chaeyeongmin.van_sim.*" />
+        <option name="ENABLED" value="true" />
+      </pattern>
+    </extension>
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

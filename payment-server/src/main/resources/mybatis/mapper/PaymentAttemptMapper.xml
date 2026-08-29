@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.chaeyeongmin.payment_sim.infra.mybatis.mapper.PaymentAttemptMapper">
+    <!--
+      [acquireApprovalSerializationLock]
+      - 동일 posTrx 승인 요청을 VAN 호출 전에 직렬화하기 위한 기준 row를 확보한다.
+      - 최초 진입자는 LAST_SEQ=0 row를 만든다. 이 값은 실제 attemptSeq가 아니며,
+        아래 insertAttemptSeq가 호출될 때만 LAST_SEQ가 1 이상으로 증가한다.
+      - 기존 row가 있으면 LAST_SEQ를 그대로 다시 대입하는 no-op UPDATE를 수행한다.
+        PostgreSQL에서는 이 UPDATE가 해당 row lock을 잡고, 같은 posTrx 후속 요청은
+        현재 트랜잭션이 끝날 때까지 대기한 뒤 최신 PAYMENT_ATTEMPT를 다시 보게 된다.
+    -->
+    <select id="acquireApprovalSerializationLock" resultType="int">
+        INSERT INTO PAYMENT_ATTEMPT_SEQ(POS_TRX,
+                                        LAST_SEQ,
+                                        UPDATED_AT)
+        VALUES (#{posTrx},
+                0,
+                CURRENT_TIMESTAMP) ON CONFLICT (POS_TRX)
+            DO
+        UPDATE SET LAST_SEQ = PAYMENT_ATTEMPT_SEQ.LAST_SEQ
+            RETURNING LAST_SEQ;
+    </select>
+
+    <!--
+      [acquireExistingPosTrxLock]
+      - 이미 승인 흐름에서 만들어진 PAYMENT_ATTEMPT_SEQ row를 기준으로 row lock을 잡는다.
+      - 취소 동시성에서는 originalPosTrx를 key로 사용해야 같은 원승인 취소 요청들이 직렬화된다.
+      - row가 없으면 새로 만들지 않고 0 rows/Optional.empty로 반환한다.
+        이는 정상 승인 API 외부에서 데이터가 만들어진 정합성 오류 신호로 본다.
+    -->
+    <select id="acquireExistingPosTrxLock" resultType="int">
+        UPDATE PAYMENT_ATTEMPT_SEQ
+        SET LAST_SEQ = PAYMENT_ATTEMPT_SEQ.LAST_SEQ
+        WHERE 1 = 1
+        and POS_TRX = #{originalPosTrx}
+        RETURNING LAST_SEQ;
+    </select>
+
+    <!--
+      [insertAttemptSeq]
+      - PAYMENT_ATTEMPT_SEQ 에서 posTrx 기준 attempt_seq를 원자 발급한다.
+      - 최초: (POS_TRX, LAST_SEQ=1)
+      - 이후: LAST_SEQ = LAST_SEQ + 1
+      - 반환: 발급된 LAST_SEQ
+    -->
+    <select id="insertAttemptSeq" resultType="int">
+        INSERT INTO PAYMENT_ATTEMPT_SEQ(POS_TRX,
+                                        LAST_SEQ,
+                                        UPDATED_AT)
+        VALUES (#{posTrx},
+                1,
+                CURRENT_TIMESTAMP) ON CONFLICT (POS_TRX)
+            DO
+        UPDATE SET LAST_SEQ = PAYMENT_ATTEMPT_SEQ.LAST_SEQ + 1,
+            UPDATED_AT = CURRENT_TIMESTAMP
+            RETURNING LAST_SEQ;
+    </select>
+
+    <!--
+      [insertAttempt]
+      - 승인 시도 정본(PAYMENT_ATTEMPT) 저장
+      - UNIQUE(POS_TRX, ATTEMPT_SEQ) 위반 시 예외로 "중복 시도"를 감지한다.
+    -->
+    <insert id="insertAttempt">
+        INSERT INTO PAYMENT_ATTEMPT (POS_TRX,
+                                     ATTEMPT_SEQ,
+                                     AMOUNT,
+                                     CARD_BIN,
+                                     CARD_LAST4,
+                                     CARD_BRAND,
+                                     CARD_FINGERPRINT,
+                                     CREATED_AT,
+                                     UPDATED_AT)
+        VALUES (#{attempt.posTrx},
+                #{attempt.attemptSeq},
+                #{attempt.amount},
+                #{attempt.cardBin},
+                #{attempt.cardLast4},
+                #{attempt.cardBrand},
+                #{attempt.cardFingerprint},
+                #{attempt.createdAt},
+                CURRENT_TIMESTAMP);
+    </insert>
+
+    <!--
+        [findLatestByPosTrx]
+        - 특정 posTrx(거래번호/포스TR)에 대한 "현재 저장된 최신 처리 상태"를 조회한다.
+        → 동일 posTrx로 attempt가 여러 건 쌓일 수 있으니
+        "최신 1건"이 보장되지 않으므로 반드시 정렬 + 1건 제한을 추가해야 한다.
+    -->
+    <select id="findLatestByPosTrx" resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt">
+        SELECT
+                A.FINAL_STATUS AS finalStatus,
+                A.APPROVAL_NO AS approvalNo,
+                A.DECLINE_CODE AS declineCode,
+                A.CARD_BIN AS cardBin,
+                A.CARD_LAST4 AS cardLast4,
+                <!-- 승인 멱등 재응답에서도 저장된 브랜드로 카드 요약을 재구성한다. -->
+                A.CARD_BRAND AS cardBrand,
+                A.CARD_FINGERPRINT as cardFingerprint,
+                A.ATTEMPT_SEQ AS attemptSeq,
+                A.AMOUNT AS amount,
+                A.VAN_TRX_ID AS vanTrxId
+        from PAYMENT_ATTEMPT A
+        WHERE 1 = 1
+          AND A.POS_TRX = #{posTrx}
+        ORDER BY A.ATTEMPT_SEQ DESC LIMIT 1;
+    </select>
+
+    <!--
+    [findByPosTrxAndAttemptSeq]
+        - posTrx와 attemptSeq를 기준으로 특정 결제 시도(PAYMENT_ATTEMPT) 1건을 조회한다.
+        - 승인, 조회, 취소 흐름에서 동일한 결제 시도 정보를 재사용하기 위한 공통 조회 쿼리다.
+        - 조회 결과가 없으면 호출한 Service에서 NOT_FOUND 또는 해당 업무 규칙에 맞게 처리한다.
+        - POS_TRX + ATTEMPT_SEQ 조합은 결제 시도를 식별하는 키이므로 최대 1건만 반환한다.
+    -->
+    <select id="findByPosTrxAndAttemptSeq"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt">
+        SELECT
+            A.FINAL_STATUS AS finalStatus,
+            A.APPROVAL_NO AS approvalNo,
+            A.DECLINE_CODE AS declineCode,
+            A.CARD_BIN AS cardBin,
+            A.CARD_LAST4 AS cardLast4,
+            <!-- A7 update miss 후 재조회 응답도 승인 당시 저장된 브랜드를 따른다. -->
+            A.CARD_BRAND AS cardBrand,
+            A.CARD_FINGERPRINT AS cardFingerprint,
+            A.ATTEMPT_SEQ AS attemptSeq,
+            A.AMOUNT AS amount,
+            A.VAN_TRX_ID AS vanTrxId
+        FROM PAYMENT_ATTEMPT A
+        WHERE 1 = 1
+            AND A.POS_TRX = #{posTrx}
+            AND A.ATTEMPT_SEQ = #{attemptSeq}
+        LIMIT 1
+    </select>
+
+    <!--
+        [updateAttemptResultReturning]
+        (A7: 최종 결과 확정 저장)
+        - 목적: 처리중(FINAL_STATUS IS NULL) 상태로 저장된 PAYMENT_ATTEMPT row를 "최종 결과"로 1회 확정한다.
+        - 멱등성: FINAL_STATUS IS NULL 조건으로 이미 확정된 row는 덮어쓰지 않는다.
+        - 동시성: 중복요청/재시도/경합 상황에서도 "첫 확정 저장 1회만 성공"하며,
+            나머지는 0 rows(=RETURNING 결과 없음)로 떨어진다.
+
+        반환:
+        - Optional<PaymentAttemptUpdatedRow>:
+        - 값 있음  : 이번 호출이 최종 결과 확정 저장에 성공했고, 확정된 row(최종값)를 반환
+        - 값 없음  : (1) 이미 확정됨 (2) 대상 row 없음 (3) attemptSeq mismatch 등
+            → 이 경우 Service는 A9/A10을 위해 DB 재조회(findLatestByPosTrx)로 분기한다.
+
+        보안:
+        - PAN/expiry 등 민감정보는 절대 저장/반환하지 않는다.
+        -->
+    <select id="updateAttemptResult"
+            resultType="com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentAttemptUpdatedRow">
+        UPDATE PAYMENT_ATTEMPT
+        SET
+        FINAL_STATUS = #{attempt.finalStatus},
+        APPROVAL_NO = #{attempt.approvalNo}, <!-- 승인 성공일 때만 의미 있음(그 외 null 허용) -->
+        DECLINE_CODE = #{attempt.declineCode}, <!-- 거절/타임아웃일 때만 의미 있음(승인 성공이면 null 허용) -->
+        VAN_TRX_ID = #{attempt.vanTrxId}, <!-- VAN 추적키(있으면 저장). 정책 없으면 null 허용 -->
+        UPDATED_AT = CURRENT_TIMESTAMP
+        WHERE POS_TRX = #{attempt.posTrx}
+        AND ATTEMPT_SEQ = #{attempt.attemptSeq}
+        AND FINAL_STATUS IS NULL
+        RETURNING
+        POS_TRX AS posTrx,
+        ATTEMPT_SEQ AS attemptSeq,
+        FINAL_STATUS AS finalStatus,
+        APPROVAL_NO AS approvalNo,
+        DECLINE_CODE AS declineCode,
+        CARD_BIN as cardBin,
+        CARD_LAST4 as cardLast4,
+        <!-- A8 확정 직후 응답 카드 요약을 DB 저장값 기준으로 만들기 위한 RETURNING 컬럼. -->
+        CARD_BRAND AS cardBrand,
+        VAN_TRX_ID AS vanTrxId;
+    </select>
+
+    <!--
+      request-not-sent 정리는 정확한 attempt가 아직 PROCESSING일 때만 수행한다.
+      no-op UPDATE는 PostgreSQL/SQLite 모두에서 cleanup TX의 쓰기 경합 기준이 되며,
+      이후 연관 row와 attempt 삭제가 끝날 때까지 동시 finalization을 막는다.
+    -->
+    <select id="lockProcessingAttemptForCleanup" resultType="int">
+        UPDATE PAYMENT_ATTEMPT
+        SET UPDATED_AT = UPDATED_AT
+        WHERE POS_TRX = #{posTrx}
+          AND ATTEMPT_SEQ = #{attemptSeq}
+          AND FINAL_STATUS IS NULL
+        RETURNING ATTEMPT_SEQ
+    </select>
+
+    <delete id="deleteProcessingAttempt">
+        DELETE FROM PAYMENT_ATTEMPT
+        WHERE POS_TRX = #{posTrx}
+          AND ATTEMPT_SEQ = #{attemptSeq}
+          AND FINAL_STATUS IS NULL
+    </delete>
+
+</mapper>

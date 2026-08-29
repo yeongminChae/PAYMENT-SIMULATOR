@@ -1,0 +1,38 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: payment-sim
+
+  datasource:
+    url: jdbc:sqlite:./data/payment-sim.db
+    driver-class-name: org.sqlite.JDBC
+
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:db/schema.sql
+      data-locations: classpath:db/data.sql
+      # SQLite는 ALTER TABLE ADD COLUMN IF NOT EXISTS를 지원하지 않는다.
+      # schema.sql을 기존 DB에도 재실행하므로, 이미 추가된 컬럼의 duplicate 오류는 통과시킨다.
+      continue-on-error: true
+
+payment:
+  card:
+    # fingerprint 재현성을 위해 실행 환경마다 고정된 비밀키를 주입하며, 저장소에는 실제 키를 남기지 않는다.
+    secret-key: ${CARD_SECRET_KEY}
+  van:
+    mode: ${PAYMENT_VAN_MODE:simulated}
+    tcp:
+      host: ${PAYMENT_VAN_TCP_HOST:localhost}
+      port: ${PAYMENT_VAN_TCP_PORT:9090}
+      connect-timeout-ms: ${PAYMENT_VAN_TCP_CONNECT_TIMEOUT_MS:3000}
+      read-timeout-ms: ${PAYMENT_VAN_TCP_READ_TIMEOUT_MS:5000}
+
+mybatis:
+  mapper-locations: classpath:mybatis/mapper/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+    # MyBatis 로그를 SLF4J로 전달해 Logback 정책으로 기록한다.
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl

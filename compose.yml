@@ -1,0 +1,38 @@
+services:
+  payment-postgres:
+    image: postgres:17
+    container_name: payment-postgres
+    environment:
+      POSTGRES_DB: payment_sim
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - payment-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d payment_sim"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  van-postgres:
+    image: postgres:17
+    container_name: van-postgres
+    environment:
+      POSTGRES_DB: van_sim
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - van-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d van_sim"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  payment-postgres-data:
+  van-postgres-data:
