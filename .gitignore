@@ -1,4 +1,7 @@
 # ---- Payment-Sim (dev local artifacts) ----
+# Local backups
+backup/
+
 # SQLite DB (local)
 data/
 *.db
@@ -37,7 +40,7 @@ hs_err_pid*
 replay_pid*
 
 # Gradle build output
-/build/
+**/build/
 
 # IntelliJ
 .idea/

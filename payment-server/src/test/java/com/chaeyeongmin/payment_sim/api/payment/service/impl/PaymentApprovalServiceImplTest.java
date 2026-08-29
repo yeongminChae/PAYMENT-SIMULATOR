@@ -1,0 +1,928 @@
+package com.chaeyeongmin.payment_sim.api.payment.service.impl;
+
+import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
+import com.chaeyeongmin.payment_sim.api.payment.dto.request.ApproveRequest;
+import com.chaeyeongmin.payment_sim.api.payment.dto.response.ApproveResponse;
+import com.chaeyeongmin.payment_sim.api.payment.event.PaymentEventLogRecorder;
+import com.chaeyeongmin.payment_sim.api.payment.service.BinCatalogService;
+import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
+import com.chaeyeongmin.payment_sim.api.payment.service.support.CardSummaryFactory;
+import com.chaeyeongmin.payment_sim.api.payment.service.transaction.PaymentApprovalTransactionService;
+import com.chaeyeongmin.payment_sim.api.payment.service.transaction.model.PaymentApprovalPrepareResult;
+import com.chaeyeongmin.payment_sim.api.payment.validate.ApproveRequestValidator;
+import com.chaeyeongmin.payment_sim.common.api.ResultCode;
+import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
+import com.chaeyeongmin.payment_sim.domain.model.CardIdentity;
+import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
+import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
+import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
+import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
+import com.chaeyeongmin.payment_sim.infra.repository.PaymentExternalInfoRepository;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptInsertParam;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdateParam;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentAttemptUpdatedRow;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentExternalInfoInsertParam;
+import com.chaeyeongmin.payment_sim.van.client.assembler.VanApproveAssembler;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveRequest;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveResponse;
+import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
+import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanResult;
+import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
+import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayRequestNotSentException;
+import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutException;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+
+import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+class PaymentApprovalServiceImplTest {
+
+    // ===== UT IDs (최소 핵심 8개) =====
+    private static final String UT_A2_001 = "UT-PAYMENT-APPROVE-001"; // A2 invalid
+    private static final String UT_A4_001 = "UT-PAYMENT-APPROVE-002"; // A4 APPROVED -> A9
+    private static final String UT_A4_002 = "UT-PAYMENT-APPROVE-003"; // A4 PROCESSING -> A10
+    private static final String UT_A4_003 = "UT-PAYMENT-APPROVE-004"; // A4 DECLINED -> 새 attempt 허용
+    private static final String UT_A8_001 = "UT-PAYMENT-APPROVE-005"; // 신규 -> APPROVED -> A8
+    private static final String UT_A8_002 = "UT-PAYMENT-APPROVE-006"; // 신규 -> DECLINED -> A8
+    private static final String UT_A7_001 = "UT-PAYMENT-APPROVE-007"; // A7 empty + reread APPROVED -> A9
+    private static final String UT_A7_002 = "UT-PAYMENT-APPROVE-008"; // A7 empty + reread processing -> A10
+
+    // (repo, vanGateway, validator, assembler 주입)
+    private PaymentApprovalService service;
+    private PaymentAttemptRepository repository;
+    private VanGateway gateway;
+    private ApproveRequestValidator validator;
+    private VanApproveAssembler assembler;
+    private PaymentEventLogRecorder paymentEventLogRecorder;
+    private BinCatalogService binCatalogService;
+    private PaymentExternalInfoRepository paymentExternalInfoRepository;
+    private CardFingerprintPolicy cardFingerprintPolicy;
+    private PaymentApprovalTransactionService transactionService;
+
+    // 기본 정상 요청 (필드 세팅은 각 테스트에서 수정해서 사용)
+    private ApproveRequest baseReq;
+
+    @BeforeEach
+    void setUp() {
+        repository = mock(PaymentAttemptRepository.class);
+        gateway = mock(VanGateway.class);
+        validator = mock(ApproveRequestValidator.class);
+        assembler = mock(VanApproveAssembler.class);
+        paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
+        binCatalogService = mock(BinCatalogService.class);
+        paymentExternalInfoRepository = mock(PaymentExternalInfoRepository.class);
+        cardFingerprintPolicy = mock(CardFingerprintPolicy.class);
+        transactionService = new PaymentApprovalTransactionService(
+                binCatalogService,
+                repository,
+                paymentExternalInfoRepository,
+                cardFingerprintPolicy,
+                paymentEventLogRecorder
+        );
+
+        service = new PaymentApprovalServiceImpl(
+                transactionService,
+                gateway,
+                assembler,
+                validator,
+                paymentEventLogRecorder
+        );
+
+        when(binCatalogService.identify(anyString(), anyString())).thenAnswer(invocation ->
+                CardIdentity.unknown(invocation.getArgument(0), invocation.getArgument(1))
+        );
+        when(cardFingerprintPolicy.generate(anyString())).thenAnswer(invocation ->
+                "fp:" + invocation.getArgument(0)
+        );
+        when(cardFingerprintPolicy.matchesFingerprint(anyString(), anyString())).thenAnswer(invocation ->
+                invocation.getArgument(0).equals(invocation.getArgument(1))
+        );
+
+        baseReq = new ApproveRequest(
+                "2376-20260118-9991-0023",
+                10000,
+                new CardInput("4111111111111111", "2812") // 정상 Luhn 예시
+        );
+    }
+
+    /**
+     * [UT_ID] UT-PAYMENT-APPROVE-001
+     * <p>
+     * [시나리오]
+     * - Given: validator.validate()가 예외를 던짐(INVALID_*)
+     * - When : service.approve() 호출
+     * - Then : 예외가 그대로 전파됨
+     * - And  : A2에서 끊기므로 repo/van/assembler 호출이 없어야 함
+     * <p>
+     * [흐름도]
+     * A1 -> A2(FAIL) 종료
+     */
+    @Test
+    void approve_A2_invalid_shouldThrow_andNoCalls() {
+        // given: validator.validate(baseReq) 호출 시 무조건 INVALID_CARD 예외를 던지도록 설정
+        doThrow(new BusinessException(ResultCode.INVALID, "INVALID_CARD"))
+                .when(validator)
+                .validate(baseReq);
+
+        // when + then
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.approve(baseReq)
+        );
+
+        assertEquals(ResultCode.INVALID, exception.getResultCode());
+        assertEquals("INVALID_CARD", exception.getMessage());
+        verify(validator).validate(baseReq);
+        verifyNoInteractions(repository, gateway, assembler);
+    }
+
+    /**
+     * [UT_ID] UT-PAYMENT-APPROVE-002
+     * <p>
+     * [시나리오]
+     * - Given: repo.findLatestByPosTrx(trx) = Optional.of(latest), latest.finalStatus=APPROVED
+     * - When : approve()
+     * - Then : DB 값으로 즉시 응답(A9)
+     * - And  : insertAttemptSeq/insertAttempt/vanGateway/updateAttemptResult 호출 0회
+     * <p>
+     * [흐름도]
+     * A1 -> A2 -> A4(APPROVED) -> A9(재응답)
+     */
+    @Test
+    void approve_A4_latestApproved_shouldReturn_A9() {
+        // given
+        // - validator.validate 통과
+        String trx = baseReq.getPosTrx();
+        int attemptSeq = 1;
+
+        // 서비스가 DB 매핑용 DTO를 직접 new로 만들면 안됨
+        // 테스트나 변환 계층(assembler/mapper)에서만 new로 객체 생성
+        PaymentAttempt latest = latestAttempt(
+                "APPROVED",
+                "A123456789",
+                null,
+                attemptSeq
+        );
+
+        when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.of(latest));
+
+        // when
+        ApproveResponse res = service.approve(baseReq);
+
+        // then
+        assertEquals(trx, res.posTrx());
+        assertEquals(attemptSeq, res.attemptSeq());
+        assertEquals(PaymentFinalStatus.APPROVED, res.finalStatus());
+
+        verify(repository, times(1)).findLatestByPosTrx(trx);
+        verify(repository, never()).insertAttempt(any(AttemptInsertParam.class));
+        verifyNoInteractions(gateway);
+        verifyAssembleNever(trx, attemptSeq, baseReq);
+        verify(repository, never()).updateAttemptResult(any(AttemptResultUpdateParam.class));
+
+    }
+
+    /**
+     * [UT_ID] UT-PAYMENT-APPROVE-003
+     * <p>
+     * [시나리오]
+     * - Given: latest.finalStatus=PROCESSING(또는 null이 PROCESSING으로 매핑되는 케이스)
+     * - When : approve()
+     * - Then : retryLater(A10)
+     * - And  : 신규흐름(A3~A7) 호출 0회
+     * <p>
+     * [흐름도]
+     * A1 -> A2 -> A4(PROCESSING) -> A10(retryLater)
+     */
+    @Test
+    void approve_A4_latestProcessing_shouldReturn_A10_retryLater() {
+        // given
+        String trx = baseReq.getPosTrx();
+        int attemptSeq = 1;
+
+        PaymentAttempt latest = latestAttempt(
+                "PROCESSING",
+                null,
+                null,
+                attemptSeq
+        );
+
+        when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.of(latest));
+
+        // when
+        ApproveResponse res = service.approve(baseReq);
+
+        // then
+        assertEquals(trx, res.posTrx());
+        assertEquals(attemptSeq, res.attemptSeq());
+        assertEquals(PaymentFinalStatus.PROCESSING, res.finalStatus());
+
+        verify(repository, times(1)).findLatestByPosTrx(trx);
+        verify(repository, never()).insertAttempt(any(AttemptInsertParam.class));
+        verifyNoInteractions(gateway);
+        verifyAssembleNever(trx, attemptSeq, baseReq);
+        verify(repository, never()).updateAttemptResult(any(AttemptResultUpdateParam.class));
+
+    }
+
+    /**
+     * [UT_ID] UT-PAYMENT-APPROVE-004
+     * <p>
+     * [시나리오]
+     * - Given: latest.finalStatus=DECLINED
+     * - When : approve()
+     * - Then : "새 attempt 허용" 정책으로 A3~ 흐름 진행
+     * - And  : insertAttemptSeq/insertAttempt/assembler/vanGateway/updateAttemptResult가 호출됨
+     * <p>
+     * [흐름도]
+     * A1 -> A2 -> A4(DECLINED) -> A3 -> A5 -> A6 -> A7 -> A8
+     */
+    @Test
+    void approve_A4_latestDeclined_shouldAllowNewAttempt_andProceed() {
+        // given
+        String trx = baseReq.getPosTrx();
+        int attemptSeq = 1;
+        int newAttemptSeq = 2;
+
+        PaymentAttempt latest = latestAttempt(
+                "DECLINED",
+                null,
+                "05",
+                attemptSeq
+        );
+        VanApproveRequest vanReq = vanApproveReq(trx, newAttemptSeq, 10000);
+
+        when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.of(latest));
+        when(repository.insertAttemptSeq(trx)).thenReturn(newAttemptSeq);
+        stubAssemble(trx, newAttemptSeq, baseReq, vanReq);
+        when(gateway.approve(eq(vanReq))).thenReturn(vanApproveResApproved(trx, newAttemptSeq));
+        when(repository.updateAttemptResult(any())).thenReturn(Optional.of(updatedRowApproved(trx, newAttemptSeq)));
+
+        // when
+        ApproveResponse res = service.approve(baseReq);
+
+        // then
+        assertEquals(trx, res.posTrx());
+        assertEquals(newAttemptSeq, res.attemptSeq());
+        assertEquals(PaymentFinalStatus.APPROVED, res.finalStatus());
+
+        verify(repository).findLatestByPosTrx(trx);
+        verify(repository).insertAttemptSeq(trx);
+        verify(repository).insertAttempt(any(AttemptInsertParam.class));
+        verifyAssembleCalled(trx, newAttemptSeq, baseReq);
+        verify(gateway).approve(eq(vanReq));
+        verify(repository).updateAttemptResult(any(AttemptResultUpdateParam.class));
+
+    }
+
+    /**
+     * [UT_ID] UT-PAYMENT-APPROVE-005
+     * <p>
+     * [시나리오]
+     * - Given: 신규(trx에 기존 attempt 없음)
+     * - When : approve()
+     * - Then : VAN APPROVED -> A7 returning 성공 -> approved 응답(A8)
+     * <p>
+     * [흐름도]
+     * A1 -> A2 -> A4(신규) -> A3 -> A5 -> A6(APPROVED) -> A7(returning) -> A8
+     */
+    @Test
+    void approve_newRequest_vanApproved_updateReturning_success_shouldReturnApproved_A8() {
+        // given
+        String trx = baseReq.getPosTrx();
+        int attemptSeq = 1;
+
+        VanApproveRequest vanReq = vanApproveReq(trx, attemptSeq, 10000);
+
+        when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.empty());
+        when(repository.insertAttemptSeq(trx)).thenReturn(attemptSeq);
+        stubAssemble(trx, attemptSeq, baseReq, vanReq);
+        when(gateway.approve(eq(vanReq))).thenReturn(vanApproveResApproved(trx, attemptSeq));
+        when(repository.updateAttemptResult(any())).thenReturn(Optional.of(updatedRowApproved(trx, attemptSeq)));
+
+        // when
+        ApproveResponse res = service.approve(baseReq);
+
+        // then
+        assertEquals(trx, res.posTrx());
+        assertEquals(attemptSeq, res.attemptSeq());
+        assertEquals(PaymentFinalStatus.APPROVED, res.finalStatus());
+
+        verify(repository).findLatestByPosTrx(trx);
+        verify(repository).insertAttemptSeq(trx);
+        verify(repository).insertAttempt(any(AttemptInsertParam.class));
+        verifyAssembleCalled(trx, attemptSeq, baseReq);
+        verify(gateway).approve(eq(vanReq));
+        verify(repository).updateAttemptResult(any(AttemptResultUpdateParam.class));
+        verify(repository, never()).findByPosTrxAndAttemptSeq(trx, attemptSeq);
+    }
+
+    /**
+     * [UT_ID] UT-PAYMENT-APPROVE-006
+     * <p>
+     * [시나리오]
+     * - Given: 신규
+     * - When : VAN DECLINED -> A7 returning 성공
+     * - Then : declined 응답(A8)
+     * <p>
+     * [흐름도]
+     * A1 -> A2 -> A4(신규) -> A3 -> A5 -> A6(DECLINED) -> A7(returning) -> A8
+     */
+    @Test
+    void approve_newRequest_vanDeclined_updateReturning_success_shouldReturnDeclined_A8() {
+        // given
+        String trx = baseReq.getPosTrx();
+        int attemptSeq = 1;
+
+        VanApproveRequest vanReq = vanApproveReq(trx, attemptSeq, 10000);
+
+        when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.empty());
+        when(repository.insertAttemptSeq(trx)).thenReturn(attemptSeq);
+        stubAssemble(trx, attemptSeq, baseReq, vanReq);
+        when(gateway.approve(eq(vanReq))).thenReturn(vanApproveResDeclined(trx, attemptSeq));
+        when(repository.updateAttemptResult(any())).thenReturn(Optional.of(updatedRowDeclined(trx, attemptSeq)));
+
+        // when
+        ApproveResponse res = service.approve(baseReq);
+
+        // then
+        assertEquals(trx, res.posTrx());
+        assertEquals(attemptSeq, res.attemptSeq());
+        assertEquals(PaymentFinalStatus.DECLINED, res.finalStatus());
+
+        verify(repository).findLatestByPosTrx(trx);
+        verify(repository).insertAttemptSeq(trx);
+        verify(repository).insertAttempt(any(AttemptInsertParam.class));
+        verifyAssembleCalled(trx, attemptSeq, baseReq);
+        verify(gateway).approve(eq(vanReq));
+        verify(repository).updateAttemptResult(any(AttemptResultUpdateParam.class));
+        verify(repository, never()).findByPosTrxAndAttemptSeq(trx, attemptSeq);
+    }
+
+    /**
+     * [UT_ID] UT-PAYMENT-APPROVE-007
+     * <p>
+     * [시나리오]
+     * - Given: 신규 흐름으로 VAN까지 다녀옴
+     * - But  : updateAttemptResult = Optional.empty() (0 rows)
+     * - And  : 재조회(findByPosTrxAndAttemptSeq) 결과 finalStatus=APPROVED
+     * - Then : DB 값 기준으로 재응답(A9)
+     * <p>
+     * [흐름도]
+     * A1 -> A2 -> A4(신규) -> A3 -> A5 -> A6(APPROVED) -> A7(empty) -> A9(재응답)
+     */
+    @Test
+    void approve_A7_empty_thenRereadApproved_shouldReturn_A9() {
+        // given
+        String trx = baseReq.getPosTrx();
+        int attemptSeq = 1;
+
+        PaymentAttempt latest = latestAttempt(
+                "APPROVED",
+                "A123456789",
+                null,
+                attemptSeq
+        );
+        VanApproveRequest vanReq = vanApproveReq(trx, attemptSeq, 10000);
+
+        when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.empty());
+        when(repository.insertAttemptSeq(trx)).thenReturn(attemptSeq);
+        stubAssemble(trx, attemptSeq, baseReq, vanReq);
+        when(gateway.approve(eq(vanReq))).thenReturn(vanApproveResApproved(trx, attemptSeq));
+        when(repository.updateAttemptResult(any())).thenReturn(Optional.empty());
+        when(repository.findByPosTrxAndAttemptSeq(trx, attemptSeq)).thenReturn(Optional.of(latest));
+
+        // when
+        ApproveResponse res = service.approve(baseReq);
+
+        // then
+        assertEquals(trx, res.posTrx());
+        assertEquals(attemptSeq, res.attemptSeq());
+        assertEquals(PaymentFinalStatus.APPROVED, res.finalStatus());
+        assertEquals("A123456789", res.approvalNo());
+
+        verify(repository).findLatestByPosTrx(trx);
+        verify(repository).insertAttemptSeq(trx);
+        verify(repository).insertAttempt(any(AttemptInsertParam.class));
+        verifyAssembleCalled(trx, attemptSeq, baseReq);
+        verify(gateway).approve(eq(vanReq));
+        verify(repository).updateAttemptResult(any(AttemptResultUpdateParam.class));
+        verify(repository).findByPosTrxAndAttemptSeq(trx, attemptSeq);
+    }
+
+    /**
+     * [UT_ID] UT-PAYMENT-APPROVE-008
+     * <p>
+     * [시나리오]
+     * - Given: 신규 흐름으로 VAN까지 다녀옴
+     * - But  : updateAttemptResult empty(0 rows)
+     * - And  : 재조회 결과 finalStatus=null(or processing)
+     * - Then : retryLater(A10)
+     * <p>
+     * [흐름도]
+     * A1 -> A2 -> A4(신규) -> A3 -> A5 -> A6 -> A7(empty) -> A10(retryLater)
+     */
+    @Test
+    void approve_A7_empty_thenRereadProcessing_shouldReturn_A10_retryLater() {
+        // given
+        String trx = baseReq.getPosTrx();
+        int attemptSeq = 1;
+
+        PaymentAttempt latest = latestAttempt(
+                "PROCESSING",
+                null,
+                null,
+                attemptSeq
+        );
+        VanApproveRequest vanReq = vanApproveReq(trx, attemptSeq, 10000);
+
+        when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.empty());
+        when(repository.insertAttemptSeq(trx)).thenReturn(attemptSeq);
+        stubAssemble(trx, attemptSeq, baseReq, vanReq);
+        when(gateway.approve(eq(vanReq))).thenReturn(vanApproveResApproved(trx, attemptSeq));
+        when(repository.updateAttemptResult(any())).thenReturn(Optional.empty());
+        when(repository.findByPosTrxAndAttemptSeq(trx, attemptSeq)).thenReturn(Optional.of(latest));
+
+        // when
+        ApproveResponse res = service.approve(baseReq);
+
+        // then
+        assertEquals(trx, res.posTrx());
+        assertEquals(attemptSeq, res.attemptSeq());
+        // TODO : 20260215 retryLater는 PaymentFinalStatus 안에 없음, 구현 예정
+        assertEquals(PaymentFinalStatus.PROCESSING, res.finalStatus());
+
+        verify(repository).findLatestByPosTrx(trx);
+        verify(repository).insertAttemptSeq(trx);
+        verify(repository).insertAttempt(any(AttemptInsertParam.class));
+        verifyAssembleCalled(trx, attemptSeq, baseReq);
+        verify(gateway).approve(eq(vanReq));
+        verify(repository).updateAttemptResult(any(AttemptResultUpdateParam.class));
+        verify(repository).findByPosTrxAndAttemptSeq(trx, attemptSeq);
+    }
+
+    /**
+     * [UT_ID] UT-2-BIN-CATALOG-004
+     *
+     * <p>
+     * 승인 신규 attempt 저장 시 PAYMENT_ATTEMPT와 PAYMENT_EXTERNAL_INFO에 같은 8자리 BIN을 저장하고,
+     * PAYMENT_EXTERNAL_INFO에는 BIN_CATALOG 식별 결과와 maskedCardNo를 함께 저장한다.
+     */
+    @Test
+    void approve_newAttempt_shouldPersistPaymentExternalInfoWithCardIdentitySnapshot() {
+        String trx = baseReq.getPosTrx();
+        int attemptSeq = 1;
+        VanApproveRequest vanReq = vanApproveReq(trx, attemptSeq, 10000);
+
+        when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.empty());
+        when(repository.insertAttemptSeq(trx)).thenReturn(attemptSeq);
+        when(binCatalogService.identify("41111111", "1111"))
+                .thenReturn(new CardIdentity("41111111", "1111", "VISA", "KB_CARD_TEST", "KR", "MOCK_VAN"));
+        stubAssemble(trx, attemptSeq, baseReq, vanReq);
+        when(gateway.approve(eq(vanReq))).thenReturn(vanApproveResApproved(trx, attemptSeq));
+        when(repository.updateAttemptResult(any())).thenReturn(Optional.of(updatedRowApproved(trx, attemptSeq)));
+
+        service.approve(baseReq);
+
+        ArgumentCaptor<AttemptInsertParam> attemptCaptor = ArgumentCaptor.forClass(AttemptInsertParam.class);
+        ArgumentCaptor<PaymentExternalInfoInsertParam> externalInfoCaptor =
+                ArgumentCaptor.forClass(PaymentExternalInfoInsertParam.class);
+
+        verify(repository).insertAttempt(attemptCaptor.capture());
+        verify(paymentExternalInfoRepository).insert(externalInfoCaptor.capture());
+
+        AttemptInsertParam attempt = attemptCaptor.getValue();
+        PaymentExternalInfoInsertParam externalInfo = externalInfoCaptor.getValue();
+
+        assertEquals("41111111", attempt.cardBin());
+        assertEquals(attempt.cardBin(), externalInfo.cardBin());
+        assertEquals("1111", attempt.cardLast4());
+        assertEquals(attempt.cardLast4(), externalInfo.cardLast4());
+        assertEquals("41111111******1111", externalInfo.maskedCardNo());
+        assertEquals("VISA", attempt.cardBrand());
+        assertEquals("VISA", externalInfo.cardBrand());
+        assertEquals("KB_CARD_TEST", externalInfo.cardIssuer());
+        assertEquals("KR", externalInfo.cardCountry());
+        assertEquals("MOCK_VAN", externalInfo.vanProvider());
+    }
+
+    /**
+     * [UT_ID] UT-2.1-FP-004
+     *
+     * <p>
+     * 승인 신규 attempt 저장 시 PAN 원문 대신 HMAC fingerprint를 PAYMENT_ATTEMPT insert 인자로 전달한다.
+     */
+    @Test
+    void approve_newAttempt_shouldPersistCardFingerprint() {
+        String trx = baseReq.getPosTrx();
+        int attemptSeq = 1;
+        String pan = baseReq.getCard().getPan();
+        String generatedFingerprint = "a".repeat(64);
+        VanApproveRequest vanReq = vanApproveReq(trx, attemptSeq, 10000);
+
+        when(cardFingerprintPolicy.generate(pan)).thenReturn(generatedFingerprint);
+        when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.empty());
+        when(repository.insertAttemptSeq(trx)).thenReturn(attemptSeq);
+        stubAssemble(trx, attemptSeq, baseReq, vanReq);
+        when(gateway.approve(eq(vanReq))).thenReturn(vanApproveResApproved(trx, attemptSeq));
+        when(repository.updateAttemptResult(any())).thenReturn(Optional.of(updatedRowApproved(trx, attemptSeq)));
+
+        service.approve(baseReq);
+
+        ArgumentCaptor<AttemptInsertParam> attemptCaptor = ArgumentCaptor.forClass(AttemptInsertParam.class);
+        verify(repository).insertAttempt(attemptCaptor.capture());
+
+        String storedFingerprint = attemptCaptor.getValue().cardFingerprint();
+        assertEquals(generatedFingerprint, storedFingerprint);
+        assertFalse(storedFingerprint.isBlank());
+        assertFalse(storedFingerprint.contains(pan));
+        assertFalse(pan.contains(storedFingerprint));
+        assertThat(storedFingerprint).matches("^[0-9a-f]{64}$");
+    }
+
+    /**
+     * [UT_ID] UT-2-BIN-CATALOG-005
+     *
+     * <p>
+     * BIN 식별 결과 중 카드 브랜드는 승인 응답의 카드 요약에 보존한다.
+     */
+    @Test
+    void approve_newAttempt_shouldPreserveCardBrandInApproveResponse() {
+        String trx = baseReq.getPosTrx();
+        int attemptSeq = 1;
+        VanApproveRequest vanReq = vanApproveReq(trx, attemptSeq, 10000);
+
+        when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.empty());
+        when(repository.insertAttemptSeq(trx)).thenReturn(attemptSeq);
+        when(binCatalogService.identify("41111111", "1111"))
+                .thenReturn(new CardIdentity("41111111", "1111", "VISA", "KB_CARD_TEST", "KR", "MOCK_VAN"));
+        stubAssemble(trx, attemptSeq, baseReq, vanReq);
+        when(gateway.approve(eq(vanReq))).thenReturn(vanApproveResApproved(trx, attemptSeq));
+        when(repository.updateAttemptResult(any())).thenReturn(Optional.of(updatedRowApproved(trx, attemptSeq)));
+
+        ApproveResponse response = service.approve(baseReq);
+
+        assertEquals("41111111", response.cardSummary().cardBin());
+        assertEquals("1111", response.cardSummary().cardLast4());
+        assertEquals("VISA", response.cardSummary().cardBrand());
+        assertResponseFieldDoesNotExist("issuer");
+        assertResponseFieldDoesNotExist("country");
+        assertResponseFieldDoesNotExist("vanProvider");
+    }
+
+    /**
+     * [UT_ID] UT-2-BIN-CATALOG-006
+     *
+     * <p>
+     * 기존 attempt 재응답 경로에서는 신규 승인 attempt를 만들지 않으므로
+     * PAYMENT_EXTERNAL_INFO도 새로 저장하지 않는다.
+     */
+    @Test
+    void approve_existingAttemptReuse_shouldNotCreatePaymentExternalInfo() {
+        String trx = baseReq.getPosTrx();
+        PaymentAttempt latest = latestAttempt(
+                "APPROVED",
+                "A123456789",
+                null,
+                1
+        );
+        when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.of(latest));
+
+        ApproveResponse response = service.approve(baseReq);
+
+        assertEquals(PaymentFinalStatus.APPROVED, response.finalStatus());
+        verify(paymentExternalInfoRepository, never()).insert(any(PaymentExternalInfoInsertParam.class));
+        verify(binCatalogService, never()).identify(anyString(), anyString());
+    }
+
+    /**
+     * [UT_ID] UT-2-BIN-CATALOG-006
+     *
+     * <p>
+     * 기존 attempt 충돌 경로도 신규 승인 attempt 생성 전에 차단되므로
+     * PAYMENT_EXTERNAL_INFO를 새로 저장하지 않는다.
+     */
+    @Test
+    void approve_existingAttemptConflict_shouldNotCreatePaymentExternalInfo() {
+        String trx = baseReq.getPosTrx();
+        ApproveRequest conflictRequest = new ApproveRequest(
+                trx,
+                20000,
+                new CardInput("4111111111111111", "2812")
+        );
+        PaymentAttempt latest = latestAttempt(
+                "APPROVED",
+                "A123456789",
+                null,
+                1
+        );
+        when(repository.findLatestByPosTrx(trx)).thenReturn(Optional.of(latest));
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.approve(conflictRequest)
+        );
+
+        assertEquals(ResultCode.CONFLICT, exception.getResultCode());
+        verify(paymentExternalInfoRepository, never()).insert(any(PaymentExternalInfoInsertParam.class));
+        verify(binCatalogService, never()).identify(anyString(), anyString());
+    }
+
+    @Test
+    void VAN_gateway_timeout이면_UNKNOWN_TIMEOUT_확정으로_전환한다() {
+        // given
+        String trx = baseReq.getPosTrx();
+        PaymentApprovalTransactionService trServiceMock = mock(PaymentApprovalTransactionService.class);
+
+        PaymentApprovalService serviceUnderTest =
+                new PaymentApprovalServiceImpl(
+                        trServiceMock,
+                        gateway,
+                        assembler,
+                        validator,
+                        paymentEventLogRecorder
+                );
+
+        CardIdentity cardIdentity = CardIdentity.unknown("41111111", "1111");
+
+        PaymentApprovalPrepareResult prepared = PaymentApprovalPrepareResult.created(trx, 1, cardIdentity);
+
+        VanApproveRequest vanRequest = VanApproveRequest.builder()
+                .posTrx(trx)
+                .attemptSeq(1)
+                .amount(baseReq.getAmount())
+                .pan(baseReq.getCard().getPan())
+                .expiryYyMm(baseReq.getCard().getExpiryYyMm())
+                .cardBin(cardIdentity.cardBin())
+                .cardLast4(cardIdentity.cardLast4())
+                .build();
+
+        ApproveResponse timeoutResponse =
+                ApproveResponse.unknownTimeout(
+                        trx,
+                        1,
+                        VanDeclineCode.TIMEOUT.code(),
+                        CardSummaryFactory.fromStoredCard(
+                                cardIdentity.cardBin(),
+                                cardIdentity.cardLast4(),
+                                cardIdentity.brand()
+                        )
+                );
+
+        when(trServiceMock.prepare(baseReq)).thenReturn(prepared);
+        when(assembler.assemble(
+                prepared.posTrx(),
+                prepared.attemptSeq(),
+                baseReq.getAmount(),
+                baseReq.getCard().getPan(),
+                baseReq.getCard().getExpiryYyMm(),
+                prepared.cardIdentity().cardBin(),
+                prepared.cardIdentity().cardLast4()
+        )).thenReturn(vanRequest);
+        when(gateway.approve(vanRequest)).thenThrow(
+                new VanGatewayTimeoutException(new RuntimeException("timeout"))
+        );
+        when(trServiceMock.finalizeUnknownTimeout(prepared)).thenReturn(timeoutResponse);
+
+        // when
+        ApproveResponse response = serviceUnderTest.approve(baseReq);
+
+        // then
+        assertThat(response).isSameAs(timeoutResponse);
+        verify(gateway).approve(vanRequest);
+        verify(trServiceMock).finalizeUnknownTimeout(prepared);
+        verify(trServiceMock, never()).finalizeApproval(eq(prepared), any(VanApproveResponse.class));
+    }
+
+    @Test
+    void VAN_request_not_sent이면_PROCESSING을_정리하고_예외를_전파한다() {
+        String trx = baseReq.getPosTrx();
+        PaymentApprovalTransactionService trServiceMock = mock(PaymentApprovalTransactionService.class);
+        PaymentApprovalService serviceUnderTest = new PaymentApprovalServiceImpl(
+                trServiceMock,
+                gateway,
+                assembler,
+                validator,
+                paymentEventLogRecorder
+        );
+        CardIdentity cardIdentity = CardIdentity.unknown("41111111", "1111");
+        PaymentApprovalPrepareResult prepared = PaymentApprovalPrepareResult.created(trx, 1, cardIdentity);
+        VanApproveRequest vanRequest = VanApproveRequest.builder()
+                .posTrx(trx)
+                .attemptSeq(1)
+                .amount(baseReq.getAmount())
+                .pan(baseReq.getCard().getPan())
+                .expiryYyMm(baseReq.getCard().getExpiryYyMm())
+                .cardBin(cardIdentity.cardBin())
+                .cardLast4(cardIdentity.cardLast4())
+                .build();
+        VanGatewayRequestNotSentException requestNotSent =
+                new VanGatewayRequestNotSentException(new RuntimeException("connect failed"));
+
+        when(trServiceMock.prepare(baseReq)).thenReturn(prepared);
+        when(assembler.assemble(
+                prepared.posTrx(),
+                prepared.attemptSeq(),
+                baseReq.getAmount(),
+                baseReq.getCard().getPan(),
+                baseReq.getCard().getExpiryYyMm(),
+                prepared.cardIdentity().cardBin(),
+                prepared.cardIdentity().cardLast4()
+        )).thenReturn(vanRequest);
+        when(gateway.approve(vanRequest)).thenThrow(requestNotSent);
+
+        assertSame(
+                requestNotSent,
+                assertThrows(VanGatewayRequestNotSentException.class, () -> serviceUnderTest.approve(baseReq))
+        );
+
+        verify(trServiceMock).cleanupRequestNotSent(prepared);
+        verify(trServiceMock, never()).finalizeUnknownTimeout(any());
+        verify(trServiceMock, never()).finalizeApproval(any(), any());
+    }
+
+    // 테스트용 객체 생성 메소드
+    private void assertResponseFieldDoesNotExist(String fieldName) {
+        boolean exists = Arrays.stream(ApproveResponse.class.getRecordComponents())
+                .anyMatch(component -> component.getName().equals(fieldName));
+
+        assertFalse(exists);
+    }
+
+    private void stubAssemble(String posTrx, int attemptSeq, ApproveRequest request, VanApproveRequest vanRequest) {
+        when(assembler.assemble(
+                eq(posTrx),
+                eq(attemptSeq),
+                eq(request.getAmount()),
+                eq(request.getCard().getPan()),
+                eq(request.getCard().getExpiryYyMm()),
+                eq(request.getCard().bin8()),
+                eq(request.getCard().last4())
+        )).thenReturn(vanRequest);
+    }
+
+    private void verifyAssembleCalled(String posTrx, int attemptSeq, ApproveRequest request) {
+        verify(assembler).assemble(
+                eq(posTrx),
+                eq(attemptSeq),
+                eq(request.getAmount()),
+                eq(request.getCard().getPan()),
+                eq(request.getCard().getExpiryYyMm()),
+                eq(request.getCard().bin8()),
+                eq(request.getCard().last4())
+        );
+    }
+
+    private void verifyAssembleNever(String posTrx, int attemptSeq, ApproveRequest request) {
+        verify(assembler, never()).assemble(
+                eq(posTrx),
+                eq(attemptSeq),
+                eq(request.getAmount()),
+                eq(request.getCard().getPan()),
+                eq(request.getCard().getExpiryYyMm()),
+                eq(request.getCard().bin8()),
+                eq(request.getCard().last4())
+        );
+    }
+
+    // status만 바꿔서 새 record를 생성
+    // MVP2 승인 멱등 정책에서는 기존 DB row와 재요청 payload의 amount/cardBin/cardLast4가 모두 같아야 재응답한다.
+    // baseReq PAN(4111111111111111)의 bin8() 결과가 41111111이므로, 기존 row fixture도 같은 cardBin으로 맞춘다.
+    // 이 값이 411111처럼 다르면 APPROVED/PROCESSING 재응답 테스트가 "다른 payload"로 판단되어 POS_TRX_ALREADY_USED가 발생한다.
+    private PaymentAttempt latestAttempt(
+            String finalStatus,
+            String approveNo,
+            String declineCode,
+            int attemptSeq
+    ) {
+        return new PaymentAttempt(
+                finalStatus,
+                approveNo, // approvalNo (필요 없으면 null로 바꿔도 됨)
+                declineCode,         // declineCode
+                "41111111",      // cardBin: baseReq.getCard().bin8()과 동일해야 멱등 재응답 payload로 인정된다.
+                "1111",        // cardLast4
+                "VISA",
+                "fp:4111111111111111",
+                attemptSeq,
+                10000,
+                "VAN-TRX-0001"
+        );
+    }
+
+    private VanApproveRequest vanApproveReq(String posTrx, int attemptSeq, int amount) {
+        // @Builder가 있으니 builder로 생성 (가독성 좋음)
+        return VanApproveRequest.builder()
+                .posTrx(posTrx)
+                .attemptSeq(attemptSeq)
+                .amount(amount)
+                // 테스트에서는 민감정보(PAN)도 더미로만 (로그/출력 금지)
+                .pan("4111111111111111")
+                .expiryYyMm("2812")
+                .cardBin("41111111")
+                .cardLast4("1111")
+                .build();
+    }
+
+    private VanApproveResponse vanApproveResApproved(String posTrx, int attemptSeq) {
+        return VanApproveResponse.builder()
+                .posTrx(posTrx)
+                .attemptSeq(attemptSeq)
+                .cardBin("41111111")
+                .cardLast4("1111")
+                .vanResult(VanResult.APPROVED)
+                .finalStatus(PaymentFinalStatus.APPROVED)
+                .approvalNo("A123456789")
+                .declineCode(null)              // 승인 성공이면 보통 null
+                .vanTrxId("VAN-TRX-0001")
+                .message("OK")
+                .respondedAt(LocalDateTime.now())
+                .build();
+    }
+
+    private VanApproveResponse vanApproveResDeclined(String posTrx, int attemptSeq) {
+        return VanApproveResponse.builder()
+                .posTrx(posTrx)
+                .attemptSeq(attemptSeq)
+                .cardBin("41111111")
+                .cardLast4("1111")
+                .vanResult(VanResult.DECLINED)
+                .finalStatus(PaymentFinalStatus.DECLINED)
+                .approvalNo(null)
+                // declineCode 타입이 VanDeclineCode enum이면 거기에 맞춰 사용
+                .declineCode(VanDeclineCode.DO_NOT_HONOR)
+                .vanTrxId("VAN-TRX-0002")
+                .message("DECLINED")
+                .respondedAt(LocalDateTime.now())
+                .build();
+    }
+
+    private VanApproveResponse vanApproveResTimeout(String posTrx, int attemptSeq) {
+        return VanApproveResponse.builder()
+                .posTrx(posTrx)
+                .attemptSeq(attemptSeq)
+                .cardBin("41111111")
+                .cardLast4("1111")
+                .vanResult(VanResult.TIMEOUT)
+                .finalStatus(PaymentFinalStatus.UNKNOWN_TIMEOUT) // 정책 enum에 맞춰 수정
+                .approvalNo(null)
+                .declineCode(VanDeclineCode.TIMEOUT)             // 예시: TIMEOUT (없으면 수정)
+                .vanTrxId(null)
+                .message("TIMEOUT")
+                .respondedAt(LocalDateTime.now())
+                .build();
+    }
+
+    /**
+     * updateAttemptResult(...)가 "승자 row"로 반환할 더미.
+     * - 서비스가 이 row를 기반으로 최종 ApproveResponse를 만들 가능성이 높으니
+     * finalStatus/approvalNo/declineCode/bin/last4 정도는 넣어주는 게 안전.
+     */
+    private PaymentAttemptUpdatedRow updatedRowApproved(String posTrx, int attemptSeq) {
+        return new PaymentAttemptUpdatedRow(
+                posTrx,
+                attemptSeq,
+                PaymentFinalStatus.APPROVED,
+                "A123456789",
+                null,
+                "41111111",
+                "1111",
+                "VISA",
+                "VAN-TRX-0001"
+        );
+    }
+
+    private PaymentAttemptUpdatedRow updatedRowDeclined(String posTrx, int attemptSeq) {
+        return new PaymentAttemptUpdatedRow(
+                posTrx,
+                attemptSeq,
+                PaymentFinalStatus.DECLINED,
+                null,
+                "05",           // declineCode는 여기 String이니까 "05"/"TIMEOUT" 같은 값
+                "41111111",
+                "1111",
+                "VISA",
+                "VAN-TRX-0002"
+        );
+    }
+
+    private PaymentAttemptUpdatedRow updatedRowTimeout(String posTrx, int attemptSeq) {
+        return new PaymentAttemptUpdatedRow(
+                posTrx,
+                attemptSeq,
+                PaymentFinalStatus.UNKNOWN_TIMEOUT, // enum에 맞춰 수정
+                null,
+                "TIMEOUT",
+                "41111111",
+                "1111",
+                "VISA",
+                null
+        );
+    }
+}

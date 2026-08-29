@@ -1,0 +1,8 @@
+spring:
+  application:
+    name: van-simulator
+  profiles:
+    default: standalone
+
+server:
+  port: 8081
