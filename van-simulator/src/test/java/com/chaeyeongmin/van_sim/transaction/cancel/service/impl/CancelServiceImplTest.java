@@ -5,13 +5,13 @@ import com.chaeyeongmin.van_sim.ledger.approval.repository.VanApprovalRepository
 import com.chaeyeongmin.van_sim.ledger.approval.status.VanApprovalStatus;
 import com.chaeyeongmin.van_sim.ledger.cancel.entity.VanCancel;
 import com.chaeyeongmin.van_sim.ledger.cancel.repository.VanCancelRepository;
+import com.chaeyeongmin.van_sim.ledger.cancel.status.CancelResultCode;
 import com.chaeyeongmin.van_sim.ledger.cancel.status.VanCancelStatus;
 import com.chaeyeongmin.van_sim.transaction.approval.service.support.VanTransactionIdGenerator;
 import com.chaeyeongmin.van_sim.transaction.cancel.service.command.CancelCommand;
 import com.chaeyeongmin.van_sim.transaction.cancel.service.exception.CancelRequestConflictException;
 import com.chaeyeongmin.van_sim.transaction.cancel.service.result.CancelResult;
 import com.chaeyeongmin.van_sim.transaction.cancel.service.support.CancelApprovalNumberGenerator;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,9 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class CancelServiceImplTest {
@@ -56,7 +54,7 @@ class CancelServiceImplTest {
 
         when(cancelRepository.findByCancelPosTrx(command.cancelPosTrx()))
                 .thenReturn(Optional.empty());
-        when(approvalRepository.findByPosTrxAndAttemptSeq(
+        when(approvalRepository.findByPosTrxAndAttemptSeqForUpdate(
                 command.originalPosTrx(),
                 command.originalAttemptSeq()
         )).thenReturn(Optional.of(originalApproval));
@@ -95,7 +93,7 @@ class CancelServiceImplTest {
         assertThat(result.processedAt()).isEqualTo(existingCancel.getProcessedAt());
 
         verify(cancelRepository, never()).save(any(VanCancel.class));
-        verify(approvalRepository, never()).findByPosTrxAndAttemptSeq(any(), anyInt());
+        verify(approvalRepository, never()).findByPosTrxAndAttemptSeqForUpdate(any(), anyInt());
     }
 
     @Test
@@ -119,7 +117,7 @@ class CancelServiceImplTest {
                 .isInstanceOf(CancelRequestConflictException.class);
 
         verify(cancelRepository, never()).save(any(VanCancel.class));
-        verify(approvalRepository, never()).findByPosTrxAndAttemptSeq(any(), anyInt());
+        verify(approvalRepository, never()).findByPosTrxAndAttemptSeqForUpdate(any(), anyInt());
     }
 
     @Test
@@ -131,7 +129,7 @@ class CancelServiceImplTest {
 
         when(cancelRepository.findByCancelPosTrx(command.cancelPosTrx()))
                 .thenReturn(Optional.empty());
-        when(approvalRepository.findByPosTrxAndAttemptSeq(
+        when(approvalRepository.findByPosTrxAndAttemptSeqForUpdate(
                 command.originalPosTrx(),
                 command.originalAttemptSeq()
         )).thenReturn(Optional.empty());
@@ -161,7 +159,7 @@ class CancelServiceImplTest {
 
         when(cancelRepository.findByCancelPosTrx(command.cancelPosTrx()))
                 .thenReturn(Optional.empty());
-        when(approvalRepository.findByPosTrxAndAttemptSeq(
+        when(approvalRepository.findByPosTrxAndAttemptSeqForUpdate(
                 command.originalPosTrx(),
                 command.originalAttemptSeq()
         )).thenReturn(Optional.of(originalApproval));
@@ -191,7 +189,7 @@ class CancelServiceImplTest {
 
         when(cancelRepository.findByCancelPosTrx(command.cancelPosTrx()))
                 .thenReturn(Optional.empty());
-        when(approvalRepository.findByPosTrxAndAttemptSeq(
+        when(approvalRepository.findByPosTrxAndAttemptSeqForUpdate(
                 command.originalPosTrx(),
                 command.originalAttemptSeq()
         )).thenReturn(Optional.of(originalApproval));
@@ -219,12 +217,11 @@ class CancelServiceImplTest {
                 existingCommand.originalApprovalNo(),
                 existingCommand.amount()
         );
-
         VanApproval originalApproval = approvedOriginalApproval(newCommand);
 
         when(cancelRepository.findByCancelPosTrx(newCommand.cancelPosTrx()))
                 .thenReturn(Optional.empty());
-        when(approvalRepository.findByPosTrxAndAttemptSeq(
+        when(approvalRepository.findByPosTrxAndAttemptSeqForUpdate(
                 newCommand.originalPosTrx(),
                 newCommand.originalAttemptSeq()
         )).thenReturn(Optional.of(originalApproval));
@@ -237,7 +234,8 @@ class CancelServiceImplTest {
 
         assertThat(result).isNotNull();
         assertThat(result.cancelStatus()).isEqualTo(VanCancelStatus.CANCELLED);
-        assertThat(result.cancelPosTrx()).isEqualTo(existingCancel.getCancelPosTrx());
+        assertThat(result.cancelPosTrx()).isEqualTo(newCommand.cancelPosTrx());
+        assertThat(result.resultCode()).isEqualTo(CancelResultCode.ALREADY_CANCELLED);
         assertThat(result.vanCancelTrxId()).isEqualTo(existingCancel.getVanCancelTrxId());
         assertThat(result.cancelApprovalNo()).isEqualTo(existingCancel.getCancelApprovalNo());
         assertThat(result.processedAt()).isEqualTo(existingCancel.getProcessedAt());
