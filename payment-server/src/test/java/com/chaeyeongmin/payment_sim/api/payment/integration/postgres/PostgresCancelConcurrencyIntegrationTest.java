@@ -8,6 +8,7 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.response.ApproveResponse;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
+import com.chaeyeongmin.payment_sim.api.payment.service.transaction.PaymentCancelTransactionService;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
 import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
@@ -30,6 +31,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -45,11 +47,13 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -146,6 +150,24 @@ class PostgresCancelConcurrencyIntegrationTest {
      * - DB row 수가 1건으로 남더라도 VAN cancel이 여러 번 호출되면 실패로 본다.
      */
     @Test
+    @DisplayName("VAN 취소 호출은 DB 트랜잭션 밖에서 수행된다")
+    void vanCancel_shouldBeCalledOutsideTransaction() {
+        ApproveResponse approve = approvalService.approve(approveRequest());
+        assertEquals(PaymentFinalStatus.APPROVED, approve.finalStatus());
+
+        CancelResponse cancel = cancelService.cancel(cancelRequest(CANCEL_POS_TRX_PREFIX + "01", approve.attemptSeq()));
+
+        assertAll(
+                () -> assertEquals(CancelResultStatus.CANCELLED, cancel.cancelStatus()),
+                () -> assertEquals(1, vanGateway.cancelCount(), "VAN cancel call count"),
+                () -> assertFalse(
+                        vanGateway.cancelCalledInTransaction(),
+                        "VAN cancel must be called outside DB transaction"
+                )
+        );
+    }
+
+    @Test
     @DisplayName("PostgreSQL 동일 원거래에 서로 다른 취소 거래번호가 동시에 들어와도 VAN 취소와 cancel row는 1회다")
     void cancelSameOriginalWithDifferentCancelPosTrxConcurrently_shouldCancelOnlyOnce() throws Exception {
         ApproveResponse approve = approvalService.approve(approveRequest());
@@ -163,7 +185,16 @@ class PostgresCancelConcurrencyIntegrationTest {
 
         try {
             for (String cancelPosTrx : cancelPosTrxs) {
-                futures.add(executor.submit(cancelTask(ready, start, cancelPosTrx, approve.attemptSeq())));
+                futures.add(
+                        executor.submit(
+                                cancelTask(
+                                        ready,
+                                        start,
+                                        cancelPosTrx,
+                                        approve.attemptSeq()
+                                )
+                        )
+                );
             }
 
             assertTrue(
@@ -175,6 +206,7 @@ class PostgresCancelConcurrencyIntegrationTest {
 
             List<CancelResponse> responses = new ArrayList<>();
             List<Throwable> failures = new ArrayList<>();
+
             for (Future<CancelResponse> future : futures) {
                 try {
                     responses.add(future.get(30, TimeUnit.SECONDS));
@@ -183,42 +215,157 @@ class PostgresCancelConcurrencyIntegrationTest {
                 }
             }
 
-            long retryLaterCount = countByStatus(responses, CancelResultStatus.RETRY_LATER);
-            long cancelledCount = countByStatus(responses, CancelResultStatus.CANCELLED);
-            long alreadyCancelledCount = countByStatus(responses, CancelResultStatus.ALREADY_CANCELLED);
-            boolean allResponsesHaveCancelApprovalNo = responses.stream()
+            long retryLaterCount =
+                    countByStatus(responses, CancelResultStatus.RETRY_LATER);
+
+            long cancelledCount =
+                    countByStatus(responses, CancelResultStatus.CANCELLED);
+
+            long alreadyCancelledCount =
+                    countByStatus(responses, CancelResultStatus.ALREADY_CANCELLED);
+
+            long expectedFollowerResponseCount = REQUEST_COUNT - cancelledCount;
+
+            boolean confirmedResponsesHaveCancelApprovalNo = responses.stream()
+                    .filter(response ->
+                            response.cancelStatus() == CancelResultStatus.CANCELLED
+                                    || response.cancelStatus() == CancelResultStatus.ALREADY_CANCELLED
+                    )
                     .allMatch(response -> response.cancelApprovalNo() != null);
+
+            boolean retryLaterResponsesHaveNoCancelApprovalNo = responses.stream()
+                    .filter(response ->
+                            response.cancelStatus() == CancelResultStatus.RETRY_LATER
+                    )
+                    .allMatch(response -> response.cancelApprovalNo() == null);
+
             Set<String> responseCancelApprovalNos = responses.stream()
                     .map(CancelResponse::cancelApprovalNo)
                     .filter(Objects::nonNull)
                     .collect(java.util.stream.Collectors.toSet());
-            String storedCancelPosTrx = currentCancelPosTrx(ORIGINAL_POS_TRX, approve.attemptSeq());
+
+            String storedCancelPosTrx =
+                    currentCancelPosTrx(
+                            ORIGINAL_POS_TRX,
+                            approve.attemptSeq()
+                    );
 
             assertAll(
-                    () -> assertEquals(REQUEST_COUNT, responses.size(), "collected cancel results"),
-                    () -> assertEquals(0, failures.size(), () -> failureMessage(failures)),
-                    () -> assertEquals(1, cancelledCount, "CANCELLED response count"),
-                    () -> assertEquals(0, retryLaterCount, "RETRY_LATER response count"),
-                    () -> assertEquals(REQUEST_COUNT - 1, alreadyCancelledCount, "ALREADY_CANCELLED response count"),
-                    () -> assertTrue(allResponsesHaveCancelApprovalNo, "all responses must have cancelApprovalNo"),
-                    () -> assertEquals(Set.of(CANCEL_APPROVAL_NO), responseCancelApprovalNos, "response cancelApprovalNos"),
-                    () -> assertEquals(1, vanGateway.cancelCount(), "VAN cancel call count"),
-                    () -> assertEquals(1, countPaymentCancelByOriginal(ORIGINAL_POS_TRX, approve.attemptSeq()), "PAYMENT_CANCEL original row count"),
-                    () -> assertEquals(ORIGINAL_POS_TRX, paymentCancelOriginalPosTrx(storedCancelPosTrx), "PAYMENT_CANCEL originalPosTrx"),
-                    () -> assertEquals("CANCELLED", paymentCancelStatus(storedCancelPosTrx), "PAYMENT_CANCEL status"),
-                    () -> assertEquals(CANCEL_APPROVAL_NO, paymentCancelApprovalNo(storedCancelPosTrx), "stored cancelApprovalNo"),
-                    () -> assertEquals(0, countPaymentCancelRowsExcept(storedCancelPosTrx), "extra PAYMENT_CANCEL rows"),
-                    () -> assertTrue(cancelPosTrxs.contains(storedCancelPosTrx), "stored cancel posTrx must be one request posTrx"),
-                    () -> assertEquals("APPROVED", paymentAttemptStatus(ORIGINAL_POS_TRX, approve.attemptSeq()), "original PAYMENT_ATTEMPT finalStatus"),
-                    () -> assertEquals(APPROVAL_NO, paymentAttemptApprovalNo(ORIGINAL_POS_TRX, approve.attemptSeq()), "original approvalNo"),
+                    () -> assertEquals(
+                            REQUEST_COUNT,
+                            responses.size(),
+                            "collected cancel results"
+                    ),
+
+                    () -> assertEquals(
+                            0,
+                            failures.size(),
+                            () -> failureMessage(failures)
+                    ),
+
+                    () -> assertEquals(
+                            1,
+                            cancelledCount,
+                            "CANCELLED response count"
+                    ),
+
+                    () -> assertEquals(
+                            expectedFollowerResponseCount,
+                            retryLaterCount + alreadyCancelledCount,
+                            "all follower responses must be RETRY_LATER or ALREADY_CANCELLED"
+                    ),
+
+                    () -> assertTrue(
+                            confirmedResponsesHaveCancelApprovalNo,
+                            "CANCELLED/ALREADY_CANCELLED responses must have cancelApprovalNo"
+                    ),
+
+                    () -> assertTrue(
+                            retryLaterResponsesHaveNoCancelApprovalNo,
+                            "RETRY_LATER responses must not require cancelApprovalNo"
+                    ),
+
+                    () -> assertEquals(
+                            Set.of(CANCEL_APPROVAL_NO),
+                            responseCancelApprovalNos,
+                            "response cancelApprovalNos"
+                    ),
+
+                    () -> assertEquals(
+                            1,
+                            vanGateway.cancelCount(),
+                            "VAN cancel call count"
+                    ),
+
+                    () -> assertEquals(
+                            1,
+                            countPaymentCancelByOriginal(
+                                    ORIGINAL_POS_TRX,
+                                    approve.attemptSeq()
+                            ),
+                            "PAYMENT_CANCEL original row count"
+                    ),
+
+                    () -> assertEquals(
+                            ORIGINAL_POS_TRX,
+                            paymentCancelOriginalPosTrx(storedCancelPosTrx),
+                            "PAYMENT_CANCEL originalPosTrx"
+                    ),
+
+                    () -> assertEquals(
+                            "CANCELLED",
+                            paymentCancelStatus(storedCancelPosTrx),
+                            "PAYMENT_CANCEL status"
+                    ),
+
+                    () -> assertEquals(
+                            CANCEL_APPROVAL_NO,
+                            paymentCancelApprovalNo(storedCancelPosTrx),
+                            "stored cancelApprovalNo"
+                    ),
+
+                    () -> assertEquals(
+                            0,
+                            countPaymentCancelRowsExcept(storedCancelPosTrx),
+                            "extra PAYMENT_CANCEL rows"
+                    ),
+
+                    () -> assertTrue(
+                            cancelPosTrxs.contains(storedCancelPosTrx),
+                            "stored cancel posTrx must be one request posTrx"
+                    ),
+
+                    () -> assertEquals(
+                            "APPROVED",
+                            paymentAttemptStatus(
+                                    ORIGINAL_POS_TRX,
+                                    approve.attemptSeq()
+                            ),
+                            "original PAYMENT_ATTEMPT finalStatus"
+                    ),
+
+                    () -> assertEquals(
+                            APPROVAL_NO,
+                            paymentAttemptApprovalNo(
+                                    ORIGINAL_POS_TRX,
+                                    approve.attemptSeq()
+                            ),
+                            "original approvalNo"
+                    ),
+
                     () -> assertEquals(
                             REQUEST_COUNT - 1,
-                            countCancelReusedByOriginalEvents(ORIGINAL_POS_TRX, approve.attemptSeq()),
+                            countCancelReusedByOriginalEvents(
+                                    ORIGINAL_POS_TRX,
+                                    approve.attemptSeq()
+                            ),
                             "CANCEL_REUSED_BY_ORIGINAL event count"
                     )
             );
+
         } finally {
             executor.shutdown();
+
             if (executor.awaitTermination(10, TimeUnit.SECONDS) == false) {
                 executor.shutdownNow();
                 fail("ExecutorService did not terminate within timeout");
@@ -403,6 +550,7 @@ class PostgresCancelConcurrencyIntegrationTest {
 
         private final AtomicInteger approveCount = new AtomicInteger();
         private final AtomicInteger cancelCount = new AtomicInteger();
+        private final AtomicBoolean cancelCalledInTransaction = new AtomicBoolean();
 
         @Override
         public VanApproveResponse approve(VanApproveRequest request) {
@@ -423,7 +571,9 @@ class PostgresCancelConcurrencyIntegrationTest {
 
         @Override
         public VanCancelResponse cancel(VanCancelRequest request) {
+            cancelCalledInTransaction.set(TransactionSynchronizationManager.isActualTransactionActive());
             cancelCount.incrementAndGet();
+
             return VanCancelResponse.builder()
                     .posTrx(request.posTrx())
                     .originalPosTrx(request.originalPosTrx())
@@ -445,10 +595,15 @@ class PostgresCancelConcurrencyIntegrationTest {
         void reset() {
             approveCount.set(0);
             cancelCount.set(0);
+            cancelCalledInTransaction.set(false);
         }
 
         int cancelCount() {
             return cancelCount.get();
+        }
+
+        boolean cancelCalledInTransaction() {
+            return cancelCalledInTransaction.get();
         }
     }
 }
