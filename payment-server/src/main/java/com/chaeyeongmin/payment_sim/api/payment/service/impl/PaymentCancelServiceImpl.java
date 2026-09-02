@@ -56,6 +56,11 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // - 입력이 잘못되면 원거래 조회나 VAN 취소로 진행하면 안 된다.
         validator.validate(request);
 
+        // C3~C5: DB 기준 취소 준비 트랜잭션.
+        // - 원승인 lock, 원거래 상태/카드 검증, 기존 취소 재응답, 신규 PENDING row 생성을 담당한다.
+        // - 이 단계에서 completed=true가 돌아오면 이미 DB 기준으로 응답이 확정된 경로다.
+        //   예: 취소 불가, 기존 취소 재응답, PENDING insert 경합 복구.
+        // - completed=false인 요청만 트랜잭션 밖에서 VAN 취소를 호출한다.
         PaymentCancelPrepareResult prepared = transactionService.prepare(request);
         if (prepared.isCompleted()) return prepared.completedResponse();
 
@@ -106,8 +111,10 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
                 "VAN cancel result received"
         );
 
-        // C5 성공 후에만 VAN 취소를 호출한다.
-        // - PENDING row가 없으면 후속 요청에서 중복 취소를 막을 근거가 약해진다.
+        // C7: VAN 응답 확정 트랜잭션.
+        // - C5에서 PENDING row를 선점한 요청만 여기까지 내려온다.
+        // - PENDING row가 없으면 후속 요청에서 중복 취소를 막을 근거가 약하므로,
+        //   prepare()가 created 상태를 반환한 경우에만 VAN 결과를 최종 상태로 반영한다.
         return transactionService.finalizeCancel(prepared, vanCancelResponse);
 
     }

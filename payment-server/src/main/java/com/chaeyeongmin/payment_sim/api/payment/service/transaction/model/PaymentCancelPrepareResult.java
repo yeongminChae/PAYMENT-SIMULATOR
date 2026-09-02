@@ -5,7 +5,18 @@ import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 
-
+/**
+ * 취소 TX1(prepare) 결과를 TX 밖 오케스트레이션 계층에 전달하는 값 객체다.
+ *
+ * <p>
+ * 취소는 원승인 확인과 PENDING row 선점이 끝난 요청만 외부 VAN cancel을 호출해야 한다.
+ * 이 record는 그 경계를 명확히 표현한다.
+ *
+ * <p>
+ * 상태는 두 가지다.
+ * - created: 신규 PENDING row를 만든 요청. VAN cancel 호출 후 finalizeCancel로 내려간다.
+ * - completed: prepare 단계에서 이미 응답이 확정된 요청. VAN cancel을 호출하면 안 된다.
+ */
 public record PaymentCancelPrepareResult(
         String posTrx,
         String originalPosTrx,
@@ -79,6 +90,8 @@ public record PaymentCancelPrepareResult(
     }
 
     public boolean isCompleted() {
+        // true이면 completedResponse가 최종 응답이다.
+        // 호출자는 VAN cancel 호출과 TX2 finalize를 모두 건너뛰어야 한다.
         return completed;
     }
 

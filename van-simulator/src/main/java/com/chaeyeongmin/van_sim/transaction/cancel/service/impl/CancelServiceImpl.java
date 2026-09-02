@@ -22,6 +22,20 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 
+/**
+ * PostgreSQL 프로필에서 사용하는 VAN 취소 서비스다.
+ *
+ * <p>
+ * 이 서비스는 VAN 내부 원장 기준의 전체취소를 처리한다. 외부 Payment 서버 입장에서는 서로 다른
+ * cancelPosTrx가 동시에 들어올 수 있지만, VAN 정책상 하나의 원승인(posTrx + attemptSeq)에는
+ * 하나의 취소 원장만 허용한다.
+ *
+ * <p>
+ * 동시성 제어의 기준은 cancelPosTrx가 아니라 원승인 row다. 같은 원승인을 취소하는 두 요청은
+ * {@link VanApprovalRepository#findByPosTrxAndAttemptSeqForUpdate(String, int)}에서 같은
+ * van_approval row의 PESSIMISTIC_WRITE lock을 경쟁한다. lock을 얻은 뒤에는 cancel 원장을
+ * 다시 조회해서, 기다리는 동안 먼저 처리된 취소를 반드시 반영한다.
+ */
 @Service
 @Profile("postgres")
 @RequiredArgsConstructor
@@ -40,7 +54,9 @@ public class CancelServiceImpl implements CancelService {
     @Transactional
     public CancelResult processCancel(CancelCommand command) {
 
-        // 1. 동일 cancelPosTrx에 대한 빠른 idempotency check
+        // 1. 동일 cancelPosTrx에 대한 빠른 idempotency check.
+        // - 이미 같은 취소 거래번호로 저장된 row가 있으면 원승인 lock을 잡을 필요가 없다.
+        // - 단, 같은 cancelPosTrx라도 payload가 다르면 멱등 재응답이 아니라 거래번호 재사용 충돌이다.
         Optional<VanCancel> existing =
                 cancelRepository.findByCancelPosTrx(command.cancelPosTrx());
 
@@ -55,7 +71,9 @@ public class CancelServiceImpl implements CancelService {
             );
         }
 
-        // 2. 원승인 row lock
+        // 2. 원승인 row lock.
+        // - 서로 다른 cancelPosTrx(C001/C002)가 같은 원승인(A001/1)을 취소할 때 여기서 직렬화된다.
+        // - lock 없이 아래 기존 취소 조회/신규 저장을 실행하면 두 요청이 동시에 "기존 취소 없음"을 볼 수 있다.
         Optional<VanApproval> originalOptional =
                 approvalRepository.findByPosTrxAndAttemptSeqForUpdate(
                         command.originalPosTrx(),
@@ -67,12 +85,14 @@ public class CancelServiceImpl implements CancelService {
                     command,
                     ORIGINAL_NOT_FOUND,
                     CancelResultCode.ORIGINAL_NOT_FOUND
-            );
+                );
         }
 
         VanApproval original = originalOptional.get();
 
-        // 3. lock을 기다리는 동안 같은 cancelPosTrx가 처리됐는지 재확인
+        // 3. lock을 기다리는 동안 같은 cancelPosTrx가 처리됐는지 재확인.
+        // - 1번 사전검사 이후 현재 thread가 lock 대기하는 사이 같은 cancelPosTrx가 commit됐을 수 있다.
+        // - lock 이후 재조회 결과가 최종 판단 기준이다.
         Optional<VanCancel> existingAfterLock =
                 cancelRepository.findByCancelPosTrx(command.cancelPosTrx());
 
@@ -87,7 +107,9 @@ public class CancelServiceImpl implements CancelService {
             );
         }
 
-        // 4. lock을 기다리는 동안 같은 원승인이 다른 cancel로 처리됐는지 재확인
+        // 4. lock을 기다리는 동안 같은 원승인이 다른 cancel로 처리됐는지 재확인.
+        // - 이번 Release 5 Phase 2-2A의 핵심 분기다.
+        // - 다른 cancelPosTrx가 먼저 취소를 확정했다면 새 row를 만들지 않고 ALREADY_CANCELLED로 응답한다.
         Optional<VanCancel> existingByOriginal =
                 cancelRepository.findByOriginalPosTrxAndOriginalAttemptSeq(
                         command.originalPosTrx(),
@@ -98,10 +120,12 @@ public class CancelServiceImpl implements CancelService {
             return alreadyProcessedResult(
                     command,
                     existingByOriginal.get()
-            );
+                );
         }
 
-        // 5. 실제 승인된 거래인지 확인
+        // 5. 실제 승인된 거래인지 확인.
+        // - VAN 취소는 APPROVED 원장에 대해서만 성공할 수 있다.
+        // - DECLINED/UNKNOWN 원승인은 취소할 승인 사실이 없으므로 거절 원장을 남긴다.
         if (original.getApprovalStatus() != VanApprovalStatus.APPROVED) {
             return saveDeclined(
                     command,
@@ -110,7 +134,9 @@ public class CancelServiceImpl implements CancelService {
             );
         }
 
-        // 6. 요청에 포함된 원승인 정보가 VAN 원장과 일치하는지 확인
+        // 6. 요청에 포함된 원승인 정보가 VAN 원장과 일치하는지 확인.
+        // - originalPosTrx/attemptSeq로 row를 찾았더라도 금액, VAN 거래번호, 승인번호가 다르면
+        //   잘못된 원승인에 대한 취소 요청이다.
         if (isOriginalMismatch(original, command)) {
             return saveDeclined(
                     command,
@@ -119,7 +145,9 @@ public class CancelServiceImpl implements CancelService {
             );
         }
 
-        // 7. 신규 정상 취소
+        // 7. 신규 정상 취소.
+        // - 이 지점에 도달한 요청만 van_cancel 신규 owner가 된다.
+        // - 같은 원승인에 대한 후속 요청은 4번 분기에서 이 row를 보고 ALREADY_CANCELLED로 돌아간다.
         return saveCancelled(
                 command,
                 CancelResultCode.SUCCESS
@@ -130,6 +158,8 @@ public class CancelServiceImpl implements CancelService {
             VanApproval original,
             CancelCommand command
     ) {
+        // 원승인 식별자만으로는 payload 일치가 보장되지 않는다.
+        // Payment 서버가 보낸 원승인 금액/거래번호/승인번호가 VAN 원장과 같은지 확인한다.
         return original.getAmount() != command.amount()
                 || original.getVanTrxId().equals(command.originalVanTrxId()) == false
                 || original.getApprovalNo().equals(command.originalApprovalNo()) == false
@@ -140,6 +170,8 @@ public class CancelServiceImpl implements CancelService {
             VanCancel existingCancel,
             CancelCommand command
     ) {
+        // 동일 cancelPosTrx 재요청은 저장된 취소 payload와 완전히 같을 때만 멱등 재응답으로 본다.
+        // 하나라도 다르면 클라이언트가 같은 취소 거래번호를 다른 업무 의미로 재사용한 것이다.
         if (existingCancel.getOriginalPosTrx().equals(command.originalPosTrx()) == false
                 || existingCancel.getOriginalAttemptSeq() != command.originalAttemptSeq()
                 || existingCancel.getOriginalVanTrxId().equals(command.originalVanTrxId()) == false
@@ -213,6 +245,8 @@ public class CancelServiceImpl implements CancelService {
             );
         }
 
+        // 거절 row는 declineCode를 영속 상태로 저장하고,
+        // API 응답에서는 같은 의미를 CancelResultCode로 복원한다.
         return switch (declineCode) {
             case ORIGINAL_NOT_FOUND -> CancelResultCode.ORIGINAL_NOT_FOUND;
 
@@ -230,6 +264,8 @@ public class CancelServiceImpl implements CancelService {
             VanCancel cancel,
             CancelResultCode resultCode
     ) {
+        // 저장된 VAN 취소 원장을 외부 응답 객체로 변환한다.
+        // 동일 cancelPosTrx replay 경로에서는 저장 row의 cancelPosTrx가 그대로 응답된다.
         return new CancelResult(
                 cancel.getVanCancelTrxId(),
                 cancel.getCancelPosTrx(),
@@ -247,6 +283,10 @@ public class CancelServiceImpl implements CancelService {
             CancelCommand command,
             CancelResultCode resultCode
     ) {
+        // 정상 취소 원장 생성.
+        // - vanCancelTrxId는 VAN 내부 취소 거래 추적키다.
+        // - cancelApprovalNo는 취소 성공 응답에 포함되는 VAN 취소 승인번호다.
+        // - 원승인 row는 수정하지 않고 van_cancel에만 별도 사실을 남긴다.
         VanCancel cancel = VanCancel.builder()
                 .vanCancelTrxId(vanTransactionIdGenerator.generate())
                 .cancelPosTrx(command.cancelPosTrx())
@@ -272,6 +312,8 @@ public class CancelServiceImpl implements CancelService {
             String declineCode,
             CancelResultCode resultCode
     ) {
+        // 취소 거절도 VAN 취소 원장에 남긴다.
+        // 이후 같은 cancelPosTrx replay는 이 row를 기준으로 같은 거절 응답을 재생한다.
         VanCancel cancel = VanCancel.builder()
                 .vanCancelTrxId(vanTransactionIdGenerator.generate())
                 .cancelPosTrx(command.cancelPosTrx())
@@ -293,6 +335,7 @@ public class CancelServiceImpl implements CancelService {
     }
 
     private LocalDateTime now() {
+        // PostgreSQL timestamp와 Java LocalDateTime 비교 흔들림을 줄이기 위해 마이크로초 단위로 맞춘다.
         return LocalDateTime.now()
                 .truncatedTo(ChronoUnit.MICROS);
     }

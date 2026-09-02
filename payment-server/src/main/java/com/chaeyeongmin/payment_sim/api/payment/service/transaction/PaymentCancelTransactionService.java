@@ -28,6 +28,19 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 
+/**
+ * 취소 처리 중 DB 트랜잭션이 필요한 구간만 담당한다.
+ *
+ * <p>
+ * 이 클래스의 핵심 역할:
+ * - prepare(): 원승인 posTrx lock, 원승인/카드 검증, 기존 취소 재응답 판단, 신규 PENDING row 선점
+ * - finalizeCancel(): VAN cancel 응답을 PENDING row의 최종 상태로 확정
+ *
+ * <p>
+ * 외부 VAN 호출은 이 클래스 안에서 하지 않는다. prepare()가 커밋된 뒤에만 오케스트레이션 서비스가
+ * VAN을 호출하고, 그 결과를 finalizeCancel()로 다시 가져온다. 이 경계를 지켜야 DB lock을 잡은 채
+ * 네트워크 I/O를 수행하지 않고, 동시에 같은 원승인에 대한 중복 취소도 막을 수 있다.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -354,7 +367,7 @@ public class PaymentCancelTransactionService {
                     posTrx,
                     originalPosTrx,
                     originalAttemptSeq,
-                        originalAttempt
+                    originalAttempt
             );
 
         }
@@ -474,6 +487,9 @@ public class PaymentCancelTransactionService {
             PaymentCancelPrepareResult prepared,
             VanCancelResponse vanCancelResponse
     ) {
+        // TX2 진입 방어.
+        // - completed prepare 결과는 이미 응답이 확정된 경로라 VAN을 호출하면 안 된다.
+        // - prepared/vanCancelResponse 누락은 서비스 조립 오류이므로 내부 오류로 즉시 중단한다.
         if (prepared == null || vanCancelResponse == null || prepared.isCompleted())
             throw new BusinessException(
                     ResultCode.INTERNAL_ERROR,
