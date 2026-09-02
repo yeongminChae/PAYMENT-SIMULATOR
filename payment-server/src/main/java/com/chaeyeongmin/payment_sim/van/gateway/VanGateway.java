@@ -30,40 +30,29 @@ import com.chaeyeongmin.payment_sim.van.client.dto.*;
 public interface VanGateway {
 
     /**
-     * [A6] VAN 승인 호출 (외부 승인 1회)
+     * [Approve] VAN 승인 호출.
+     *
      * <p>
-     * 입력:
-     * - VanApproveRequest: posTrx/attemptSeq/amount + 민감정보(pan/expiry) 포함 (VAN 전송용)
-     * <p>
-     * 출력:
-     * - VanApproveResponse: 승인 결과(승인번호/거절코드/타임아웃 여부 등) + VAN 응답 원천
-     * <p>
-     * 주의:
-     * - 이 메서드는 "동기"로 동작한다(응답이 올 때까지 호출 스레드가 대기).
-     * - 타임아웃/통신 실패는 예외로 던지고, 상위(Service)가 처리한다.
+     * Payment는 승인 준비 TX에서 attempt를 만든 뒤 이 포트를 호출한다.
+     * 응답을 받으면 승인 확정 TX에서 DB 정본으로 반영한다.
      */
     VanApproveResponse approve(VanApproveRequest request);
 
     /**
-     * [Cancel] VAN 취소 호출
+     * [Cancel] VAN 취소 호출.
+     *
      * <p>
-     * 입력:
-     * - VanCancelRequest: 원거래 식별(posTrx/attemptSeq), 승인번호/취소금액 등
-     * <p>
-     * 출력:
-     * - VanCancelResponse: 취소 승인번호/거절코드 등
+     * Payment는 취소 준비 TX에서 원승인 검증과 PENDING row 생성을 끝낸 요청만 이 포트를 호출한다.
+     * TCP 구현에서는 cancelPosTrx와 원승인 거래 식별 정보를 VAN Simulator에 전달한다.
      */
     VanCancelResponse cancel(VanCancelRequest request);
 
     /**
-     * [Inquiry] VAN 승인 조회 호출
+     * [Inquiry] VAN 승인 조회 호출.
+     *
      * <p>
-     * 사용 목적:
-     * - 타임아웃/통신오류 등으로 "승인 결과가 미확정"일 때
-     * VAN에 조회를 요청하여 최종 승인 여부를 확인한다.
-     * <p>
-     * 출력:
-     * - VanInquiryResponse: 조회 결과(승인/거절/미확정)
+     * Payment는 승인 타임아웃/응답 유실로 결과가 미확정일 때 VAN에 조회를 요청한다.
+     * 조회 결과는 기존 UNKNOWN_TIMEOUT attempt를 복구하는 데 사용한다.
      */
     VanInquiryResponse inquiry(VanInquiryRequest request);
 

@@ -1,8 +1,11 @@
 package com.chaeyeongmin.payment_sim.van.gateway;
 
 import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
+import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveResponse;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelRequest;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelResponse;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResponse;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
@@ -13,6 +16,10 @@ import com.chaeyeongmin.payment_sim.van.client.tcp.exception.VanTcpRequestNotSen
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.approval.VanApprovalStatus;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.approval.VanApprovalTcpRequest;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.approval.VanApprovalTcpResponse;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.cancel.VanCancelTcpRequest;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.cancel.VanCancelTcpResponse;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.cancel.VanCancelTcpResultCode;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.cancel.VanCancelTcpStatus;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryStatus;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTcpRequest;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTcpResponse;
@@ -304,6 +311,163 @@ class TcpVanGatewayTest {
                 .hasCauseInstanceOf(VanTcpResponseTimeoutException.class);
     }
 
+    @Test
+    void 기존_취소요청을_TCP_CANCEL_전문으로_변환하고_CANCELLED_응답을_업무응답으로_변환한다() throws Exception {
+        // given
+        VanCancelRequest request = cancelRequest("2301-20260808-9999-0201");
+        VanCancelTcpResponse tcpResponse = cancelTcpResponse(
+                request,
+                VanCancelTcpStatus.CANCELLED,
+                VanCancelTcpResultCode.SUCCESS,
+                "VAN-CANCEL-TCP-001",
+                "CANCEL-APPROVAL-TCP-001",
+                null
+        );
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        // when
+        VanCancelResponse response = tcpVanGateway.cancel(request);
+
+        // then
+        ArgumentCaptor<byte[]> requestPayloadCaptor = ArgumentCaptor.forClass(byte[].class);
+        verify(vanTcpClient).send(requestPayloadCaptor.capture());
+
+        VanCancelTcpRequest tcpRequest =
+                objectMapper.readValue(requestPayloadCaptor.getValue(), VanCancelTcpRequest.class);
+
+        assertThat(tcpRequest.protocolVersion()).isEqualTo("1");
+        assertThat(tcpRequest.messageType()).isEqualTo("CANCEL");
+        assertThat(tcpRequest.requestId()).isEqualTo("CANCEL-" + request.posTrx());
+        assertThat(tcpRequest.cancelPosTrx()).isEqualTo(request.posTrx());
+        assertThat(tcpRequest.originalPosTrx()).isEqualTo(request.originalPosTrx());
+        assertThat(tcpRequest.originalAttemptSeq()).isEqualTo(request.originalAttemptSeq());
+        assertThat(tcpRequest.originalVanTrxId()).isEqualTo(request.vanTrxId());
+        assertThat(tcpRequest.originalApprovalNo()).isEqualTo(request.approvalNo());
+        assertThat(tcpRequest.amount()).isEqualTo(request.amount());
+
+        assertThat(response.posTrx()).isEqualTo(request.posTrx());
+        assertThat(response.originalPosTrx()).isEqualTo(request.originalPosTrx());
+        assertThat(response.originalAttemptSeq()).isEqualTo(request.originalAttemptSeq());
+        assertThat(response.cancelStatus()).isEqualTo(CancelStatus.CANCELLED);
+        assertThat(response.cancelApprovalNo()).isEqualTo("CANCEL-APPROVAL-TCP-001");
+        assertThat(response.declineCode()).isNull();
+        assertThat(response.vanTrxId()).isEqualTo("VAN-CANCEL-TCP-001");
+        assertThat(response.message()).isEqualTo("SUCCESS");
+        assertThat(response.respondedAt()).isNotNull();
+    }
+
+    @Test
+    void TCP_ORIGINAL_MISMATCH_취소응답을_CANCEL_DECLINED_업무응답으로_변환한다() throws Exception {
+        // given
+        VanCancelRequest request = cancelRequest("2301-20260808-9999-0202");
+        VanCancelTcpResponse tcpResponse = cancelTcpResponse(
+                request,
+                VanCancelTcpStatus.CANCEL_DECLINED,
+                VanCancelTcpResultCode.ORIGINAL_MISMATCH,
+                "VAN-CANCEL-TCP-002",
+                null,
+                "ORIGINAL_MISMATCH"
+        );
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        // when
+        VanCancelResponse response = tcpVanGateway.cancel(request);
+
+        // then
+        assertThat(response.posTrx()).isEqualTo(request.posTrx());
+        assertThat(response.originalPosTrx()).isEqualTo(request.originalPosTrx());
+        assertThat(response.originalAttemptSeq()).isEqualTo(request.originalAttemptSeq());
+        assertThat(response.cancelStatus()).isEqualTo(CancelStatus.CANCEL_DECLINED);
+        assertThat(response.cancelApprovalNo()).isNull();
+        assertThat(response.declineCode()).isEqualTo(VanDeclineCode.ORIGINAL_MISMATCH);
+        assertThat(response.vanTrxId()).isEqualTo("VAN-CANCEL-TCP-002");
+        assertThat(response.message()).isEqualTo("ORIGINAL_MISMATCH");
+        assertThat(response.respondedAt()).isNotNull();
+    }
+
+    @Test
+    void TCP_CANCEL_응답의_correlation이_다르면_gateway_예외를_던진다() throws Exception {
+        // given
+        VanCancelRequest request = cancelRequest("2301-20260808-9999-0203");
+        VanCancelTcpResponse mismatchedResponse = new VanCancelTcpResponse(
+                "1",
+                "CANCEL_RESPONSE",
+                "CANCEL-DIFFERENT",
+                request.posTrx(),
+                request.originalPosTrx(),
+                request.originalAttemptSeq(),
+                "VAN-CANCEL-TCP-003",
+                VanCancelTcpStatus.CANCELLED,
+                VanCancelTcpResultCode.SUCCESS,
+                "CANCEL-APPROVAL-TCP-003",
+                null
+        );
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenReturn(objectMapper.writeValueAsBytes(mismatchedResponse));
+
+        // when & then
+        assertThatThrownBy(() -> tcpVanGateway.cancel(request))
+                .isInstanceOf(TcpVanGatewayException.class)
+                .hasMessage("VAN_TCP_CANCEL_RESPONSE_MISMATCH");
+    }
+
+    @Test
+    void TCP_CANCEL_응답의_상태_조합이_모순이면_gateway_예외를_던진다() throws Exception {
+        // given
+        VanCancelRequest request = cancelRequest("2301-20260808-9999-0204");
+        VanCancelTcpResponse invalidResponse = cancelTcpResponse(
+                request,
+                VanCancelTcpStatus.CANCELLED,
+                VanCancelTcpResultCode.ORIGINAL_NOT_FOUND,
+                "VAN-CANCEL-TCP-004",
+                "CANCEL-APPROVAL-TCP-004",
+                "ORIGINAL_NOT_FOUND"
+        );
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenReturn(objectMapper.writeValueAsBytes(invalidResponse));
+
+        // when & then
+        assertThatThrownBy(() -> tcpVanGateway.cancel(request))
+                .isInstanceOf(TcpVanGatewayException.class)
+                .hasMessage("VAN_TCP_CANCEL_RESPONSE_INVALID");
+    }
+
+    @Test
+    void TCP_CANCEL_응답_timeout이면_gateway_timeout으로_변환한다() {
+        // given
+        VanCancelRequest request = cancelRequest("2301-20260808-9999-0205");
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenThrow(new VanTcpResponseTimeoutException(
+                        new RuntimeException("timeout")
+                ));
+
+        // when & then
+        assertThatThrownBy(() -> tcpVanGateway.cancel(request))
+                .isInstanceOf(VanGatewayTimeoutException.class)
+                .hasCauseInstanceOf(VanTcpResponseTimeoutException.class);
+    }
+
+    @Test
+    void TCP_CANCEL_request_not_sent이면_gateway_request_not_sent로_변환한다() {
+        // given
+        VanCancelRequest request = cancelRequest("2301-20260808-9999-0206");
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenThrow(new VanTcpRequestNotSentException(new RuntimeException("connect failed")));
+
+        // when & then
+        assertThatThrownBy(() -> tcpVanGateway.cancel(request))
+                .isInstanceOf(VanGatewayRequestNotSentException.class)
+                .hasCauseInstanceOf(VanTcpRequestNotSentException.class);
+    }
+
     private VanInquiryRequest inquiryRequest(String posTrx, int attemptSeq) {
         return VanInquiryRequest.builder()
                 .posTrx(posTrx)
@@ -332,6 +496,41 @@ class TcpVanGatewayTest {
                 approvalNo,
                 declineCode,
                 respondedAt
+        );
+    }
+
+    private VanCancelRequest cancelRequest(String cancelPosTrx) {
+        return VanCancelRequest.builder()
+                .posTrx(cancelPosTrx)
+                .originalPosTrx("2301-20260808-9999-0101")
+                .originalAttemptSeq(1)
+                .amount(10_000)
+                .approvalNo("APPROVAL-CANCEL-001")
+                .vanTrxId("VAN-APPROVAL-CANCEL-001")
+                .cardLast4("4242")
+                .build();
+    }
+
+    private VanCancelTcpResponse cancelTcpResponse(
+            VanCancelRequest request,
+            VanCancelTcpStatus status,
+            VanCancelTcpResultCode resultCode,
+            String vanCancelTrxId,
+            String cancelApprovalNo,
+            String declineCode
+    ) {
+        return new VanCancelTcpResponse(
+                "1",
+                "CANCEL_RESPONSE",
+                "CANCEL-" + request.posTrx(),
+                request.posTrx(),
+                request.originalPosTrx(),
+                request.originalAttemptSeq(),
+                vanCancelTrxId,
+                status,
+                resultCode,
+                cancelApprovalNo,
+                declineCode
         );
     }
 
