@@ -325,6 +325,12 @@ class PostgresCancelConcurrencyIntegrationTest {
                     ),
 
                     () -> assertEquals(
+                            "VAN-TRX-CANCEL-CONCURRENCY-CANCEL",
+                            paymentCancelVanCancelTrxId(storedCancelPosTrx),
+                            "stored vanCancelTrxId"
+                    ),
+
+                    () -> assertEquals(
                             0,
                             countPaymentCancelRowsExcept(storedCancelPosTrx),
                             "extra PAYMENT_CANCEL rows"
@@ -466,6 +472,14 @@ class PostgresCancelConcurrencyIntegrationTest {
     private String paymentCancelApprovalNo(String currentPosTrx) {
         return jdbcTemplate.queryForObject(
                 "SELECT CANCEL_APPROVAL_NO FROM PAYMENT_CANCEL WHERE CURRENT_TRX_NO = ?",
+                String.class,
+                currentPosTrx
+        );
+    }
+
+    private String paymentCancelVanCancelTrxId(String currentPosTrx) {
+        return jdbcTemplate.queryForObject(
+                "SELECT VAN_CANCEL_TRX_ID FROM PAYMENT_CANCEL WHERE CURRENT_TRX_NO = ?",
                 String.class,
                 currentPosTrx
         );

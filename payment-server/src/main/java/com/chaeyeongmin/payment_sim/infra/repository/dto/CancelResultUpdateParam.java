@@ -7,13 +7,14 @@ import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
  *
  * <p>
  * VAN 취소 결과가 확정되면 CANCELLED 또는 CANCEL_DECLINED 상태와
- * 승인번호/거절코드를 함께 저장한다.
+ * VAN 취소 거래번호, 승인번호/거절코드를 함께 저장한다.
  */
 public record CancelResultUpdateParam(
         String posTrx,
         String originalPosTrx,
         int originalAttemptSeq,
         CancelStatus cancelStatus,
+        String vanCancelTrxId,
         String cancelApprovalNo,
         String declineCode
 ) {
@@ -24,6 +25,7 @@ public record CancelResultUpdateParam(
             String posTrx,
             String originalPosTrx,
             int originalAttemptSeq,
+            String vanCancelTrxId,
             String cancelApprovalNo
     ) {
         return new CancelResultUpdateParam(
@@ -31,6 +33,7 @@ public record CancelResultUpdateParam(
                 originalPosTrx,
                 originalAttemptSeq,
                 CancelStatus.CANCELLED,
+                vanCancelTrxId,
                 cancelApprovalNo,
                 null
         );
@@ -43,6 +46,7 @@ public record CancelResultUpdateParam(
             String posTrx,
             String originalPosTrx,
             int originalAttemptSeq,
+            String vanCancelTrxId,
             String declineCode
     ) {
         return new CancelResultUpdateParam(
@@ -50,6 +54,7 @@ public record CancelResultUpdateParam(
                 originalPosTrx,
                 originalAttemptSeq,
                 CancelStatus.CANCEL_DECLINED,
+                vanCancelTrxId,
                 null,
                 declineCode
         );

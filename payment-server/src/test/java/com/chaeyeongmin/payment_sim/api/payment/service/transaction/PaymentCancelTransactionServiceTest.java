@@ -378,6 +378,7 @@ class PaymentCancelTransactionServiceTest {
                 "2376-20260521-9991-1001",
                 1,
                 CancelStatus.CANCELLED,
+                "VAN-CANCEL-EXISTING",
                 "C998855",
                 null
         );
@@ -596,6 +597,7 @@ class PaymentCancelTransactionServiceTest {
         ArgumentCaptor<CancelResultUpdateParam> captor = ArgumentCaptor.forClass(CancelResultUpdateParam.class);
         verify(repository).updateCancelResult(captor.capture());
         assertEquals(CancelStatus.CANCELLED, captor.getValue().cancelStatus());
+        assertEquals("2376-20260519-9991-1001-01", captor.getValue().vanCancelTrxId());
         assertEquals("VAN-CANCEL-APPROVAL-0001", captor.getValue().cancelApprovalNo());
     }
 
@@ -619,6 +621,7 @@ class PaymentCancelTransactionServiceTest {
         ArgumentCaptor<CancelResultUpdateParam> captor = ArgumentCaptor.forClass(CancelResultUpdateParam.class);
         verify(repository).updateCancelResult(captor.capture());
         assertEquals(CancelStatus.CANCEL_DECLINED, captor.getValue().cancelStatus());
+        assertEquals("2376-20260519-9991-1001-01", captor.getValue().vanCancelTrxId());
         assertEquals(VanDeclineCode.DO_NOT_HONOR.code(), captor.getValue().declineCode());
     }
 
@@ -876,6 +879,7 @@ class PaymentCancelTransactionServiceTest {
                 baseReq.originalPosTrx(),
                 baseReq.originalAttemptSeq(),
                 status,
+                "VAN-CANCEL-0001",
                 cancelApprovalNo,
                 declineCode
         );
@@ -892,6 +896,7 @@ class PaymentCancelTransactionServiceTest {
                 request.originalPosTrx(),
                 request.originalAttemptSeq(),
                 status,
+                "VAN-CANCEL-0001",
                 cancelApprovalNo,
                 declineCode
         );

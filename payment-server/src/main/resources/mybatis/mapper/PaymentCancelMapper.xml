@@ -33,6 +33,7 @@
         ORIGINAL_TRX_NO AS originalPosTrx,
         ORIGINAL_ATTEMPT_SEQ AS originalAttemptSeq,
         CANCEL_STATUS AS cancelStatus,
+        VAN_CANCEL_TRX_ID AS vanCancelTrxId,
         CANCEL_APPROVAL_NO AS cancelApprovalNo,
         DECLINE_CODE AS declineCode;
     </select>
@@ -49,6 +50,7 @@
         UPDATE PAYMENT_CANCEL
         SET
         CANCEL_STATUS = #{cancel.cancelStatusValue},
+        VAN_CANCEL_TRX_ID = #{cancel.vanCancelTrxId},
         CANCEL_APPROVAL_NO = #{cancel.cancelApprovalNo},
         DECLINE_CODE = #{cancel.declineCode},
         UPDATED_AT = CURRENT_TIMESTAMP
@@ -61,6 +63,7 @@
         ORIGINAL_TRX_NO AS originalPosTrx,
         ORIGINAL_ATTEMPT_SEQ AS originalAttemptSeq,
         CANCEL_STATUS AS cancelStatus,
+        VAN_CANCEL_TRX_ID AS vanCancelTrxId,
         CANCEL_APPROVAL_NO AS cancelApprovalNo,
         DECLINE_CODE AS declineCode
     </select>
@@ -77,6 +80,7 @@
         C.ORIGINAL_TRX_NO AS originalPosTrx,
         C.ORIGINAL_ATTEMPT_SEQ AS originalAttemptSeq,
         C.CANCEL_STATUS AS cancelStatus,
+        C.VAN_CANCEL_TRX_ID AS vanCancelTrxId,
         C.CANCEL_APPROVAL_NO AS cancelApprovalNo,
         C.DECLINE_CODE AS declineCode
         FROM PAYMENT_CANCEL C
@@ -99,6 +103,7 @@
         C.ORIGINAL_TRX_NO AS originalPosTrx,
         C.ORIGINAL_ATTEMPT_SEQ AS originalAttemptSeq,
         C.CANCEL_STATUS AS cancelStatus,
+        C.VAN_CANCEL_TRX_ID AS vanCancelTrxId,
         C.CANCEL_APPROVAL_NO AS cancelApprovalNo,
         C.DECLINE_CODE AS declineCode
         FROM PAYMENT_CANCEL C

@@ -515,13 +515,14 @@ public class PaymentCancelTransactionService {
             }
 
             // CANCELLED -> 취소 성공 확정.
-            // - PAYMENT_CANCEL row를 CANCELLED로 바꾸고 cancelApprovalNo를 저장한다.
+            // - PAYMENT_CANCEL row를 CANCELLED로 바꾸고 VAN 취소 거래번호와 cancelApprovalNo를 저장한다.
             // - 응답은 update RETURNING row 기준으로 조립해 DB 저장값과 응답값을 맞춘다.
             case CANCELLED -> {
                 CancelResultUpdateParam updateParam = CancelResultUpdateParam.cancelled(
                         posTrx,
                         originalPosTrx,
                         originalAttemptSeq,
+                        vanCancelResponse.vanTrxId(),
                         vanCancelResponse.cancelApprovalNo()
                 );
                 Optional<PaymentCancel> updatedCancelOpt =
@@ -554,13 +555,14 @@ public class PaymentCancelTransactionService {
             }
 
             // CANCEL_DECLINED -> 취소 거절 확정.
-            // - PAYMENT_CANCEL row를 CANCEL_DECLINED로 바꾸고 declineCode를 저장한다.
+            // - PAYMENT_CANCEL row를 CANCEL_DECLINED로 바꾸고 VAN 취소 거래번호와 declineCode를 저장한다.
             // - 이 상태도 최종 상태이므로 이후 같은 원거래 취소 요청은 DB 재응답으로 처리한다.
             case CANCEL_DECLINED -> {
                 CancelResultUpdateParam updateParam = CancelResultUpdateParam.declined(
                         posTrx,
                         originalPosTrx,
                         originalAttemptSeq,
+                        vanCancelResponse.vanTrxId(),
                         responseDeclineCode
                 );
                 Optional<PaymentCancel> updatedCancelOpt =

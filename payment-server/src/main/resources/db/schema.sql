@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS PAYMENT_CANCEL
 	ORIGINAL_TRX_NO      TEXT                                                 not null,
 	ORIGINAL_ATTEMPT_SEQ INTEGER                                              not null,
 	CANCEL_STATUS        TEXT                                                 not null,
+	VAN_CANCEL_TRX_ID    TEXT,
 	CANCEL_APPROVAL_NO   TEXT,
 	DECLINE_CODE         TEXT,
 	CREATED_AT           TEXT default (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')) not null,
@@ -121,6 +122,10 @@ CREATE TABLE IF NOT EXISTS PAYMENT_CANCEL
 
 	CHECK (CANCEL_STATUS IN ('PENDING', 'CANCELLED', 'CANCEL_DECLINED'))
 );
+
+-- 기존 SQLite DB는 CREATE TABLE IF NOT EXISTS만으로 새 컬럼이 생기지 않는다.
+-- application.yml의 continue-on-error=true로 이미 존재하는 컬럼 오류는 통과시킨다.
+ALTER TABLE PAYMENT_CANCEL ADD COLUMN VAN_CANCEL_TRX_ID TEXT NULL;
 
 CREATE INDEX IF NOT EXISTS IDX_PAYMENT_CANCEL_STATUS
 	ON PAYMENT_CANCEL (CANCEL_STATUS);
