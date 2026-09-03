@@ -14,6 +14,7 @@ import com.chaeyeongmin.van_sim.transaction.reversal.service.exception.ReversalR
 import com.chaeyeongmin.van_sim.transaction.reversal.service.result.ReversalResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -77,6 +78,7 @@ class ReversalServiceImplTest {
 
         assertThat(result.reversalStatus()).isEqualTo(VanReversalStatus.REVERSED);
         assertThat(result.resultCode()).isEqualTo(ReversalResultCode.SUCCESS);
+        assertSavedReversed(command);
     }
 
     @Test
@@ -98,6 +100,7 @@ class ReversalServiceImplTest {
 
         assertThat(result.reversalStatus()).isEqualTo(VanReversalStatus.REVERSED);
         assertThat(result.resultCode()).isEqualTo(ReversalResultCode.SUCCESS);
+        assertSavedReversed(command);
     }
 
     @Test
@@ -116,6 +119,7 @@ class ReversalServiceImplTest {
 
         assertThat(result.reversalStatus()).isEqualTo(VanReversalStatus.REVERSAL_DECLINED);
         assertThat(result.resultCode()).isEqualTo(ReversalResultCode.ORIGINAL_NOT_REVERSIBLE);
+        assertSavedDeclined(command, ReversalResultCode.ORIGINAL_NOT_REVERSIBLE);
     }
 
     @Test
@@ -134,6 +138,7 @@ class ReversalServiceImplTest {
 
         assertThat(result.reversalStatus()).isEqualTo(VanReversalStatus.REVERSAL_DECLINED);
         assertThat(result.resultCode()).isEqualTo(ReversalResultCode.ORIGINAL_NOT_FOUND);
+        assertSavedDeclined(command, ReversalResultCode.ORIGINAL_NOT_FOUND);
     }
 
     @Test
@@ -152,6 +157,7 @@ class ReversalServiceImplTest {
 
         assertThat(result.reversalStatus()).isEqualTo(VanReversalStatus.REVERSAL_DECLINED);
         assertThat(result.resultCode()).isEqualTo(ReversalResultCode.ORIGINAL_MISMATCH);
+        assertSavedDeclined(command, ReversalResultCode.ORIGINAL_MISMATCH);
     }
 
     @Test
@@ -299,5 +305,34 @@ class ReversalServiceImplTest {
                 .declineCode(declineCode)
                 .processedAt(LocalDateTime.now())
                 .build();
+    }
+
+    private void assertSavedReversed(ReversalCommand command) {
+        ArgumentCaptor<VanReversal> captor = ArgumentCaptor.forClass(VanReversal.class);
+        verify(reversalRepository).save(captor.capture());
+
+        VanReversal saved = captor.getValue();
+        assertThat(saved.getReversalStatus()).isEqualTo(VanReversalStatus.REVERSED);
+        assertThat(saved.getOriginalPosTrx()).isEqualTo(command.originalPosTrx());
+        assertThat(saved.getOriginalAttemptSeq()).isEqualTo(command.originalAttemptSeq());
+        assertThat(saved.getAmount()).isEqualTo(command.amount());
+        assertThat(saved.getReversalApprovalNo()).isNotNull();
+        assertThat(saved.getDeclineCode()).isNull();
+    }
+
+    private void assertSavedDeclined(
+            ReversalCommand command,
+            ReversalResultCode expectedDeclineCode
+    ) {
+        ArgumentCaptor<VanReversal> captor = ArgumentCaptor.forClass(VanReversal.class);
+        verify(reversalRepository).save(captor.capture());
+
+        VanReversal saved = captor.getValue();
+        assertThat(saved.getReversalStatus()).isEqualTo(VanReversalStatus.REVERSAL_DECLINED);
+        assertThat(saved.getOriginalPosTrx()).isEqualTo(command.originalPosTrx());
+        assertThat(saved.getOriginalAttemptSeq()).isEqualTo(command.originalAttemptSeq());
+        assertThat(saved.getAmount()).isEqualTo(command.amount());
+        assertThat(saved.getReversalApprovalNo()).isNull();
+        assertThat(saved.getDeclineCode()).isEqualTo(expectedDeclineCode.name());
     }
 }
