@@ -207,6 +207,66 @@ class CancelTcpHandlerTest {
     }
 
     @Test
+    @DisplayName("같은 cancelPosTrx 시나리오를 덮어쓰면 마지막 등록값을 적용한다")
+    void 같은_cancelPosTrx_시나리오를_덮어쓰면_마지막_등록값을_적용한다() throws Exception {
+        CancelScenarioRegistry realRegistry = new CancelScenarioRegistryImpl();
+        CancelRequestMessage request = validRequest();
+        CancelResult result = successResult(request);
+        byte[] payload = objectMapper.writeValueAsBytes(request);
+        CancelTcpHandler handlerWithRealRegistry = new CancelTcpHandler(
+                objectMapper,
+                mapper,
+                cancelService,
+                realRegistry
+        );
+
+        realRegistry.register(
+                request.cancelPosTrx(),
+                new CancelScenario(CancelTransportBehavior.NORMAL)
+        );
+        realRegistry.register(
+                request.cancelPosTrx(),
+                new CancelScenario(CancelTransportBehavior.DROP_RESPONSE)
+        );
+        when(cancelService.processCancel(any(CancelCommand.class))).thenReturn(result);
+
+        byte[] responsePayload = handlerWithRealRegistry.handle(payload);
+
+        assertThat(responsePayload).isNull();
+        verify(cancelService, times(1)).processCancel(any(CancelCommand.class));
+    }
+
+    @Test
+    @DisplayName("DROP_RESPONSE 시나리오를 삭제하면 정상 CANCEL_RESPONSE payload를 반환한다")
+    void DROP_RESPONSE_시나리오를_삭제하면_정상_CANCEL_RESPONSE_payload를_반환한다() throws Exception {
+        CancelScenarioRegistry realRegistry = new CancelScenarioRegistryImpl();
+        CancelRequestMessage request = validRequest();
+        CancelResult result = successResult(request);
+        byte[] payload = objectMapper.writeValueAsBytes(request);
+        CancelTcpHandler handlerWithRealRegistry = new CancelTcpHandler(
+                objectMapper,
+                mapper,
+                cancelService,
+                realRegistry
+        );
+
+        realRegistry.register(
+                request.cancelPosTrx(),
+                new CancelScenario(CancelTransportBehavior.DROP_RESPONSE)
+        );
+        realRegistry.remove(request.cancelPosTrx());
+        when(cancelService.processCancel(any(CancelCommand.class))).thenReturn(result);
+
+        byte[] responsePayload = handlerWithRealRegistry.handle(payload);
+
+        assertThat(responsePayload).isNotNull();
+        CancelResponseMessage response = objectMapper.readValue(responsePayload, CancelResponseMessage.class);
+        assertThat(response.messageType()).isEqualTo("CANCEL_RESPONSE");
+        assertThat(response.cancelPosTrx()).isEqualTo(request.cancelPosTrx());
+        verify(cancelService, times(1)).processCancel(any(CancelCommand.class));
+    }
+
+    @Test
     void protocolVersion이_1이_아니면_CancelTcpMessageException을_던지고_service를_호출하지_않는다() throws Exception {
         // given
         // request:
