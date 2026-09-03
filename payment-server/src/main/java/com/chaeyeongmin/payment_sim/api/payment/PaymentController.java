@@ -2,6 +2,7 @@ package com.chaeyeongmin.payment_sim.api.payment;
 
 import com.chaeyeongmin.payment_sim.api.payment.dto.card.CardInput;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.ApproveRequest;
+import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelInquiryRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.InquiryRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.ApproveResponse;
@@ -9,6 +10,7 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.InquiryResponse;
 import com.chaeyeongmin.payment_sim.api.payment.mapper.PaymentApiResponseMapper;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
+import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelInquiryService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentInquiryService;
 import com.chaeyeongmin.payment_sim.common.api.ApiResponse;
@@ -45,6 +47,7 @@ public class PaymentController {
     private final PaymentApprovalService approvalService;
     private final PaymentInquiryService inquiryService;
     private final PaymentCancelService cancelService;
+    private final PaymentCancelInquiryService cancelInquiryService;
     private final PaymentApiResponseMapper responseMapper;
 
     @PostMapping("/approve")
@@ -93,6 +96,26 @@ public class PaymentController {
         CancelResponse response = cancelService.cancel(request);
 
         log.info("[cancel][C1] response. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, cancelStatus={}",
+                response.posTrx(),
+                response.originalPosTrx(),
+                response.originalAttemptSeq(),
+                response.cancelStatus()
+        );
+
+        return responseMapper.fromCancel(response);
+    }
+
+    @PostMapping("/cancel/inquiry")
+    public ApiResponse<CancelResponse> cancelInquiry(
+            @Valid @RequestBody CancelInquiryRequest request
+    ) {
+        // 취소 조회는 기존 /cancel 재요청과 의미가 다르다.
+        // 이미 CANCELLED인 row도 ALREADY_CANCELLED가 아니라 inquiry 결과인 CANCELLED로 내려간다.
+        log.info("[cancel-inquiry] request received. posTrx={}", request.posTrx());
+
+        CancelResponse response = cancelInquiryService.inquiry(request);
+
+        log.info("[cancel-inquiry] response. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, cancelStatus={}",
                 response.posTrx(),
                 response.originalPosTrx(),
                 response.originalAttemptSeq(),

@@ -193,7 +193,7 @@ public class TcpVanGateway implements VanGateway {
                 PROTOCOL_VERSION,
                 INQUIRY_MESSAGE_TYPE,
                 inquiryRequestId(request),
-                toTcpTargetType(request.targetType()),
+                request.targetType(),
                 request.targetTrxNo(),
                 request.targetAttemptSeq()
         );
@@ -461,10 +461,10 @@ public class TcpVanGateway implements VanGateway {
      */
     private VanInquiryResponse toInquiryResponse(VanInquiryTcpResponse tcpResponse) {
         return VanInquiryResponse.builder()
-                .targetType(toDtoTargetType(tcpResponse.targetType()))
+                .targetType(tcpResponse.targetType())
                 .targetTrxNo(tcpResponse.targetTrxNo())
                 .targetAttemptSeq(tcpResponse.targetAttemptSeq())
-                .resultCode(toDtoResultCode(tcpResponse.resultCode()))
+                .resultCode(tcpResponse.resultCode())
                 .status(tcpResponse.status())
                 .vanTrxId(tcpResponse.vanTrxId())
                 .approvalNo(tcpResponse.approvalNo())
@@ -589,7 +589,7 @@ public class TcpVanGateway implements VanGateway {
      * UNKNOWN 또는 TIMEOUT 문자열은 후속조회에서도 아직 미확정이라는 의미로 TIMEOUT에 매핑한다.
      */
     private VanDeclineCode toDeclineCode(VanInquiryTcpResponse tcpResponse) {
-        if (tcpResponse.resultCode() == com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryResultCode.NOT_FOUND
+        if (tcpResponse.resultCode() == VanInquiryResultCode.NOT_FOUND
                 || tcpResponse.status() == VanInquiryStatus.APPROVED
                 || tcpResponse.status() == VanInquiryStatus.CANCELLED) {
             return null;
@@ -607,35 +607,8 @@ public class TcpVanGateway implements VanGateway {
         return VanDeclineCode.DO_NOT_HONOR;
     }
 
-    private com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTargetType toTcpTargetType(
-            VanInquiryTargetType targetType
-    ) {
-        return switch (targetType) {
-            case APPROVAL -> com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTargetType.APPROVAL;
-            case CANCEL -> com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTargetType.CANCEL;
-        };
-    }
-
-    private VanInquiryTargetType toDtoTargetType(
-            com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTargetType targetType
-    ) {
-        return switch (targetType) {
-            case APPROVAL -> VanInquiryTargetType.APPROVAL;
-            case CANCEL -> VanInquiryTargetType.CANCEL;
-        };
-    }
-
-    private VanInquiryResultCode toDtoResultCode(
-            com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryResultCode resultCode
-    ) {
-        return switch (resultCode) {
-            case SUCCESS -> VanInquiryResultCode.SUCCESS;
-            case NOT_FOUND -> VanInquiryResultCode.NOT_FOUND;
-        };
-    }
-
     private String inquiryMessage(VanInquiryTcpResponse response) {
-        return response.resultCode() == com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryResultCode.NOT_FOUND
+        return response.resultCode() == VanInquiryResultCode.NOT_FOUND
                 ? response.resultCode().name()
                 : response.status().name();
     }

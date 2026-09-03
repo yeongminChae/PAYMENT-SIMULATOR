@@ -46,4 +46,9 @@ public class PaymentCancelRepositoryImpl implements PaymentCancelRepository {
         return mapper.updateCancelResult(param);
     }
 
+    @Override
+    public Optional<PaymentCancel> updateUnknownTimeoutToFinal(CancelResultUpdateParam param) {
+        return mapper.updateUnknownTimeoutToFinal(param);
+    }
+
 }

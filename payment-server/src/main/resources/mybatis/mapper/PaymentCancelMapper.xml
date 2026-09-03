@@ -69,6 +69,36 @@
     </select>
 
     <!--
+        Cancel Inquiry 복구용 update.
+        기존 updateCancelResult는 PENDING 전용으로 유지하고,
+        VAN Inquiry(CANCEL)로 확정된 결과는 UNKNOWN_TIMEOUT row에만 반영한다.
+        CURRENT_TRX_NO + ORIGINAL_* 조건은 조회 대상 row가 바뀌지 않았는지 확인하는 방어 조건이다.
+        동시 inquiry로 이미 다른 요청이 확정했다면 0 row가 반환되고 service가 재조회로 수렴한다.
+    -->
+    <select id="updateUnknownTimeoutToFinal"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentCancel">
+        UPDATE PAYMENT_CANCEL
+        SET
+        CANCEL_STATUS = #{cancel.cancelStatusValue},
+        VAN_CANCEL_TRX_ID = #{cancel.vanCancelTrxId},
+        CANCEL_APPROVAL_NO = #{cancel.cancelApprovalNo},
+        DECLINE_CODE = #{cancel.declineCode},
+        UPDATED_AT = CURRENT_TIMESTAMP
+        WHERE CURRENT_TRX_NO = #{cancel.posTrx}
+        AND ORIGINAL_TRX_NO = #{cancel.originalPosTrx}
+        AND ORIGINAL_ATTEMPT_SEQ = #{cancel.originalAttemptSeq}
+        AND CANCEL_STATUS = 'UNKNOWN_TIMEOUT'
+        RETURNING
+        CURRENT_TRX_NO AS posTrx,
+        ORIGINAL_TRX_NO AS originalPosTrx,
+        ORIGINAL_ATTEMPT_SEQ AS originalAttemptSeq,
+        CANCEL_STATUS AS cancelStatus,
+        VAN_CANCEL_TRX_ID AS vanCancelTrxId,
+        CANCEL_APPROVAL_NO AS cancelApprovalNo,
+        DECLINE_CODE AS declineCode
+    </select>
+
+    <!--
         [C4/C5/C7 복구] 원거래 기준 기존 취소 row 조회
         - 같은 원거래에 이미 취소 row가 있으면 VAN cancel을 다시 호출하지 않고 이 row 상태로 재응답한다.
         - C5 insert unique 충돌이나 C7 update miss 이후에도 같은 조회를 재사용할 수 있다.

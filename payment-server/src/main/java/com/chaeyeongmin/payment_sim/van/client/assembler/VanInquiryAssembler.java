@@ -38,4 +38,21 @@ public class VanInquiryAssembler {
                 .build();
     }
 
+    /**
+     * VAN Inquiry(CANCEL) 요청을 R5 공용 Inquiry 계약으로 구성한다.
+     *
+     * <p>
+     * CANCEL 조회의 targetTrxNo는 cancelPosTrx이고 targetAttemptSeq는 null이어야 한다.
+     * vanTrxId/cardLast4는 승인 조회 호환용 업무 DTO 필드이므로 TCP 전문에는 사용하지 않는다.
+     */
+    public VanInquiryRequest getCancelInquiryRequest(String cancelPosTrx) {
+        return VanInquiryRequest.builder()
+                .targetType(VanInquiryTargetType.CANCEL)
+                .targetTrxNo(cancelPosTrx)
+                .targetAttemptSeq(null)
+                .vanTrxId(null)
+                .cardLast4(null)
+                .build();
+    }
+
 }
