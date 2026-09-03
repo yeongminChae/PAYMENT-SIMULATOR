@@ -1,6 +1,9 @@
 package com.chaeyeongmin.van_sim.transaction.inquiry.service;
 
-import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.InquiryResult;
+import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.CancelInquiryResult;
+import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.ApprovalInquiryResult;
+
+import java.util.Optional;
 
 /**
  * VAN 승인 원장을 조회하는 Inquiry 유스케이스의 진입 계약이다.
@@ -18,5 +21,8 @@ public interface InquiryService {
      * 원장이 있으면 저장된 APPROVED/DECLINED/UNKNOWN 결과를 그대로 반환하고,
      * 원장이 없으면 상위 계층이 "아직 모름"으로 응답할 수 있도록 UNKNOWN 성격의 결과를 반환한다.
      */
-    InquiryResult inquire(String posTrx, int attemptSeq);
+    Optional<ApprovalInquiryResult> inquireApproval(String posTrx, int attemptSeq);
+
+    Optional<CancelInquiryResult> inquireCancel(String cancelPosTrx);
+
 }

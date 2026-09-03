@@ -1,10 +1,15 @@
 package com.chaeyeongmin.van_sim.transaction.inquiry.tcp;
 
 import com.chaeyeongmin.van_sim.protocol.inquiry.InquiryRequestMessage;
+import com.chaeyeongmin.van_sim.protocol.inquiry.InquiryResultCode;
 import com.chaeyeongmin.van_sim.protocol.inquiry.InquiryResponseMessage;
 import com.chaeyeongmin.van_sim.protocol.inquiry.InquiryResponseStatus;
-import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.InquiryResult;
+import com.chaeyeongmin.van_sim.protocol.inquiry.InquiryTargetType;
+import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.CancelInquiryResult;
+import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.ApprovalInquiryResult;
 import org.springframework.stereotype.Component;
+
+import java.util.Optional;
 
 /**
  * Inquiry TCP 전문과 Inquiry 서비스 결과 사이의 변환을 담당한다.
@@ -25,11 +30,11 @@ public class InquiryTcpMessageMapper {
      * 이렇게 분리해야 Payment가 "내가 보낸 조회 요청에 대한 응답인지" 검증하면서도
      * VAN 원장의 실제 승인 결과를 받을 수 있다.
      */
-    public InquiryResponseMessage toResponse(
+    public InquiryResponseMessage toApprovalResponse(
             InquiryRequestMessage request,
-            InquiryResult result
+            ApprovalInquiryResult approvalResult
     ) {
-        InquiryResponseStatus status = switch (result.status()) {
+        InquiryResponseStatus status = switch (approvalResult.status()) {
             case APPROVED -> InquiryResponseStatus.APPROVED;
             case DECLINED -> InquiryResponseStatus.DECLINED;
             case UNKNOWN -> InquiryResponseStatus.UNKNOWN;
@@ -37,12 +42,54 @@ public class InquiryTcpMessageMapper {
 
         return InquiryResponseMessage.of(
                 request.requestId(),
-                request.posTrx(),
-                request.attemptSeq(),
-                result.vanTrxId(),
+                InquiryTargetType.APPROVAL,
+                request.targetTrxNo(),
+                request.targetAttemptSeq(),
+                InquiryResultCode.SUCCESS,
+                approvalResult.vanTrxId(),
                 status,
-                result.approvalNo(),
-                result.declineCode()
+                approvalResult.approvalNo(),
+                null,
+                approvalResult.declineCode()
         );
     }
+
+    public InquiryResponseMessage toCancelResponse(
+            InquiryRequestMessage request,
+            CancelInquiryResult cancelResult
+    ) {
+        InquiryResponseStatus status = switch (cancelResult.status()) {
+            case CANCELLED -> InquiryResponseStatus.CANCELLED;
+            case CANCEL_DECLINED -> InquiryResponseStatus.CANCEL_DECLINED;
+        };
+
+        return InquiryResponseMessage.of(
+                request.requestId(),
+                InquiryTargetType.CANCEL,
+                request.targetTrxNo(),
+                null,
+                InquiryResultCode.SUCCESS,
+                cancelResult.vanCancelTrxId(),
+                status,
+                null,
+                cancelResult.cancelApprovalNo(),
+                cancelResult.declineCode()
+        );
+    }
+
+    public InquiryResponseMessage notFoundResponse(InquiryRequestMessage request) {
+        return InquiryResponseMessage.of(
+                request.requestId(),
+                request.targetType(),
+                request.targetTrxNo(),
+                request.targetAttemptSeq(),
+                InquiryResultCode.NOT_FOUND,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+    }
+
 }

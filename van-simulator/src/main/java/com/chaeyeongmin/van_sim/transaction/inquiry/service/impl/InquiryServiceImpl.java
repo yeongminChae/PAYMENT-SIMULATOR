@@ -3,12 +3,19 @@ package com.chaeyeongmin.van_sim.transaction.inquiry.service.impl;
 import com.chaeyeongmin.van_sim.ledger.approval.entity.VanApproval;
 import com.chaeyeongmin.van_sim.ledger.approval.repository.VanApprovalRepository;
 import com.chaeyeongmin.van_sim.ledger.approval.status.VanApprovalStatus;
+import com.chaeyeongmin.van_sim.ledger.cancel.entity.VanCancel;
+import com.chaeyeongmin.van_sim.ledger.cancel.repository.VanCancelRepository;
+import com.chaeyeongmin.van_sim.ledger.cancel.status.VanCancelStatus;
 import com.chaeyeongmin.van_sim.transaction.inquiry.service.InquiryService;
-import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.InquiryResult;
+import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.CancelInquiryResult;
+import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.ApprovalInquiryResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.Optional;
 
 /**
  * (posTrx, attemptSeq)로 VAN 승인 원장을 조회하고 저장된 업무 결과를 반환한다.
@@ -23,22 +30,30 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class InquiryServiceImpl implements InquiryService {
 
-    private final VanApprovalRepository repository;
+    private final VanApprovalRepository approvalRepository;
+    private final VanCancelRepository cancelRepository;
 
     /**
-     * VAN 승인 원장을 조회하는 Inquiry 업무의 본문이다.
-     * <p>
-     * 원장이 존재하면 DB에 저장된 값을 그대로 {@link InquiryResult}로 변환한다.
-     * 원장이 없을 때 새 승인 row를 만들지 않는 점이 중요하다.
-     * Payment의 후속 Inquiry는 재승인이 아니라 사후 조회이므로,
-     * 여기서 insert/update가 발생하면 같은 거래가 두 번 승인된 것처럼 보일 수 있다.
+     * VAN 승인 원장을 조회한다.
+     *
+     * 원장이 존재하면 저장된 APPROVED/DECLINED/UNKNOWN 상태를 그대로 반환하고,
+     * 원장이 존재하지 않으면 Optional.empty()를 반환한다.
+     * 원장 부재는 UNKNOWN 상태와 구분하며 TCP 계층에서 NOT_FOUND로 표현한다.
      */
     @Override
     @Transactional(readOnly = true)
-    public InquiryResult inquire(String posTrx, int attemptSeq) {
-        return repository.findByPosTrxAndAttemptSeq(posTrx, attemptSeq)
-                .map(InquiryServiceImpl::toResult)
-                .orElseGet(() -> unknownResult(posTrx, attemptSeq));
+    public Optional<ApprovalInquiryResult> inquireApproval(String posTrx, int attemptSeq) {
+        return approvalRepository
+                .findByPosTrxAndAttemptSeq(posTrx, attemptSeq)
+                .map(approval ->  InquiryServiceImpl.toApprovalResult(approval));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<CancelInquiryResult> inquireCancel(String cancelPosTrx) {
+        return cancelRepository
+                .findByCancelPosTrx(cancelPosTrx)
+                .map(cancel ->  InquiryServiceImpl.toCancelResult(cancel));
     }
 
     /**
@@ -48,8 +63,8 @@ public class InquiryServiceImpl implements InquiryService {
      * VAN 원장에 APPROVED와 approvalNo가 저장되어 있으면 그대로 반환하고,
      * DECLINED와 declineCode 또는 UNKNOWN도 DB에 기록된 상태 그대로 상위 계층에 넘긴다.
      */
-    private static InquiryResult toResult(VanApproval approval) {
-        return new InquiryResult(
+    private static ApprovalInquiryResult toApprovalResult(VanApproval approval) {
+        return new ApprovalInquiryResult(
                 approval.getVanTrxId(),
                 approval.getPosTrx(),
                 approval.getAttemptSeq(),
@@ -60,21 +75,15 @@ public class InquiryServiceImpl implements InquiryService {
         );
     }
 
-    /**
-     * 조회 대상 원장이 없을 때 사용하는 방어적 결과를 만든다.
-     * <p>
-     * VAN이 원장을 찾지 못했다는 사실만으로 승인/거절을 단정할 수 없으므로 UNKNOWN으로 응답한다.
-     * approvalNo, declineCode, vanTrxId를 모두 null로 두어 "확정 정보 없음"을 명확히 표현한다.
-     */
-    private static InquiryResult unknownResult(String posTrx, int attemptSeq) {
-        return new InquiryResult(
-                null,
-                posTrx,
-                attemptSeq,
-                VanApprovalStatus.UNKNOWN,
-                null,
-                null,
-                null
+    private static CancelInquiryResult toCancelResult(VanCancel cancel) {
+        return new CancelInquiryResult(
+                cancel.getVanCancelTrxId(),
+                cancel.getCancelPosTrx(),
+                cancel.getCancelStatus(),
+                cancel.getCancelApprovalNo(),
+                cancel.getDeclineCode(),
+                cancel.getProcessedAt()
         );
     }
+
 }

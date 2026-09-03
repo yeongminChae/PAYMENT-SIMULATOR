@@ -17,8 +17,10 @@ import com.chaeyeongmin.van_sim.protocol.approval.ApprovalResponseStatus;
 import com.chaeyeongmin.van_sim.protocol.cancel.CancelRequestMessage;
 import com.chaeyeongmin.van_sim.protocol.cancel.CancelResponseMessage;
 import com.chaeyeongmin.van_sim.protocol.inquiry.InquiryRequestMessage;
+import com.chaeyeongmin.van_sim.protocol.inquiry.InquiryResultCode;
 import com.chaeyeongmin.van_sim.protocol.inquiry.InquiryResponseMessage;
 import com.chaeyeongmin.van_sim.protocol.inquiry.InquiryResponseStatus;
+import com.chaeyeongmin.van_sim.protocol.inquiry.InquiryTargetType;
 import com.chaeyeongmin.van_sim.support.PostgresTestcontainersConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -170,6 +172,7 @@ class VanTcpServerIntegrationTest {
                 "1",
                 "INQUIRY",
                 "REQ-INQUIRY-TCP-001",
+                InquiryTargetType.APPROVAL,
                 approval.getPosTrx(),
                 approval.getAttemptSeq()
         );
@@ -185,11 +188,14 @@ class VanTcpServerIntegrationTest {
         assertThat(response.protocolVersion()).isEqualTo("1");
         assertThat(response.messageType()).isEqualTo("INQUIRY_RESPONSE");
         assertThat(response.requestId()).isEqualTo(request.requestId());
-        assertThat(response.posTrx()).isEqualTo(request.posTrx());
-        assertThat(response.attemptSeq()).isEqualTo(request.attemptSeq());
+        assertThat(response.targetType()).isEqualTo(request.targetType());
+        assertThat(response.targetTrxNo()).isEqualTo(request.targetTrxNo());
+        assertThat(response.targetAttemptSeq()).isEqualTo(request.targetAttemptSeq());
+        assertThat(response.resultCode()).isEqualTo(InquiryResultCode.SUCCESS);
         assertThat(response.status()).isEqualTo(InquiryResponseStatus.APPROVED);
         assertThat(response.vanTrxId()).isEqualTo("VAN-INQUIRY-TCP-001");
         assertThat(response.approvalNo()).isEqualTo("APPROVAL-INQUIRY-001");
+        assertThat(response.cancelApprovalNo()).isNull();
         assertThat(approvalRepository.count()).isEqualTo(1);
     }
 

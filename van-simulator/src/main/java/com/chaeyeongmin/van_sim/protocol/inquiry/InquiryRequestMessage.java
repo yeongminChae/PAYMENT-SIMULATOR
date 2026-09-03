@@ -11,7 +11,16 @@ public record InquiryRequestMessage(
         String protocolVersion,
         String messageType,
         String requestId,
-        String posTrx,
-        int attemptSeq
+        InquiryTargetType targetType,
+        String targetTrxNo,
+        Integer targetAttemptSeq
 ) {
+
+    public String posTrx() {
+        return targetTrxNo;
+    }
+
+    public int attemptSeq() {
+        return targetAttemptSeq == null ? 0 : targetAttemptSeq;
+    }
 }
