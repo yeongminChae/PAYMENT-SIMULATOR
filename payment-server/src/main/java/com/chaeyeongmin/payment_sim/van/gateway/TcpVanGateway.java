@@ -310,7 +310,8 @@ public class TcpVanGateway implements VanGateway {
      * 요청과 응답이 같은 조회 거래를 가리키는지 검증한다.
      * <p>
      * protocolVersion/messageType은 VAN Simulator와 같은 TCP 계약을 보고 있는지 확인하는 값이다.
-     * requestId/posTrx/attemptSeq는 응답 correlation 값이다.
+     * requestId/targetType/targetTrxNo/targetAttemptSeq는 응답 correlation 값이다.
+     * CANCEL 조회는 targetAttemptSeq가 null이므로 Objects.equals로 nullable 비교한다.
      * 하나라도 다르면 다른 요청의 응답이거나 프로토콜 불일치이므로 Payment 업무 상태로 반영하지 않는다.
      */
     private void validateInquiryResponse(
@@ -336,6 +337,8 @@ public class TcpVanGateway implements VanGateway {
 
         switch (response.resultCode()) {
             case NOT_FOUND -> {
+                // NOT_FOUND는 조회 대상 원장 row가 없다는 뜻이다.
+                // status/승인번호/거절코드가 함께 오면 UNKNOWN이나 DECLINED와 구분할 수 없으므로 invalid다.
                 if (response.status() != null
                         || response.vanTrxId() != null
                         || response.approvalNo() != null
@@ -355,12 +358,14 @@ public class TcpVanGateway implements VanGateway {
 
         switch (response.targetType()) {
             case APPROVAL -> {
+                // 승인 조회 성공은 승인 계열 status만 허용하고 cancelApprovalNo를 싣지 않는다.
                 if (isApprovalInquiryStatus(response.status()) == false
                         || response.cancelApprovalNo() != null) {
                     throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
                 }
             }
             case CANCEL -> {
+                // 취소 조회 성공은 취소 계열 status만 허용하고 approvalNo를 싣지 않는다.
                 if (isCancelInquiryStatus(response.status()) == false
                         || response.approvalNo() != null) {
                     throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
@@ -543,6 +548,9 @@ public class TcpVanGateway implements VanGateway {
                 || status == VanInquiryStatus.UNKNOWN;
     }
 
+    /**
+     * R5 공용 Inquiry protocol에서 CANCEL target이 가질 수 있는 성공 status 집합이다.
+     */
     private boolean isCancelInquiryStatus(VanInquiryStatus status) {
         return status == VanInquiryStatus.CANCELLED
                 || status == VanInquiryStatus.CANCEL_DECLINED;

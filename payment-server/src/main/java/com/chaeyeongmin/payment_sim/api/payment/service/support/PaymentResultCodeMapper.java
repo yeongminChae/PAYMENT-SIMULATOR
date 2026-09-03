@@ -21,6 +21,7 @@ public final class PaymentResultCodeMapper {
 
     public static ResultCode fromCancelResultStatus(CancelResultStatus status) {
         return switch (status) {
+            // cancel inquiry에서 DB CANCELLED를 확인한 경우에도 API 결과 코드는 OK다.
             case CANCELLED -> ResultCode.OK;
             case ALREADY_CANCELLED -> ResultCode.ALREADY_CANCELLED;
             case CANCEL_DECLINED -> ResultCode.CANCEL_DECLINED;
@@ -53,6 +54,10 @@ public final class PaymentResultCodeMapper {
         return fromCancelResultStatus(status).name();
     }
 
+    /**
+     * PAYMENT_CANCEL 내부 상태를 직접 result_code로 노출해야 하는 저수준 이벤트/로그용 매핑이다.
+     * 일반 API 응답은 가능하면 CancelResponse.cancelStatus를 거쳐 fromCancelResultStatus를 사용한다.
+     */
     public static String codeName(CancelStatus status) {
         return fromCancelStatus(status).name();
     }

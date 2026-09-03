@@ -57,6 +57,8 @@ public class PaymentApiResponseMapper {
      * <p>
      * 취소는 승인/조회와 다른 상태 체계를 사용하므로,
      * CancelResultStatus를 별도 ResultCode 매핑으로 변환한다.
+     * /cancel과 /cancel/inquiry 모두 같은 CancelResponse를 사용하지만,
+     * 어떤 CancelResultStatus를 넣을지는 각 service의 business 의미에 맡긴다.
      */
     public ApiResponse<CancelResponse> fromCancel(CancelResponse response) {
         return ApiResponse.of(PaymentResultCodeMapper.fromCancelResultStatus(response.cancelStatus()), response);

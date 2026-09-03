@@ -16,6 +16,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * /cancel/inquiry HTTP boundary가 기존 /cancel service로 흐르지 않는지 확인한다.
+ */
 class PaymentControllerCancelInquiryTest {
 
     @Test
