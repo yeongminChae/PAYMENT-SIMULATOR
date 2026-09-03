@@ -5,6 +5,7 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
 import com.chaeyeongmin.payment_sim.api.payment.service.support.CancelEventRecorder;
+import com.chaeyeongmin.payment_sim.api.payment.service.support.CancelResponseFactory;
 import com.chaeyeongmin.payment_sim.api.payment.service.transaction.PaymentCancelTransactionService;
 import com.chaeyeongmin.payment_sim.api.payment.service.transaction.model.PaymentCancelPrepareResult;
 import com.chaeyeongmin.payment_sim.api.payment.validate.CancelRequestValidator;
@@ -12,18 +13,27 @@ import com.chaeyeongmin.payment_sim.api.payment.validate.enums.CancelValidationE
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
+import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
+import com.chaeyeongmin.payment_sim.domain.policy.cancel.CancelCardVerificationPolicy;
+import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
 import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
+import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
+import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanCancelAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelResponse;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
+import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDateTime;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -32,6 +42,11 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class PaymentCancelServiceImplTest {
+
+    private static final CardFingerprintPolicy CARD_FINGERPRINT_POLICY =
+            new CardFingerprintPolicy("card-fingerprint-test-secret-key");
+    private static final CancelCardVerificationPolicy CANCEL_CARD_VERIFICATION_POLICY =
+            new CancelCardVerificationPolicy(CARD_FINGERPRINT_POLICY);
 
     private PaymentCancelService service;
     private PaymentCancelTransactionService transactionService;
@@ -193,6 +208,106 @@ class PaymentCancelServiceImplTest {
         verify(transactionService).finalizeCancel(prepared, vanResponse);
     }
 
+    @Test
+    @DisplayName("VAN 취소 호출이 timeout이면 UNKNOWN_TIMEOUT 확정 TX를 호출하고 RETRY_LATER를 반환한다")
+    void cancel_vanTimeout_shouldFinalizeUnknownTimeoutAndReturnRetryLater() {
+        PaymentCancelRepository cancelRepository = mock(PaymentCancelRepository.class);
+        PaymentAttemptRepository attemptRepository = mock(PaymentAttemptRepository.class);
+        PaymentCancelTransactionService realTransactionService = new PaymentCancelTransactionService(
+                cancelRepository,
+                attemptRepository,
+                CANCEL_CARD_VERIFICATION_POLICY,
+                new CancelResponseFactory(),
+                recorder
+        );
+        PaymentCancelService serviceUnderTest = new PaymentCancelServiceImpl(
+                realTransactionService,
+                vanGateway,
+                validator,
+                vanCancelAssembler,
+                recorder
+        );
+        VanCancelRequest vanRequest = vanCancelRequest();
+
+        when(attemptRepository.acquireExistingPosTrxLock(baseReq.originalPosTrx()))
+                .thenReturn(Optional.of(0));
+        when(attemptRepository.findByPosTrxAndAttemptSeq(baseReq.originalPosTrx(), baseReq.originalAttemptSeq()))
+                .thenReturn(Optional.of(originalApprovedAttempt()));
+        when(cancelRepository.findByOriginalPosTrxAndOriginalAttemptSeq(baseReq.originalPosTrx(), baseReq.originalAttemptSeq()))
+                .thenReturn(Optional.empty());
+        when(cancelRepository.insertPendingCancel(any()))
+                .thenReturn(Optional.of(pendingCancel()));
+        when(vanCancelAssembler.assemble(
+                eq(baseReq.posTrx()),
+                eq(baseReq.originalPosTrx()),
+                eq(baseReq.originalAttemptSeq()),
+                any(PaymentAttempt.class)
+        )).thenReturn(vanRequest);
+        when(vanGateway.cancel(vanRequest)).thenThrow(
+                new VanGatewayTimeoutException(new RuntimeException("timeout"))
+        );
+        when(cancelRepository.updateCancelResult(any()))
+                .thenReturn(Optional.of(unknownTimeoutCancel()));
+
+        CancelResponse response = serviceUnderTest.cancel(baseReq);
+
+        assertEquals(CancelResultStatus.RETRY_LATER, response.cancelStatus());
+        verify(vanGateway).cancel(vanRequest);
+        ArgumentCaptor<CancelResultUpdateParam> captor =
+                ArgumentCaptor.forClass(CancelResultUpdateParam.class);
+        verify(cancelRepository).updateCancelResult(captor.capture());
+        assertEquals(CancelStatus.UNKNOWN_TIMEOUT, captor.getValue().cancelStatus());
+        assertEquals("TIMEOUT", captor.getValue().declineCode());
+        verify(recorder, never()).recordCancelEvent(
+                eq(PaymentEventType.CANCEL_VAN_RESULT_RECEIVED),
+                anyString(),
+                anyString(),
+                anyInt(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                anyString()
+        );
+    }
+
+    @Test
+    @DisplayName("기존 UNKNOWN_TIMEOUT 취소 row가 있으면 VAN 취소를 재호출하지 않고 RETRY_LATER를 반환한다")
+    void cancel_existingUnknownTimeout_shouldReturnRetryLaterWithoutVanCall() {
+        PaymentCancelRepository cancelRepository = mock(PaymentCancelRepository.class);
+        PaymentAttemptRepository attemptRepository = mock(PaymentAttemptRepository.class);
+        PaymentCancelTransactionService realTransactionService = new PaymentCancelTransactionService(
+                cancelRepository,
+                attemptRepository,
+                CANCEL_CARD_VERIFICATION_POLICY,
+                new CancelResponseFactory(),
+                recorder
+        );
+        PaymentCancelService serviceUnderTest = new PaymentCancelServiceImpl(
+                realTransactionService,
+                vanGateway,
+                validator,
+                vanCancelAssembler,
+                recorder
+        );
+
+        when(attemptRepository.acquireExistingPosTrxLock(baseReq.originalPosTrx()))
+                .thenReturn(Optional.of(0));
+        when(attemptRepository.findByPosTrxAndAttemptSeq(baseReq.originalPosTrx(), baseReq.originalAttemptSeq()))
+                .thenReturn(Optional.of(originalApprovedAttempt()));
+        when(cancelRepository.findByOriginalPosTrxAndOriginalAttemptSeq(baseReq.originalPosTrx(), baseReq.originalAttemptSeq()))
+                .thenReturn(Optional.of(unknownTimeoutCancel()));
+
+        CancelResponse response = serviceUnderTest.cancel(baseReq);
+
+        assertEquals(CancelResultStatus.RETRY_LATER, response.cancelStatus());
+        verify(vanGateway, never()).cancel(any(VanCancelRequest.class));
+        verify(vanCancelAssembler, never()).assemble(anyString(), anyString(), anyInt(), any(PaymentAttempt.class));
+        verify(cancelRepository, never()).insertPendingCancel(any());
+        verify(cancelRepository, never()).updateCancelResult(any());
+    }
+
     private PaymentAttempt originalApprovedAttempt() {
         return new PaymentAttempt(
                 PaymentFinalStatus.APPROVED.name(),
@@ -201,10 +316,34 @@ class PaymentCancelServiceImplTest {
                 "42424242",
                 "4242",
                 "VISA",
-                "fingerprint",
+                CARD_FINGERPRINT_POLICY.generate("4242424242424242"),
                 1,
                 10000,
                 "2376-20260519-9991-1001-01"
+        );
+    }
+
+    private PaymentCancel unknownTimeoutCancel() {
+        return new PaymentCancel(
+                baseReq.posTrx(),
+                baseReq.originalPosTrx(),
+                baseReq.originalAttemptSeq(),
+                CancelStatus.UNKNOWN_TIMEOUT,
+                null,
+                null,
+                "TIMEOUT"
+        );
+    }
+
+    private PaymentCancel pendingCancel() {
+        return new PaymentCancel(
+                baseReq.posTrx(),
+                baseReq.originalPosTrx(),
+                baseReq.originalAttemptSeq(),
+                CancelStatus.PENDING,
+                null,
+                null,
+                null
         );
     }
 

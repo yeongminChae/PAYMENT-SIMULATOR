@@ -35,6 +35,7 @@ import java.util.Optional;
  * 이 클래스의 핵심 역할:
  * - prepare(): 원승인 posTrx lock, 원승인/카드 검증, 기존 취소 재응답 판단, 신규 PENDING row 선점
  * - finalizeCancel(): VAN cancel 응답을 PENDING row의 최종 상태로 확정
+ * - finalizeUnknownTimeout(): VAN timeout을 UNKNOWN_TIMEOUT으로 저장하고 미확정 응답 반환
  *
  * <p>
  * 외부 VAN 호출은 이 클래스 안에서 하지 않는다. prepare()가 커밋된 뒤에만 오케스트레이션 서비스가
@@ -52,6 +53,13 @@ public class PaymentCancelTransactionService {
     private final CancelResponseFactory factory;
     private final CancelEventRecorder recorder;
 
+    /**
+     * VAN 취소를 호출하기 전 DB 기준으로 취소 가능 여부를 결정하고 신규 취소 row를 선점한다.
+     *
+     * <p>
+     * 이 메서드가 completed 결과를 반환하면 이미 DB 상태만으로 응답이 확정된 경로이므로
+     * 호출자는 VAN 취소를 호출하면 안 된다.
+     */
     @Transactional
     public PaymentCancelPrepareResult prepare(CancelRequest request) {
         String posTrx = request.posTrx();
@@ -97,6 +105,9 @@ public class PaymentCancelTransactionService {
         );
     }
 
+    /**
+     * 같은 원승인에 대한 취소 판단을 직렬화하기 위해 원승인 거래번호 기준 lock을 잡는다.
+     */
     private void acquireOriginalPosTrxLock(String originalPosTrx) {
         // C3-0: 원승인 posTrx 기준 직렬화 lock 획득.
         // - 취소 요청의 posTrx는 C01~C20처럼 모두 다를 수 있으므로 lock key가 될 수 없다.
@@ -112,6 +123,9 @@ public class PaymentCancelTransactionService {
         }
     }
 
+    /**
+     * 취소 대상 원승인 attempt를 조회하고, 존재하지 않으면 취소 row 생성 없이 NOT_FOUND로 중단한다.
+     */
     private PaymentAttempt findOriginalAttemptOrThrow(
             String posTrx,
             String originalPosTrx,
@@ -152,6 +166,9 @@ public class PaymentCancelTransactionService {
         return originalAttempt;
     }
 
+    /**
+     * 원승인 attempt가 취소 가능한 APPROVED 상태인지 검사하고, 불가하면 응답을 즉시 확정한다.
+     */
     private Optional<PaymentCancelPrepareResult> completeIfOriginalNotApproved(
             String posTrx,
             String originalPosTrx,
@@ -202,6 +219,12 @@ public class PaymentCancelTransactionService {
         return Optional.empty();
     }
 
+    /**
+     * 취소 요청의 카드가 원승인 카드와 같은지 검증한다.
+     *
+     * <p>
+     * 카드가 다르면 취소 권한이 없는 요청으로 보고 VAN 호출과 cancel row 생성을 모두 막는다.
+     */
     private void assertCardMatches(
             CancelRequest request,
             String posTrx,
@@ -243,6 +266,9 @@ public class PaymentCancelTransactionService {
         }
     }
 
+    /**
+     * 원거래 기준 기존 취소 row가 있으면 현재 요청에서는 VAN을 재호출하지 않고 기존 상태로 재응답한다.
+     */
     private Optional<PaymentCancelPrepareResult> completeIfExistingCancelByOriginal(
             CancelRequest request,
             String posTrx,
@@ -293,6 +319,13 @@ public class PaymentCancelTransactionService {
         return Optional.empty();
     }
 
+    /**
+     * 신규 취소가 가능한 요청에 대해 PENDING cancel row를 먼저 생성한다.
+     *
+     * <p>
+     * insert에 성공한 요청만 외부 VAN 취소 호출 권한을 얻는다. insert 실패나 unique 경합은
+     * 기존 row 재조회 경로로 돌려 중복 VAN 호출을 방지한다.
+     */
     private PaymentCancelPrepareResult insertPendingCancelOrRecover(
             CancelRequest request,
             String posTrx,
@@ -382,6 +415,12 @@ public class PaymentCancelTransactionService {
         );
     }
 
+    /**
+     * 취소 거래번호(posTrx)가 이미 사용됐는지 검사한다.
+     *
+     * <p>
+     * 같은 원거래 재요청이라도 cancel posTrx 자체는 1회용 거래번호이므로 재사용을 허용하지 않는다.
+     */
     private void assertCancelPosTrxNotUsed(
             String posTrx,
             String originalPosTrx,
@@ -417,6 +456,9 @@ public class PaymentCancelTransactionService {
 
     }
 
+    /**
+     * 원거래 식별자 기준으로 PAYMENT_CANCEL row를 조회한다.
+     */
     private Optional<PaymentCancel> findCancelByOriginal(
             String phase,
             String posTrx,
@@ -482,6 +524,13 @@ public class PaymentCancelTransactionService {
         );
     }
 
+    /**
+     * VAN 취소 응답을 DB의 PENDING cancel row에 최종 상태로 반영하고 API 응답을 만든다.
+     *
+     * <p>
+     * update는 PENDING row에만 성공해야 한다. 0 rows가 반환되면 이미 VAN은 호출된 뒤이므로,
+     * 원거래 기준 재조회로 현재 DB 상태를 확인해 응답 의미를 보정한다.
+     */
     @Transactional
     public CancelResponse finalizeCancel(
             PaymentCancelPrepareResult prepared,
@@ -665,6 +714,35 @@ public class PaymentCancelTransactionService {
         );
 
         return factory.fromC7RecoveredCancel(recoveredCancelByOriginal);
+    }
+
+    /**
+     * VAN 취소 호출이 timeout 된 요청을 UNKNOWN_TIMEOUT으로 확정 저장한다.
+     *
+     * <p>
+     * timeout은 VAN이 취소를 처리했는지 알 수 없는 상태다. 따라서 CANCELLED/CANCEL_DECLINED를
+     * 추측하지 않고 UNKNOWN_TIMEOUT으로 남기며, 후속 요청은 기존 row를 보고 VAN 재호출 없이 retryLater로 응답한다.
+     */
+    @Transactional
+    public CancelResponse finalizeUnknownTimeout(
+            PaymentCancelPrepareResult prepared
+    ) {
+        String posTrx = prepared.posTrx();
+        String originalPosTrx = prepared.originalPosTrx();
+        int originalAttemptSeq = prepared.originalAttemptSeq();
+
+        CancelResultUpdateParam updateParam =
+                CancelResultUpdateParam.unknownTimeout(posTrx, originalPosTrx, originalAttemptSeq);
+
+        // PENDING row만 UNKNOWN_TIMEOUT으로 바꾼다.
+        // - update가 실패하면 다른 흐름이 먼저 상태를 바꿨을 수 있으므로 C7 복구 로직과 동일하게 재조회한다.
+        Optional<PaymentCancel> updated = cancelRepository.updateCancelResult(updateParam);
+
+        return updated.isPresent()
+            ? CancelResponse.retryLater(posTrx, originalPosTrx, originalAttemptSeq)
+            : recoverFromC7UpdateEmpty(posTrx, originalPosTrx, originalAttemptSeq)
+        ;
+
     }
 
 }

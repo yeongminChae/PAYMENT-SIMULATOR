@@ -8,6 +8,7 @@ import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
  * <p>
  * VAN 취소 결과가 확정되면 CANCELLED 또는 CANCEL_DECLINED 상태와
  * VAN 취소 거래번호, 승인번호/거절코드를 함께 저장한다.
+ * timeout처럼 VAN 처리 여부를 알 수 없는 경우에는 UNKNOWN_TIMEOUT과 TIMEOUT declineCode를 저장한다.
  */
 public record CancelResultUpdateParam(
         String posTrx,
@@ -57,6 +58,29 @@ public record CancelResultUpdateParam(
                 vanCancelTrxId,
                 null,
                 declineCode
+        );
+    }
+
+    /**
+     * 취소 UNKNOWN_TIMEOUT 확정 update 파라미터를 만든다.
+     *
+     * <p>
+     * VAN timeout은 취소 성공/거절을 알 수 없으므로 VAN 거래번호와 취소 승인번호를 비워 둔다.
+     * declineCode에는 관측 가능한 원인인 TIMEOUT을 남겨 이벤트와 후속 응답에서 미확정 사유를 추적할 수 있게 한다.
+     */
+    public static CancelResultUpdateParam unknownTimeout(
+            String posTrx,
+            String originalPosTrx,
+            int originalAttemptSeq
+    ) {
+        return new CancelResultUpdateParam(
+                posTrx,
+                originalPosTrx,
+                originalAttemptSeq,
+                CancelStatus.UNKNOWN_TIMEOUT,
+                null,
+                null,
+                "TIMEOUT"
         );
     }
 

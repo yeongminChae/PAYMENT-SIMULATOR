@@ -29,11 +29,19 @@ public final class PaymentResultCodeMapper {
         };
     }
 
+    /**
+     * 내부 취소 저장 상태를 공통 API 결과 코드로 변환한다.
+     *
+     * <p>
+     * UNKNOWN_TIMEOUT은 외부 취소 처리 여부가 미확정인 상태이므로 클라이언트에는 재시도/후속조회 의미의
+     * RETRY_LATER로 노출한다.
+     */
     public static ResultCode fromCancelStatus(CancelStatus status) {
         return switch (status) {
             case CANCELLED -> ResultCode.OK;
             case CANCEL_DECLINED -> ResultCode.CANCEL_DECLINED;
-            case PENDING -> ResultCode.RETRY_LATER;
+            case PENDING,
+                 UNKNOWN_TIMEOUT -> ResultCode.RETRY_LATER;
         };
     }
 

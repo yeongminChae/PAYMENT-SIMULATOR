@@ -15,6 +15,7 @@ import com.chaeyeongmin.payment_sim.van.client.assembler.VanCancelAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelResponse;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
+import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -33,6 +34,7 @@ import org.springframework.stereotype.Service;
  * - PENDING         : 취소 요청은 접수됐지만 최종 결과 미확정
  * - CANCELLED       : 취소 성공 확정
  * - CANCEL_DECLINED : VAN 또는 정책상 취소 거절 확정
+ * - UNKNOWN_TIMEOUT : VAN으로 요청이 전달됐을 수 있으나 응답을 받지 못해 결과 미확정
  */
 @Slf4j
 @Service
@@ -45,6 +47,13 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
     private final VanCancelAssembler vanCancelAssembler;
     private final CancelEventRecorder recorder;
 
+    /**
+     * 취소 요청 1건을 검증, DB 선점, VAN 호출, 최종 상태 저장 순서로 처리한다.
+     *
+     * <p>
+     * VAN 호출 전에는 반드시 PENDING row를 먼저 만들어야 한다. 그래야 호출 중 타임아웃이 나도
+     * 같은 원거래에 대한 후속 취소 요청이 VAN을 다시 호출하지 않고 DB 상태 기준으로 응답할 수 있다.
+     */
     @Override
     public CancelResponse cancel(CancelRequest request) {
         // C1: 취소 요청은 Controller에서 수신/로깅한다.
@@ -95,7 +104,18 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
 
         // C6-1: VAN 취소 호출.
         // - 신규 취소 흐름에서 실제 외부 취소 시도는 여기서 1번만 수행한다.
-        VanCancelResponse vanCancelResponse = vanGateway.cancel(vanCancelRequest);
+        final VanCancelResponse vanCancelResponse;
+
+        try {
+            vanCancelResponse = vanGateway.cancel(vanCancelRequest);
+
+        } catch (VanGatewayTimeoutException e) {
+            // VAN timeout은 성공/거절을 알 수 없는 상태다.
+            // - 외부 취소가 실제 처리됐을 수 있으므로 결과를 추측하지 않는다.
+            // - PENDING row를 UNKNOWN_TIMEOUT으로 바꿔 후속 요청의 중복 VAN 호출을 막고 retryLater로 응답한다.
+            return transactionService.finalizeUnknownTimeout(prepared);
+        }
+
         CancelStatus vanFinalStatus = vanCancelResponse.cancelStatus();
         String responseDeclineCode = VanDeclineCodeMapper.toCode(vanCancelResponse.declineCode());
         recorder.recordCancelEvent(

@@ -94,8 +94,9 @@ ALTER TABLE PAYMENT_ATTEMPT ADD COLUMN CARD_FINGERPRINT TEXT NULL;
 -- 목적: "전체취소" 추적용 row.
 --       원거래(ORIGINAL_TRX_NO, ORIGINAL_ATTEMPT_SEQ) 기준 중복 취소 방지.
 -- 상태: CANCEL_STATUS
---   - PENDING = 미확정(취소 타임아웃 등)
+--   - PENDING = VAN 결과 대기 중
 --   - CANCELLED / CANCEL_DECLINED = 확정 상태
+--   - UNKNOWN_TIMEOUT = VAN timeout으로 취소 성공/거절 여부를 단정할 수 없는 미확정 상태
 -- FK(물리): 원거래 attempt를 참조(정상 흐름에서는 존재해야 함)
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS PAYMENT_CANCEL
@@ -120,7 +121,7 @@ CREATE TABLE IF NOT EXISTS PAYMENT_CANCEL
 		on update restrict
 		on delete restrict,
 
-	CHECK (CANCEL_STATUS IN ('PENDING', 'CANCELLED', 'CANCEL_DECLINED'))
+	CHECK (CANCEL_STATUS IN ('PENDING', 'CANCELLED', 'CANCEL_DECLINED', 'UNKNOWN_TIMEOUT'))
 );
 
 -- 기존 SQLite DB는 CREATE TABLE IF NOT EXISTS만으로 새 컬럼이 생기지 않는다.
