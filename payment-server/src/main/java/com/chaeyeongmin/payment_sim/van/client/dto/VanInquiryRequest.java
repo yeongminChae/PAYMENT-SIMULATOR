@@ -4,9 +4,18 @@ import lombok.Builder;
 
 @Builder
 public record VanInquiryRequest(
-        String posTrx,
-        int attemptSeq,
+        VanInquiryTargetType targetType,
+        String targetTrxNo,
+        Integer targetAttemptSeq,
         String vanTrxId,
         String cardLast4
 ) {
+
+    public String posTrx() {
+        return targetTrxNo;
+    }
+
+    public int attemptSeq() {
+        return targetAttemptSeq == null ? 0 : targetAttemptSeq;
+    }
 }

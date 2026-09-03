@@ -1,6 +1,7 @@
 package com.chaeyeongmin.payment_sim.van.client.assembler;
 
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryRequest;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryTargetType;
 import com.chaeyeongmin.payment_sim.van.client.policy.VanTraceIdPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -29,8 +30,9 @@ public class VanInquiryAssembler {
         );
 
         return VanInquiryRequest.builder()
-                .posTrx(posTrx)
-                .attemptSeq(attemptSeq)
+                .targetType(VanInquiryTargetType.APPROVAL)
+                .targetTrxNo(posTrx)
+                .targetAttemptSeq(attemptSeq)
                 .vanTrxId(vanTrxId) // 저장된 VAN 추적키가 있으면 사용하고, 없으면 fallback 정책으로 생성
                 .cardLast4(cardLast4)
                 .build();

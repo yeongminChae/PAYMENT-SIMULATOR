@@ -16,11 +16,14 @@ public record VanInquiryTcpResponse(
         String protocolVersion,
         String messageType,
         String requestId,
-        String posTrx,
-        int attemptSeq,
+        VanInquiryTargetType targetType,
+        String targetTrxNo,
+        Integer targetAttemptSeq,
+        VanInquiryResultCode resultCode,
         String vanTrxId,
         VanInquiryStatus status,
         String approvalNo,
+        String cancelApprovalNo,
         String declineCode,
         LocalDateTime respondedAt
 ) {

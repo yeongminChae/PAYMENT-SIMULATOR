@@ -14,7 +14,10 @@ import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelResponse;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResponse;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResultCode;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryTargetType;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryStatus;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -271,10 +274,13 @@ class PostgresUnknownTimeoutIntegrationTest {
         public VanInquiryResponse inquiry(VanInquiryRequest request) {
             inquiryCount.incrementAndGet();
             return VanInquiryResponse.builder()
-                    .posTrx(request.posTrx())
-                    .attemptSeq(request.attemptSeq())
-                    .finalStatus(inquiryFinalStatus)
+                    .targetType(VanInquiryTargetType.APPROVAL)
+                    .targetTrxNo(request.targetTrxNo())
+                    .targetAttemptSeq(request.targetAttemptSeq())
+                    .resultCode(VanInquiryResultCode.SUCCESS)
+                    .status(toInquiryStatus(inquiryFinalStatus))
                     .approvalNo(inquiryFinalStatus == PaymentFinalStatus.APPROVED ? APPROVAL_NO : null)
+                    .cancelApprovalNo(null)
                     .declineCode(inquiryFinalStatus == PaymentFinalStatus.APPROVED ? null : VanDeclineCode.TIMEOUT)
                     .vanTrxId(request.vanTrxId())
                     .message("OK")
@@ -289,6 +295,17 @@ class PostgresUnknownTimeoutIntegrationTest {
 
         void inquiryFinalStatus(PaymentFinalStatus inquiryFinalStatus) {
             this.inquiryFinalStatus = inquiryFinalStatus;
+        }
+
+        private VanInquiryStatus toInquiryStatus(PaymentFinalStatus finalStatus) {
+            return switch (finalStatus) {
+                case APPROVED -> VanInquiryStatus.APPROVED;
+                case DECLINED -> VanInquiryStatus.DECLINED;
+                case UNKNOWN_TIMEOUT -> VanInquiryStatus.UNKNOWN;
+                case PROCESSING -> throw new IllegalArgumentException(
+                        "PROCESSING is not a VAN inquiry terminal status"
+                );
+            };
         }
 
         void reset() {

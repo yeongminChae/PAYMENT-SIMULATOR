@@ -28,6 +28,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.util.Objects;
 
 /**
  * 기존 VanGateway 경계를 유지하면서 Payment 업무 DTO를 실제 TCP VAN Simulator 호출로 바꾸는 어댑터다.
@@ -192,8 +193,9 @@ public class TcpVanGateway implements VanGateway {
                 PROTOCOL_VERSION,
                 INQUIRY_MESSAGE_TYPE,
                 inquiryRequestId(request),
-                request.posTrx(),
-                request.attemptSeq()
+                toTcpTargetType(request.targetType()),
+                request.targetTrxNo(),
+                request.targetAttemptSeq()
         );
     }
 
@@ -318,9 +320,52 @@ public class TcpVanGateway implements VanGateway {
         if (PROTOCOL_VERSION.equals(tcpResponse.protocolVersion()) == false
                 || INQUIRY_RESPONSE_MESSAGE_TYPE.equals(tcpResponse.messageType()) == false
                 || tcpRequest.requestId().equals(tcpResponse.requestId()) == false
-                || tcpRequest.posTrx().equals(tcpResponse.posTrx()) == false
-                || tcpRequest.attemptSeq() != tcpResponse.attemptSeq()) {
+                || tcpRequest.targetType() != tcpResponse.targetType()
+                || Objects.equals(tcpRequest.targetTrxNo(), tcpResponse.targetTrxNo()) == false
+                || Objects.equals(tcpRequest.targetAttemptSeq(), tcpResponse.targetAttemptSeq()) == false) {
             throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_MISMATCH");
+        }
+
+        validateInquiryResult(tcpResponse);
+    }
+
+    private void validateInquiryResult(VanInquiryTcpResponse response) {
+        if (response.resultCode() == null) {
+            throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
+        }
+
+        switch (response.resultCode()) {
+            case NOT_FOUND -> {
+                if (response.status() != null
+                        || response.vanTrxId() != null
+                        || response.approvalNo() != null
+                        || response.cancelApprovalNo() != null
+                        || response.declineCode() != null) {
+                    throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
+                }
+            }
+            case SUCCESS -> validateInquirySuccessResult(response);
+        }
+    }
+
+    private void validateInquirySuccessResult(VanInquiryTcpResponse response) {
+        if (response.targetType() == null || response.status() == null) {
+            throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
+        }
+
+        switch (response.targetType()) {
+            case APPROVAL -> {
+                if (isApprovalInquiryStatus(response.status()) == false
+                        || response.cancelApprovalNo() != null) {
+                    throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
+                }
+            }
+            case CANCEL -> {
+                if (isCancelInquiryStatus(response.status()) == false
+                        || response.approvalNo() != null) {
+                    throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
+                }
+            }
         }
     }
 
@@ -416,13 +461,16 @@ public class TcpVanGateway implements VanGateway {
      */
     private VanInquiryResponse toInquiryResponse(VanInquiryTcpResponse tcpResponse) {
         return VanInquiryResponse.builder()
-                .posTrx(tcpResponse.posTrx())
-                .attemptSeq(tcpResponse.attemptSeq())
-                .finalStatus(toFinalStatus(tcpResponse.status()))
-                .approvalNo(tcpResponse.approvalNo())
-                .declineCode(toDeclineCode(tcpResponse))
+                .targetType(toDtoTargetType(tcpResponse.targetType()))
+                .targetTrxNo(tcpResponse.targetTrxNo())
+                .targetAttemptSeq(tcpResponse.targetAttemptSeq())
+                .resultCode(toDtoResultCode(tcpResponse.resultCode()))
+                .status(tcpResponse.status())
                 .vanTrxId(tcpResponse.vanTrxId())
-                .message(tcpResponse.status().name())
+                .approvalNo(tcpResponse.approvalNo())
+                .cancelApprovalNo(tcpResponse.cancelApprovalNo())
+                .declineCode(toDeclineCode(tcpResponse))
+                .message(inquiryMessage(tcpResponse))
                 .respondedAt(tcpResponse.respondedAt())
                 .build();
     }
@@ -484,7 +532,20 @@ public class TcpVanGateway implements VanGateway {
             case APPROVED -> PaymentFinalStatus.APPROVED;
             case DECLINED -> PaymentFinalStatus.DECLINED;
             case UNKNOWN -> PaymentFinalStatus.UNKNOWN_TIMEOUT;
+            case CANCELLED,
+                 CANCEL_DECLINED -> throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
         };
+    }
+
+    private boolean isApprovalInquiryStatus(VanInquiryStatus status) {
+        return status == VanInquiryStatus.APPROVED
+                || status == VanInquiryStatus.DECLINED
+                || status == VanInquiryStatus.UNKNOWN;
+    }
+
+    private boolean isCancelInquiryStatus(VanInquiryStatus status) {
+        return status == VanInquiryStatus.CANCELLED
+                || status == VanInquiryStatus.CANCEL_DECLINED;
     }
 
     /**
@@ -528,7 +589,9 @@ public class TcpVanGateway implements VanGateway {
      * UNKNOWN 또는 TIMEOUT 문자열은 후속조회에서도 아직 미확정이라는 의미로 TIMEOUT에 매핑한다.
      */
     private VanDeclineCode toDeclineCode(VanInquiryTcpResponse tcpResponse) {
-        if (tcpResponse.status() == VanInquiryStatus.APPROVED) {
+        if (tcpResponse.resultCode() == com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryResultCode.NOT_FOUND
+                || tcpResponse.status() == VanInquiryStatus.APPROVED
+                || tcpResponse.status() == VanInquiryStatus.CANCELLED) {
             return null;
         }
 
@@ -542,6 +605,39 @@ public class TcpVanGateway implements VanGateway {
         }
 
         return VanDeclineCode.DO_NOT_HONOR;
+    }
+
+    private com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTargetType toTcpTargetType(
+            VanInquiryTargetType targetType
+    ) {
+        return switch (targetType) {
+            case APPROVAL -> com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTargetType.APPROVAL;
+            case CANCEL -> com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTargetType.CANCEL;
+        };
+    }
+
+    private VanInquiryTargetType toDtoTargetType(
+            com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTargetType targetType
+    ) {
+        return switch (targetType) {
+            case APPROVAL -> VanInquiryTargetType.APPROVAL;
+            case CANCEL -> VanInquiryTargetType.CANCEL;
+        };
+    }
+
+    private VanInquiryResultCode toDtoResultCode(
+            com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryResultCode resultCode
+    ) {
+        return switch (resultCode) {
+            case SUCCESS -> VanInquiryResultCode.SUCCESS;
+            case NOT_FOUND -> VanInquiryResultCode.NOT_FOUND;
+        };
+    }
+
+    private String inquiryMessage(VanInquiryTcpResponse response) {
+        return response.resultCode() == com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryResultCode.NOT_FOUND
+                ? response.resultCode().name()
+                : response.status().name();
     }
 
     /**
@@ -582,7 +678,12 @@ public class TcpVanGateway implements VanGateway {
      * Payment는 이 값과 posTrx/attemptSeq를 함께 비교해 응답이 현재 요청에 대한 것인지 검증한다.
      */
     private String inquiryRequestId(VanInquiryRequest request) {
-        return "INQUIRY-" + request.posTrx() + "-" + request.attemptSeq();
+        return "INQUIRY-" + request.targetType() + "-" + request.targetTrxNo()
+                + "-" + nullToDash(request.targetAttemptSeq());
+    }
+
+    private String nullToDash(Integer value) {
+        return value == null ? "null" : value.toString();
     }
 
     /**
