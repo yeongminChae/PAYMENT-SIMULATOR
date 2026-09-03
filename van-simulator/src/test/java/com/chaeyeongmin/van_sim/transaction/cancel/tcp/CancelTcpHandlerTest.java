@@ -1,5 +1,9 @@
 package com.chaeyeongmin.van_sim.transaction.cancel.tcp;
 
+import com.chaeyeongmin.van_sim.control.scenario.cancel.model.CancelScenario;
+import com.chaeyeongmin.van_sim.control.scenario.cancel.model.CancelTransportBehavior;
+import com.chaeyeongmin.van_sim.control.scenario.cancel.registry.CancelScenarioRegistry;
+import com.chaeyeongmin.van_sim.control.scenario.cancel.registry.CancelScenarioRegistryImpl;
 import com.chaeyeongmin.van_sim.ledger.cancel.status.CancelResultCode;
 import com.chaeyeongmin.van_sim.ledger.cancel.status.VanCancelStatus;
 import com.chaeyeongmin.van_sim.protocol.cancel.CancelRequestMessage;
@@ -13,6 +17,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -23,6 +28,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -33,8 +39,13 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class CancelTcpHandlerTest {
 
+    private static final String OTHER_CANCEL_POS_TRX = "2301-20260808-9999-9999";
+
     @Mock
     private CancelService cancelService;
+
+    @Mock
+    private CancelScenarioRegistry registry;
 
     private CancelTcpMessageMapper mapper;
     private ObjectMapper objectMapper;
@@ -52,7 +63,8 @@ class CancelTcpHandlerTest {
         handler = new CancelTcpHandler(
                 objectMapper,
                 mapper,
-                cancelService
+                cancelService,
+                registry
         );
     }
 
@@ -80,6 +92,7 @@ class CancelTcpHandlerTest {
         // - handler가 어떤 CancelCommand를 만들든, service는 위에서 준비한 result를 돌려주게 한다.
         // - command 필드 검증은 ArgumentCaptor나 argThat으로 별도 assertion을 붙이면 된다.
         when(cancelService.processCancel(any(CancelCommand.class))).thenReturn(result);
+        when(registry.find(request.cancelPosTrx())).thenReturn(Optional.empty());
 
         // responsePayload:
         // - handler 전체 흐름의 결과물이다.
@@ -125,6 +138,72 @@ class CancelTcpHandlerTest {
         assertThat(response.resultCode()).isEqualTo(result.resultCode());
         assertThat(response.cancelApprovalNo()).isEqualTo(result.cancelApprovalNo());
         assertThat(response.declineCode()).isEqualTo(result.declineCode());
+    }
+
+    @Test
+    @DisplayName("NORMAL 시나리오면 CANCEL_RESPONSE payload를 반환한다")
+    void NORMAL_시나리오면_CANCEL_RESPONSE_payload를_반환한다() throws Exception {
+        CancelRequestMessage request = validRequest();
+        CancelResult result = successResult(request);
+        byte[] payload = objectMapper.writeValueAsBytes(request);
+
+        when(registry.find(request.cancelPosTrx()))
+                .thenReturn(Optional.of(new CancelScenario(CancelTransportBehavior.NORMAL)));
+        when(cancelService.processCancel(any(CancelCommand.class))).thenReturn(result);
+
+        byte[] responsePayload = handler.handle(payload);
+
+        assertThat(responsePayload).isNotNull();
+        CancelResponseMessage response = objectMapper.readValue(responsePayload, CancelResponseMessage.class);
+        assertThat(response.messageType()).isEqualTo("CANCEL_RESPONSE");
+        assertThat(response.cancelPosTrx()).isEqualTo(request.cancelPosTrx());
+        verify(cancelService, times(1)).processCancel(any(CancelCommand.class));
+    }
+
+    @Test
+    @DisplayName("DROP_RESPONSE 시나리오면 cancelService를 1회 호출하고 null을 반환한다")
+    void DROP_RESPONSE_시나리오면_cancelService를_1회_호출하고_null을_반환한다() throws Exception {
+        CancelRequestMessage request = validRequest();
+        CancelResult result = successResult(request);
+        byte[] payload = objectMapper.writeValueAsBytes(request);
+
+        when(registry.find(request.cancelPosTrx()))
+                .thenReturn(Optional.of(new CancelScenario(CancelTransportBehavior.DROP_RESPONSE)));
+        when(cancelService.processCancel(any(CancelCommand.class))).thenReturn(result);
+
+        byte[] responsePayload = handler.handle(payload);
+
+        assertThat(responsePayload).isNull();
+        verify(cancelService, times(1)).processCancel(any(CancelCommand.class));
+    }
+
+    @Test
+    @DisplayName("다른 cancelPosTrx 시나리오는 현재 CANCEL 요청에 영향이 없다")
+    void 다른_cancelPosTrx_시나리오는_현재_CANCEL_요청에_영향이_없다() throws Exception {
+        CancelScenarioRegistry realRegistry = new CancelScenarioRegistryImpl();
+        realRegistry.register(
+                OTHER_CANCEL_POS_TRX,
+                new CancelScenario(CancelTransportBehavior.DROP_RESPONSE)
+        );
+        CancelTcpHandler handlerWithRealRegistry = new CancelTcpHandler(
+                objectMapper,
+                mapper,
+                cancelService,
+                realRegistry
+        );
+        CancelRequestMessage request = validRequest();
+        CancelResult result = successResult(request);
+        byte[] payload = objectMapper.writeValueAsBytes(request);
+
+        when(cancelService.processCancel(any(CancelCommand.class))).thenReturn(result);
+
+        byte[] responsePayload = handlerWithRealRegistry.handle(payload);
+
+        assertThat(responsePayload).isNotNull();
+        CancelResponseMessage response = objectMapper.readValue(responsePayload, CancelResponseMessage.class);
+        assertThat(response.messageType()).isEqualTo("CANCEL_RESPONSE");
+        assertThat(response.cancelPosTrx()).isEqualTo(request.cancelPosTrx());
+        verify(cancelService, times(1)).processCancel(any(CancelCommand.class));
     }
 
     @Test

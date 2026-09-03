@@ -1,5 +1,7 @@
 package com.chaeyeongmin.van_sim.transaction.cancel.tcp;
 
+import com.chaeyeongmin.van_sim.control.scenario.cancel.model.CancelTransportBehavior;
+import com.chaeyeongmin.van_sim.control.scenario.cancel.registry.CancelScenarioRegistry;
 import com.chaeyeongmin.van_sim.protocol.cancel.CancelRequestMessage;
 import com.chaeyeongmin.van_sim.protocol.cancel.CancelResponseMessage;
 import com.chaeyeongmin.van_sim.transaction.cancel.CancelService;
@@ -8,6 +10,7 @@ import com.chaeyeongmin.van_sim.transaction.cancel.service.result.CancelResult;
 import com.chaeyeongmin.van_sim.transaction.cancel.tcp.exception.CancelTcpMessageException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -18,6 +21,7 @@ import java.time.format.ResolverStyle;
 import java.util.regex.Pattern;
 
 @Component
+@Profile("postgres")
 @RequiredArgsConstructor
 public class CancelTcpHandler {
 
@@ -39,6 +43,7 @@ public class CancelTcpHandler {
     private final ObjectMapper objectMapper;
     private final CancelTcpMessageMapper mapper;
     private final CancelService cancelService;
+    private final CancelScenarioRegistry registry;
 
     public byte[] handle(byte[] payload) {
         // TCP 서버가 수신한 원본 JSON 바이트 payload를 취소 요청 전문 객체로 역직렬화한다.
@@ -53,6 +58,10 @@ public class CancelTcpHandler {
         // 취소 서비스에 커맨드를 전달해 취소 가능 여부와 응답에 필요한 처리 결과를 계산한다.
         // 이 호출이 반환된 시점에는 CancelService @Transactional 경계가 끝나 원장 저장도 commit된 뒤다.
         CancelResult cancelResult = cancelService.processCancel(cancelCommand);
+
+        // DROP_RESPONSE는 TCP 응답만 유실시키는 transport 계층 시나리오다.
+        // 따라서 서비스 트랜잭션 안에 넣지 않고, 업무 처리 완료 후 응답 payload를 만들기 전에 적용한다.
+        if (shouldDropResponse(cancelRequest)) return null;
 
         // 원 요청 전문의 식별 정보와 서비스 처리 결과를 조합해 TCP 응답 전문 객체를 만든다.
         CancelResponseMessage cancelResponse = mapper.toResponse(cancelRequest, cancelResult);
@@ -133,6 +142,15 @@ public class CancelTcpHandler {
             );
         }
 
+    }
+
+    /**
+     * 해당 시나리오가 DROP_RESPONSE 시나리오인지 검증한다.
+     */
+    private boolean shouldDropResponse(CancelRequestMessage request) {
+        return registry.find(request.cancelPosTrx())
+                .map(scenario -> scenario.transportBehavior() == CancelTransportBehavior.DROP_RESPONSE)
+                .orElse(false);
     }
 
 }
