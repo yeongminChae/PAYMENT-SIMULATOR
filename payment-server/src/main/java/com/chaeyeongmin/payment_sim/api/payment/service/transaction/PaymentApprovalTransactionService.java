@@ -65,10 +65,16 @@ public class PaymentApprovalTransactionService {
      * - 같은 posTrx의 동시 최초 승인 요청을 row lock으로 줄 세운다.
      * - 이미 확정/처리중인 동일 payload 요청은 DB 재응답으로 끝낸다.
      * - 신규 승인만 attemptSeq를 발급하고 PROCESSING attempt와 외부 식별 정보를 저장한다.
+     * - created 결과를 반환한 요청만 VAN approve를 호출하고, existing 결과를 반환한 요청은 VAN을 호출하지 않는다.
      *
      * <p>
      * 여기서 하지 않는 일:
      * - 외부 VAN 호출. 이 트랜잭션이 커밋된 뒤 호출해야 lock 점유 시간이 길어지지 않는다.
+     *
+     * <p>
+     * 결과 의미:
+     * - created: 신규 PROCESSING attempt를 만든 대표 요청이다. 호출자는 이 posTrx/attemptSeq로 VAN을 호출한다.
+     * - existing: 이미 DB에 응답할 수 있는 attempt가 있다. 호출자는 existingResponse를 그대로 반환한다.
      */
     @Transactional
     public PaymentApprovalPrepareResult prepare(ApproveRequest request) {

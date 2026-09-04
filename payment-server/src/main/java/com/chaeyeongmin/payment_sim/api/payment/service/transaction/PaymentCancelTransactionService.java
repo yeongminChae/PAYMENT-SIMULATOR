@@ -323,11 +323,21 @@ public class PaymentCancelTransactionService {
     }
 
     /**
-     * 신규 취소가 가능한 요청에 대해 PENDING cancel row를 먼저 생성한다.
+     * VAN cancel을 호출해도 되는 요청인지 DB row 생성 결과로 결정한다.
      *
      * <p>
-     * insert에 성공한 요청만 외부 VAN 취소 호출 권한을 얻는다. insert 실패나 unique 경합은
-     * 기존 row 재조회 경로로 돌려 중복 VAN 호출을 방지한다.
+     * 이 메서드는 먼저 PAYMENT_CANCEL에 PENDING row를 insert한다.
+     * insert에 성공하면 이 요청이 VAN cancel을 호출해도 되는 대표 요청이므로 created 결과를 반환한다.
+     *
+     * <p>
+     * insert에 실패하면 누군가 같은 원거래로 cancel row를 먼저 만든 상황일 수 있다.
+     * 그래서 바로 오류로 끝내지 않고 DB를 다시 조회한다.
+     * - 같은 원거래 row가 있으면 이미 취소 요청이 접수된 것이므로 그 row 상태를 응답한다.
+     * - 그래도 row가 없으면 판단 근거가 없으므로 retryLater로 방어한다.
+     *
+     * <p>
+     * 결과적으로 이 메서드가 created를 반환한 요청만 VAN을 호출하고,
+     * completed를 반환한 요청은 VAN을 호출하지 않는다.
      */
     private PaymentCancelPrepareResult insertPendingCancelOrRecover(
             CancelRequest request,
