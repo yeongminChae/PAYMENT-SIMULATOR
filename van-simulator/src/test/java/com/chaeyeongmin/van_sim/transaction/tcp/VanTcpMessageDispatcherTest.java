@@ -3,6 +3,7 @@ package com.chaeyeongmin.van_sim.transaction.tcp;
 import com.chaeyeongmin.van_sim.transaction.approval.tcp.ApprovalTcpHandler;
 import com.chaeyeongmin.van_sim.transaction.cancel.tcp.CancelTcpHandler;
 import com.chaeyeongmin.van_sim.transaction.inquiry.tcp.InquiryTcpHandler;
+import com.chaeyeongmin.van_sim.transaction.reversal.tcp.ReversalTcpHandler;
 import com.chaeyeongmin.van_sim.transaction.tcp.exception.VanTcpMessageException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
@@ -32,6 +33,9 @@ class VanTcpMessageDispatcherTest {
     @Mock
     private CancelTcpHandler cancelTcpHandler;
 
+    @Mock
+    private ReversalTcpHandler reversalTcpHandler;
+
     private VanTcpMessageDispatcher dispatcher;
 
     @BeforeEach
@@ -41,7 +45,8 @@ class VanTcpMessageDispatcherTest {
                 objectMapper,
                 approvalTcpHandler,
                 inquiryTcpHandler,
-                cancelTcpHandler
+                cancelTcpHandler,
+                reversalTcpHandler
         );
     }
 
@@ -57,6 +62,7 @@ class VanTcpMessageDispatcherTest {
         verify(approvalTcpHandler).handle(payload);
         verify(inquiryTcpHandler, never()).handle(payload);
         verify(cancelTcpHandler, never()).handle(payload);
+        verify(reversalTcpHandler, never()).handle(payload);
     }
 
     @Test
@@ -71,6 +77,7 @@ class VanTcpMessageDispatcherTest {
         verify(inquiryTcpHandler).handle(payload);
         verify(approvalTcpHandler, never()).handle(payload);
         verify(cancelTcpHandler, never()).handle(payload);
+        verify(reversalTcpHandler, never()).handle(payload);
     }
 
     @Test
@@ -85,6 +92,22 @@ class VanTcpMessageDispatcherTest {
         verify(cancelTcpHandler).handle(payload);
         verify(approvalTcpHandler, never()).handle(payload);
         verify(inquiryTcpHandler, never()).handle(payload);
+        verify(reversalTcpHandler, never()).handle(payload);
+    }
+
+    @Test
+    void REVERSAL_payload를_ReversalTcpHandler로_전달한다() {
+        byte[] payload = payload("REVERSAL");
+        byte[] expected = "reversal-response".getBytes(StandardCharsets.UTF_8);
+        when(reversalTcpHandler.handle(payload)).thenReturn(expected);
+
+        byte[] actual = dispatcher.dispatch(payload);
+
+        assertThat(actual).isSameAs(expected);
+        verify(reversalTcpHandler).handle(payload);
+        verify(approvalTcpHandler, never()).handle(payload);
+        verify(inquiryTcpHandler, never()).handle(payload);
+        verify(cancelTcpHandler, never()).handle(payload);
     }
 
     @Test
@@ -98,6 +121,7 @@ class VanTcpMessageDispatcherTest {
         verify(approvalTcpHandler, never()).handle(payload);
         verify(inquiryTcpHandler, never()).handle(payload);
         verify(cancelTcpHandler, never()).handle(payload);
+        verify(reversalTcpHandler, never()).handle(payload);
     }
 
     private static byte[] payload(String messageType) {
