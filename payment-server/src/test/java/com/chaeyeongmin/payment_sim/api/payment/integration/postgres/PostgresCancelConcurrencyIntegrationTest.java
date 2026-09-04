@@ -18,6 +18,8 @@ import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelResponse;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResponse;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanReversalRequest;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanReversalResponse;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -604,6 +606,11 @@ class PostgresCancelConcurrencyIntegrationTest {
         @Override
         public VanInquiryResponse inquiry(VanInquiryRequest request) {
             throw new UnsupportedOperationException("inquiry is not used in this test");
+        }
+
+        @Override
+        public VanReversalResponse reversal(VanReversalRequest request) {
+            throw new UnsupportedOperationException("reversal is not used in this test");
         }
 
         void reset() {

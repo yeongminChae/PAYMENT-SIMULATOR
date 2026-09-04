@@ -10,6 +10,10 @@ import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResponse;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResultCode;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryTargetType;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanReversalRequest;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanReversalResponse;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanReversalResultCode;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanReversalStatus;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanResult;
 import com.chaeyeongmin.payment_sim.van.client.tcp.VanTcpClient;
@@ -25,6 +29,10 @@ import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.cancel.VanCancelTcpS
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryStatus;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTcpRequest;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTcpResponse;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.reversal.VanReversalTcpRequest;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.reversal.VanReversalTcpResponse;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.reversal.VanReversalTcpResultCode;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.reversal.VanReversalTcpStatus;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.TcpVanGatewayException;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutException;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayRequestNotSentException;
@@ -664,6 +672,167 @@ class TcpVanGatewayTest {
                 .hasCauseInstanceOf(VanTcpRequestNotSentException.class);
     }
 
+    @Test
+    void 기존_reversal요청을_TCP_REVERSAL_전문으로_변환하고_REVERSED_SUCCESS_응답을_업무응답으로_변환한다() throws Exception {
+        VanReversalRequest request = reversalRequest("2301-20260808-9999-0301");
+        VanReversalTcpResponse tcpResponse = reversalTcpResponse(
+                request,
+                VanReversalTcpStatus.REVERSED,
+                VanReversalTcpResultCode.SUCCESS,
+                "VAN-REVERSAL-TCP-001",
+                "REVERSAL-APPROVAL-TCP-001",
+                null
+        );
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        VanReversalResponse response = tcpVanGateway.reversal(request);
+
+        ArgumentCaptor<byte[]> requestPayloadCaptor = ArgumentCaptor.forClass(byte[].class);
+        verify(vanTcpClient).send(requestPayloadCaptor.capture());
+
+        VanReversalTcpRequest tcpRequest =
+                objectMapper.readValue(requestPayloadCaptor.getValue(), VanReversalTcpRequest.class);
+
+        assertThat(tcpRequest.protocolVersion()).isEqualTo("1");
+        assertThat(tcpRequest.messageType()).isEqualTo("REVERSAL");
+        assertThat(tcpRequest.requestId()).isEqualTo("REVERSAL-" + request.reversalPosTrx());
+        assertThat(tcpRequest.reversalPosTrx()).isEqualTo(request.reversalPosTrx());
+        assertThat(tcpRequest.originalPosTrx()).isEqualTo(request.originalPosTrx());
+        assertThat(tcpRequest.originalAttemptSeq()).isEqualTo(request.originalAttemptSeq());
+        assertThat(tcpRequest.amount()).isEqualTo(request.amount());
+
+        assertThat(response.reversalPosTrx()).isEqualTo(request.reversalPosTrx());
+        assertThat(response.originalPosTrx()).isEqualTo(request.originalPosTrx());
+        assertThat(response.originalAttemptSeq()).isEqualTo(request.originalAttemptSeq());
+        assertThat(response.reversalStatus()).isEqualTo(VanReversalStatus.REVERSED);
+        assertThat(response.resultCode()).isEqualTo(VanReversalResultCode.SUCCESS);
+        assertThat(response.reversalApprovalNo()).isEqualTo("REVERSAL-APPROVAL-TCP-001");
+        assertThat(response.declineCode()).isNull();
+        assertThat(response.vanReversalTrxId()).isEqualTo("VAN-REVERSAL-TCP-001");
+        assertThat(response.respondedAt()).isNotNull();
+    }
+
+    @Test
+    void TCP_ALREADY_REVERSED_reversal응답을_REVERSED_업무응답으로_변환한다() throws Exception {
+        VanReversalRequest request = reversalRequest("2301-20260808-9999-0302");
+        VanReversalTcpResponse tcpResponse = reversalTcpResponse(
+                request,
+                VanReversalTcpStatus.REVERSED,
+                VanReversalTcpResultCode.ALREADY_REVERSED,
+                "VAN-REVERSAL-TCP-002",
+                "REVERSAL-APPROVAL-TCP-002",
+                null
+        );
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        VanReversalResponse response = tcpVanGateway.reversal(request);
+
+        assertThat(response.reversalStatus()).isEqualTo(VanReversalStatus.REVERSED);
+        assertThat(response.resultCode()).isEqualTo(VanReversalResultCode.ALREADY_REVERSED);
+        assertThat(response.reversalApprovalNo()).isEqualTo("REVERSAL-APPROVAL-TCP-002");
+        assertThat(response.declineCode()).isNull();
+        assertThat(response.vanReversalTrxId()).isEqualTo("VAN-REVERSAL-TCP-002");
+    }
+
+    @Test
+    void TCP_REVERSAL_DECLINED_reversal응답을_업무응답으로_변환한다() throws Exception {
+        VanReversalRequest request = reversalRequest("2301-20260808-9999-0303");
+        VanReversalTcpResponse tcpResponse = reversalTcpResponse(
+                request,
+                VanReversalTcpStatus.REVERSAL_DECLINED,
+                VanReversalTcpResultCode.ORIGINAL_NOT_REVERSIBLE,
+                "VAN-REVERSAL-TCP-003",
+                null,
+                "ORIGINAL_NOT_REVERSIBLE"
+        );
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        VanReversalResponse response = tcpVanGateway.reversal(request);
+
+        assertThat(response.reversalStatus()).isEqualTo(VanReversalStatus.REVERSAL_DECLINED);
+        assertThat(response.resultCode()).isEqualTo(VanReversalResultCode.ORIGINAL_NOT_REVERSIBLE);
+        assertThat(response.reversalApprovalNo()).isNull();
+        assertThat(response.declineCode()).isEqualTo(VanDeclineCode.ORIGINAL_NOT_REVERSIBLE);
+        assertThat(response.vanReversalTrxId()).isEqualTo("VAN-REVERSAL-TCP-003");
+    }
+
+    @Test
+    void TCP_REVERSAL_응답의_correlation이_다르면_gateway_예외를_던진다() throws Exception {
+        VanReversalRequest request = reversalRequest("2301-20260808-9999-0304");
+        VanReversalTcpResponse mismatchedResponse = new VanReversalTcpResponse(
+                "1",
+                "REVERSAL_RESPONSE",
+                "REVERSAL-DIFFERENT",
+                request.reversalPosTrx(),
+                request.originalPosTrx(),
+                request.originalAttemptSeq(),
+                "VAN-REVERSAL-TCP-004",
+                VanReversalTcpStatus.REVERSED,
+                VanReversalTcpResultCode.SUCCESS,
+                "REVERSAL-APPROVAL-TCP-004",
+                null
+        );
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenReturn(objectMapper.writeValueAsBytes(mismatchedResponse));
+
+        assertThatThrownBy(() -> tcpVanGateway.reversal(request))
+                .isInstanceOf(TcpVanGatewayException.class)
+                .hasMessage("VAN_TCP_REVERSAL_RESPONSE_MISMATCH");
+    }
+
+    @Test
+    void TCP_REVERSAL_응답의_상태_조합이_모순이면_gateway_예외를_던진다() throws Exception {
+        VanReversalRequest request = reversalRequest("2301-20260808-9999-0305");
+        VanReversalTcpResponse invalidResponse = reversalTcpResponse(
+                request,
+                VanReversalTcpStatus.REVERSED,
+                VanReversalTcpResultCode.ORIGINAL_NOT_FOUND,
+                "VAN-REVERSAL-TCP-005",
+                "REVERSAL-APPROVAL-TCP-005",
+                "ORIGINAL_NOT_FOUND"
+        );
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenReturn(objectMapper.writeValueAsBytes(invalidResponse));
+
+        assertThatThrownBy(() -> tcpVanGateway.reversal(request))
+                .isInstanceOf(TcpVanGatewayException.class)
+                .hasMessage("VAN_TCP_REVERSAL_RESPONSE_INVALID");
+    }
+
+    @Test
+    void TCP_REVERSAL_request_not_sent이면_gateway_request_not_sent로_변환한다() {
+        VanReversalRequest request = reversalRequest("2301-20260808-9999-0306");
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenThrow(new VanTcpRequestNotSentException(new RuntimeException("connect failed")));
+
+        assertThatThrownBy(() -> tcpVanGateway.reversal(request))
+                .isInstanceOf(VanGatewayRequestNotSentException.class)
+                .hasCauseInstanceOf(VanTcpRequestNotSentException.class);
+    }
+
+    @Test
+    void TCP_REVERSAL_응답_timeout이면_gateway_timeout으로_변환한다() {
+        VanReversalRequest request = reversalRequest("2301-20260808-9999-0307");
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenThrow(new VanTcpResponseTimeoutException(
+                        new RuntimeException("timeout")
+                ));
+
+        assertThatThrownBy(() -> tcpVanGateway.reversal(request))
+                .isInstanceOf(VanGatewayTimeoutException.class)
+                .hasCauseInstanceOf(VanTcpResponseTimeoutException.class);
+    }
+
     private VanInquiryRequest inquiryRequest(String posTrx, int attemptSeq) {
         return VanInquiryRequest.builder()
                 .targetType(VanInquiryTargetType.APPROVAL)
@@ -741,6 +910,38 @@ class TcpVanGatewayTest {
                 status,
                 resultCode,
                 cancelApprovalNo,
+                declineCode
+        );
+    }
+
+    private VanReversalRequest reversalRequest(String reversalPosTrx) {
+        return VanReversalRequest.builder()
+                .reversalPosTrx(reversalPosTrx)
+                .originalPosTrx("2301-20260808-9999-0101")
+                .originalAttemptSeq(1)
+                .amount(10_000)
+                .build();
+    }
+
+    private VanReversalTcpResponse reversalTcpResponse(
+            VanReversalRequest request,
+            VanReversalTcpStatus status,
+            VanReversalTcpResultCode resultCode,
+            String vanReversalTrxId,
+            String reversalApprovalNo,
+            String declineCode
+    ) {
+        return new VanReversalTcpResponse(
+                "1",
+                "REVERSAL_RESPONSE",
+                "REVERSAL-" + request.reversalPosTrx(),
+                request.reversalPosTrx(),
+                request.originalPosTrx(),
+                request.originalAttemptSeq(),
+                vanReversalTrxId,
+                status,
+                resultCode,
+                reversalApprovalNo,
                 declineCode
         );
     }

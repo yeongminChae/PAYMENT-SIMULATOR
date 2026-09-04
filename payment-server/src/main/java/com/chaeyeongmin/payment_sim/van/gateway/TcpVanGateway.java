@@ -17,6 +17,10 @@ import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.cancel.VanCancelTcpS
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryStatus;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTcpRequest;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTcpResponse;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.reversal.VanReversalTcpRequest;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.reversal.VanReversalTcpResponse;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.reversal.VanReversalTcpResultCode;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.reversal.VanReversalTcpStatus;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.TcpVanGatewayException;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayRequestNotSentException;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutException;
@@ -56,6 +60,8 @@ public class TcpVanGateway implements VanGateway {
     private static final String INQUIRY_RESPONSE_MESSAGE_TYPE = "INQUIRY_RESPONSE";
     private static final String CANCEL_MESSAGE_TYPE = "CANCEL";
     private static final String CANCEL_RESPONSE_MESSAGE_TYPE = "CANCEL_RESPONSE";
+    private static final String REVERSAL_MESSAGE_TYPE = "REVERSAL";
+    private static final String REVERSAL_RESPONSE_MESSAGE_TYPE = "REVERSAL_RESPONSE";
 
     private final ObjectMapper objectMapper;
     private final VanTcpClient vanTcpClient;
@@ -153,6 +159,32 @@ public class TcpVanGateway implements VanGateway {
     }
 
     /**
+     * Payment Reversal 요청을 TCP VAN Simulator reversal 호출로 변환한다.
+     *
+     * <p>
+     * Reversal은 Release 5 TCP mode 전용 boundary다.
+     * 요청 correlation은 requestId + reversalPosTrx + originalPosTrx + originalAttemptSeq로 검증한다.
+     */
+    @Override
+    public VanReversalResponse reversal(VanReversalRequest request) {
+        try {
+            VanReversalTcpRequest tcpRequest = toTcpRequest(request);
+            byte[] requestPayload = writeRequest(tcpRequest);
+            byte[] responsePayload = vanTcpClient.send(requestPayload);
+            VanReversalTcpResponse tcpResponse = readReversalResponse(responsePayload);
+
+            validateReversalResponse(tcpRequest, tcpResponse);
+
+            return toReversalResponse(tcpResponse);
+
+        } catch (VanTcpRequestNotSentException e) {
+            throw new VanGatewayRequestNotSentException(e);
+        } catch (VanTcpResponseTimeoutException e) {
+            throw new VanGatewayTimeoutException(e);
+        }
+    }
+
+    /**
      * 기존 업무 승인 요청 DTO를 VAN TCP 승인 요청 전문 DTO로 변환한다.
      * <p>
      * protocolVersion/messageType은 VAN Simulator v1 승인 프로토콜 명세에 맞춰 고정한다.
@@ -224,6 +256,21 @@ public class TcpVanGateway implements VanGateway {
     }
 
     /**
+     * 기존 업무 reversal 요청 DTO를 VAN TCP reversal 요청 전문 DTO로 변환한다.
+     */
+    private VanReversalTcpRequest toTcpRequest(VanReversalRequest request) {
+        return new VanReversalTcpRequest(
+                PROTOCOL_VERSION,
+                REVERSAL_MESSAGE_TYPE,
+                reversalRequestId(request),
+                request.reversalPosTrx(),
+                request.originalPosTrx(),
+                request.originalAttemptSeq(),
+                request.amount()
+        );
+    }
+
+    /**
      * TCP 조회 요청 전문 DTO를 JSON payload byte[]로 직렬화한다.
      * <p>
      * 반환값은 length header가 없는 JSON body다.
@@ -262,6 +309,20 @@ public class TcpVanGateway implements VanGateway {
             return objectMapper.readValue(responsePayload, VanApprovalTcpResponse.class);
         } catch (IOException e) {
             throw new TcpVanGatewayException("VAN_TCP_APPROVAL_RESPONSE_DESERIALIZE_FAILED", e);
+        }
+    }
+
+    /**
+     * TCP reversal 요청 전문 DTO를 JSON payload byte[]로 직렬화한다.
+     */
+    private byte[] writeRequest(VanReversalTcpRequest tcpRequest) {
+        try {
+            return objectMapper.writeValueAsBytes(tcpRequest);
+        } catch (JsonProcessingException e) {
+            throw new TcpVanGatewayException(
+                    "VAN_TCP_REVERSAL_REQUEST_SERIALIZE_FAILED",
+                    e
+            );
         }
     }
 
@@ -351,6 +412,17 @@ public class TcpVanGateway implements VanGateway {
         }
     }
 
+    /**
+     * VAN Simulator가 반환한 JSON payload byte[]를 TCP reversal 응답 전문 DTO로 역직렬화한다.
+     */
+    private VanReversalTcpResponse readReversalResponse(byte[] responsePayload) {
+        try {
+            return objectMapper.readValue(responsePayload, VanReversalTcpResponse.class);
+        } catch (IOException e) {
+            throw new TcpVanGatewayException("VAN_TCP_REVERSAL_RESPONSE_DESERIALIZE_FAILED", e);
+        }
+    }
+
     private void validateInquirySuccessResult(VanInquiryTcpResponse response) {
         if (response.targetType() == null || response.status() == null) {
             throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
@@ -399,6 +471,26 @@ public class TcpVanGateway implements VanGateway {
     }
 
     /**
+     * 요청과 응답이 같은 reversal 거래를 가리키는지 검증한다.
+     */
+    private void validateReversalResponse(
+            VanReversalTcpRequest request,
+            VanReversalTcpResponse response
+    ) {
+        if (PROTOCOL_VERSION.equals(response.protocolVersion()) == false
+                || REVERSAL_RESPONSE_MESSAGE_TYPE.equals(response.messageType()) == false
+                || request.requestId().equals(response.requestId()) == false
+                || request.reversalPosTrx().equals(response.reversalPosTrx()) == false
+                || request.originalPosTrx().equals(response.originalPosTrx()) == false
+                || request.originalAttemptSeq() != response.originalAttemptSeq()) {
+
+            throw new TcpVanGatewayException("VAN_TCP_REVERSAL_RESPONSE_MISMATCH");
+        }
+
+        validateReversalResult(response);
+    }
+
+    /**
      * TCP Cancel 응답의 상태 조합이 업무적으로 유효한지 확인한다.
      *
      * <p>
@@ -423,6 +515,33 @@ public class TcpVanGateway implements VanGateway {
                         || response.cancelApprovalNo() != null
                         || response.resultCode().name().equals(response.declineCode()) == false)
                     throw new TcpVanGatewayException("VAN_TCP_CANCEL_RESPONSE_INVALID");
+            }
+        }
+    }
+
+    /**
+     * TCP Reversal 응답의 상태 조합이 업무적으로 유효한지 확인한다.
+     */
+    private void validateReversalResult(VanReversalTcpResponse response) {
+        switch (response.resultCode()) {
+            case SUCCESS,
+                 ALREADY_REVERSED -> {
+                if (response.reversalStatus() != VanReversalTcpStatus.REVERSED
+                        || response.reversalApprovalNo() == null
+                        || response.reversalApprovalNo().isBlank()
+                        || response.declineCode() != null) {
+                    throw new TcpVanGatewayException("VAN_TCP_REVERSAL_RESPONSE_INVALID");
+                }
+            }
+
+            case ORIGINAL_NOT_FOUND,
+                 ORIGINAL_NOT_REVERSIBLE,
+                 ORIGINAL_MISMATCH -> {
+                if (response.reversalStatus() != VanReversalTcpStatus.REVERSAL_DECLINED
+                        || response.reversalApprovalNo() != null
+                        || response.resultCode().name().equals(response.declineCode()) == false) {
+                    throw new TcpVanGatewayException("VAN_TCP_REVERSAL_RESPONSE_INVALID");
+                }
             }
         }
     }
@@ -502,6 +621,23 @@ public class TcpVanGateway implements VanGateway {
     }
 
     /**
+     * TCP reversal 응답 전문을 Payment 업무 reversal 응답 DTO로 변환한다.
+     */
+    private VanReversalResponse toReversalResponse(VanReversalTcpResponse tcpResponse) {
+        return VanReversalResponse.builder()
+                .reversalPosTrx(tcpResponse.reversalPosTrx())
+                .originalPosTrx(tcpResponse.originalPosTrx())
+                .originalAttemptSeq(tcpResponse.originalAttemptSeq())
+                .reversalStatus(toReversalStatus(tcpResponse.reversalStatus()))
+                .resultCode(toReversalResultCode(tcpResponse.resultCode()))
+                .reversalApprovalNo(tcpResponse.reversalApprovalNo())
+                .declineCode(toDeclineCode(tcpResponse))
+                .vanReversalTrxId(tcpResponse.vanReversalTrxId())
+                .respondedAt(LocalDateTime.now())
+                .build();
+    }
+
+    /**
      * VAN TCP 프로토콜 상태를 Payment 쪽 VAN 결과 enum으로 변환한다.
      */
     private VanResult toVanResult(VanApprovalStatus status) {
@@ -563,6 +699,29 @@ public class TcpVanGateway implements VanGateway {
         return switch (status) {
             case CANCELLED -> CancelStatus.CANCELLED;
             case CANCEL_DECLINED -> CancelStatus.CANCEL_DECLINED;
+        };
+    }
+
+    /**
+     * VAN TCP reversal 원장 상태를 Payment reversal 상태로 변환한다.
+     */
+    private VanReversalStatus toReversalStatus(VanReversalTcpStatus status) {
+        return switch (status) {
+            case REVERSED -> VanReversalStatus.REVERSED;
+            case REVERSAL_DECLINED -> VanReversalStatus.REVERSAL_DECLINED;
+        };
+    }
+
+    /**
+     * VAN TCP reversal resultCode를 Payment reversal resultCode로 변환한다.
+     */
+    private VanReversalResultCode toReversalResultCode(VanReversalTcpResultCode resultCode) {
+        return switch (resultCode) {
+            case SUCCESS -> VanReversalResultCode.SUCCESS;
+            case ALREADY_REVERSED -> VanReversalResultCode.ALREADY_REVERSED;
+            case ORIGINAL_NOT_FOUND -> VanReversalResultCode.ORIGINAL_NOT_FOUND;
+            case ORIGINAL_NOT_REVERSIBLE -> VanReversalResultCode.ORIGINAL_NOT_REVERSIBLE;
+            case ORIGINAL_MISMATCH -> VanReversalResultCode.ORIGINAL_MISMATCH;
         };
     }
 
@@ -644,6 +803,24 @@ public class TcpVanGateway implements VanGateway {
     }
 
     /**
+     * VAN TCP reversal resultCode를 Payment 내부 VanDeclineCode로 변환한다.
+     */
+    private VanDeclineCode toDeclineCode(VanReversalTcpResponse response) {
+        return switch (response.resultCode()) {
+            case SUCCESS, ALREADY_REVERSED -> null;
+
+            case ORIGINAL_NOT_FOUND ->
+                    VanDeclineCode.ORIGINAL_NOT_FOUND;
+
+            case ORIGINAL_NOT_REVERSIBLE ->
+                    VanDeclineCode.ORIGINAL_NOT_REVERSIBLE;
+
+            case ORIGINAL_MISMATCH ->
+                    VanDeclineCode.ORIGINAL_MISMATCH;
+        };
+    }
+
+    /**
      * Payment Server가 생성하는 TCP 승인 요청 식별자다.
      * <p>
      * VAN Simulator는 requestId를 응답에 그대로 돌려주므로, posTrx/attemptSeq와 함께 응답 매칭에 사용한다.
@@ -675,6 +852,13 @@ public class TcpVanGateway implements VanGateway {
      */
     private String cancelRequestId(VanCancelRequest request) {
         return "CANCEL-" + request.posTrx();
+    }
+
+    /**
+     * Payment Server가 생성하는 TCP reversal 요청 식별자다.
+     */
+    private String reversalRequestId(VanReversalRequest request) {
+        return "REVERSAL-" + request.reversalPosTrx();
     }
 
 }

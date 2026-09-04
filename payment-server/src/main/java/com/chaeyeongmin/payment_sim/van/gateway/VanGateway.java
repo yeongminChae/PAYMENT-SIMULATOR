@@ -48,6 +48,14 @@ public interface VanGateway {
     VanCancelResponse cancel(VanCancelRequest request);
 
     /**
+     * [Reversal] VAN reversal 호출.
+     *
+     * <p>
+     * Release 5에서는 TCP VAN Simulator mode 전용 boundary로 사용한다.
+     */
+    VanReversalResponse reversal(VanReversalRequest request);
+
+    /**
      * [Inquiry] VAN 승인 조회 호출.
      *
      * <p>

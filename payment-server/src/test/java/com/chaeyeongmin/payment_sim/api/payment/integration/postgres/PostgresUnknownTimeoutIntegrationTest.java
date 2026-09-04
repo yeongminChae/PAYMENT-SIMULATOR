@@ -16,6 +16,8 @@ import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResponse;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResultCode;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryTargetType;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanReversalRequest;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanReversalResponse;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryStatus;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
@@ -291,6 +293,11 @@ class PostgresUnknownTimeoutIntegrationTest {
         @Override
         public VanCancelResponse cancel(VanCancelRequest request) {
             throw new UnsupportedOperationException("cancel is not used in this test");
+        }
+
+        @Override
+        public VanReversalResponse reversal(VanReversalRequest request) {
+            throw new UnsupportedOperationException("reversal is not used in this test");
         }
 
         void inquiryFinalStatus(PaymentFinalStatus inquiryFinalStatus) {
