@@ -3,6 +3,7 @@ package com.chaeyeongmin.van_sim.transaction.reversal.service.impl;
 import com.chaeyeongmin.van_sim.ledger.approval.entity.VanApproval;
 import com.chaeyeongmin.van_sim.ledger.approval.repository.VanApprovalRepository;
 import com.chaeyeongmin.van_sim.ledger.approval.status.VanApprovalStatus;
+import com.chaeyeongmin.van_sim.ledger.cancel.repository.VanCancelRepository;
 import com.chaeyeongmin.van_sim.ledger.reversal.entity.VanReversal;
 import com.chaeyeongmin.van_sim.ledger.reversal.repository.VanReversalRepository;
 import com.chaeyeongmin.van_sim.ledger.reversal.status.ReversalResultCode;
@@ -44,16 +45,19 @@ class ReversalServiceImplTest {
     private ReversalServiceImpl reversalService;
     private VanReversalRepository reversalRepository;
     private VanApprovalRepository approvalRepository;
+    private VanCancelRepository cancelRepository;
 
     @BeforeEach
     void setUp() {
         reversalRepository = mock(VanReversalRepository.class);
         approvalRepository = mock(VanApprovalRepository.class);
+        cancelRepository = mock(VanCancelRepository.class);
         VanTransactionIdGenerator vanTransactionIdGenerator = () -> "VAN-REVERSAL-001";
         ApprovalNumberGenerator approvalNumberGenerator = () -> "REV-APP-001";
         reversalService = new ReversalServiceImpl(
                 reversalRepository,
                 approvalRepository,
+                cancelRepository,
                 vanTransactionIdGenerator,
                 approvalNumberGenerator
         );

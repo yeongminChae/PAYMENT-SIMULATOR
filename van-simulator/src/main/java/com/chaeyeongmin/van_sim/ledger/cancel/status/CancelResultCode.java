@@ -11,6 +11,8 @@ public enum CancelResultCode {
     SUCCESS,
     // 같은 원승인이 이미 다른 cancelPosTrx로 취소되어, 기존 취소 결과를 재응답했다.
     ALREADY_CANCELLED,
+    // 같은 원승인에 이미 REVERSED 원장이 있어 새 row를 만들지 않고 기존 사실을 재응답했다.
+    ALREADY_REVERSED,
     // 취소 대상 원승인 row를 찾지 못했다.
     ORIGINAL_NOT_FOUND,
     // 원승인이 APPROVED가 아니어서 취소 대상이 아니다.

@@ -7,6 +7,7 @@ import com.chaeyeongmin.van_sim.ledger.cancel.entity.VanCancel;
 import com.chaeyeongmin.van_sim.ledger.cancel.repository.VanCancelRepository;
 import com.chaeyeongmin.van_sim.ledger.cancel.status.CancelResultCode;
 import com.chaeyeongmin.van_sim.ledger.cancel.status.VanCancelStatus;
+import com.chaeyeongmin.van_sim.ledger.reversal.repository.VanReversalRepository;
 import com.chaeyeongmin.van_sim.transaction.approval.service.support.VanTransactionIdGenerator;
 import com.chaeyeongmin.van_sim.transaction.cancel.service.command.CancelCommand;
 import com.chaeyeongmin.van_sim.transaction.cancel.service.exception.CancelRequestConflictException;
@@ -36,6 +37,9 @@ class CancelServiceImplTest {
 
     @Mock
     private VanApprovalRepository approvalRepository;
+
+    @Mock
+    private VanReversalRepository reversalRepository;
 
     @Mock
     private VanTransactionIdGenerator vanTransactionIdGenerator;

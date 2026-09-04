@@ -18,6 +18,9 @@ public enum ReversalResultCode {
      */
     ALREADY_REVERSED,
 
+    // 같은 원승인이 이미 다른 cancelPosTrx로 취소되어, 기존 취소 결과를 재응답했다.
+    ALREADY_CANCELLED,
+
     /**
      * reversal 대상 원승인 row가 VAN 승인 원장에 없다.
      */

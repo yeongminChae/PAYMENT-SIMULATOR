@@ -2,6 +2,9 @@ package com.chaeyeongmin.van_sim.transaction.reversal.service.impl;
 
 import com.chaeyeongmin.van_sim.ledger.approval.entity.VanApproval;
 import com.chaeyeongmin.van_sim.ledger.approval.repository.VanApprovalRepository;
+import com.chaeyeongmin.van_sim.ledger.cancel.entity.VanCancel;
+import com.chaeyeongmin.van_sim.ledger.cancel.repository.VanCancelRepository;
+import com.chaeyeongmin.van_sim.ledger.cancel.status.VanCancelStatus;
 import com.chaeyeongmin.van_sim.ledger.reversal.entity.VanReversal;
 import com.chaeyeongmin.van_sim.ledger.reversal.repository.VanReversalRepository;
 import com.chaeyeongmin.van_sim.ledger.reversal.status.ReversalResultCode;
@@ -31,6 +34,11 @@ import java.util.Optional;
  * <p>
  * 같은 원승인에 대한 동시 reversal은 van_approval row의 PESSIMISTIC_WRITE lock으로 직렬화한다.
  * lock을 기다리는 동안 먼저 commit된 reversal을 반영하기 위해 lock 이후 재조회도 수행한다.
+ *
+ * <p>
+ * 같은 원승인에 cancel이 이미 성공한 경우에는 reversal을 성공시키면 안 된다.
+ * 그래서 원승인 lock 이후 van_cancel 원장도 확인하고, CANCELLED row가 있으면
+ * 신규 reversal을 REVERSAL_DECLINED/ALREADY_CANCELLED로 저장한다.
  */
 @Service
 @Profile("postgres")
@@ -40,9 +48,11 @@ public class ReversalServiceImpl implements ReversalService {
     private static final String ORIGINAL_NOT_FOUND = "ORIGINAL_NOT_FOUND";
     private static final String ORIGINAL_NOT_REVERSIBLE = "ORIGINAL_NOT_REVERSIBLE";
     private static final String ORIGINAL_MISMATCH = "ORIGINAL_MISMATCH";
+    private static final String ALREADY_CANCELLED = "ALREADY_CANCELLED";
 
     private final VanReversalRepository reversalRepository;
     private final VanApprovalRepository approvalRepository;
+    private final VanCancelRepository cancelRepository;
     private final VanTransactionIdGenerator vanTransactionIdGenerator;
     private final ApprovalNumberGenerator approvalNumberGenerator;
 
@@ -117,6 +127,26 @@ public class ReversalServiceImpl implements ReversalService {
             );
         }
 
+        // 4-1. lock을 기다리는 동안 같은 원승인이 cancel로 처리됐는지 확인.
+        // - reversal과 cancel은 서로 다른 원장 테이블에 저장되지만 같은 원승인에 대한 terminal 후속 거래다.
+        // - 이미 CANCELLED가 확정된 원승인에 REVERSED까지 저장하면 cross-ledger invariant가 깨진다.
+        // - 따라서 원승인 lock을 잡은 뒤 cancel 원장도 확인하고, 성공 cancel이 있으면 reversal은 거절 원장으로 남긴다.
+        Optional<VanCancel> existingCancel =
+                cancelRepository.findByOriginalPosTrxAndOriginalAttemptSeq(
+                        command.originalPosTrx(),
+                        command.originalAttemptSeq()
+                );
+
+        if (existingCancel.isPresent()
+                && existingCancel.get().getCancelStatus() == VanCancelStatus.CANCELLED) {
+
+            return saveDeclined(
+                    command,
+                    "ALREADY_CANCELLED",
+                    ReversalResultCode.ALREADY_CANCELLED
+            );
+        }
+
         // 5. 원승인 상태 판단.
         // APPROVED뿐 아니라 UNKNOWN도 reversal 가능하다. 승인 응답 유실 복구가 reversal의 목적이기 때문이다.
         if (isReversible(original) == false) {
@@ -138,6 +168,7 @@ public class ReversalServiceImpl implements ReversalService {
 
         // 7. 신규 reversal 성공.
         // 원승인 row는 수정하지 않고 van_reversal에 REVERSED 사실만 저장한다.
+        // 이미 성공한 cancel도 4-1번에서 걸렀으므로 REVERSED와 CANCELLED가 동시에 생기지 않아야 한다.
         return saveReversed(command, ReversalResultCode.SUCCESS);
     }
 
@@ -224,10 +255,12 @@ public class ReversalServiceImpl implements ReversalService {
         }
 
         // declineCode는 영속화된 거절 사유이고, 응답에서는 다시 ReversalResultCode로 복원한다.
+        // ALREADY_CANCELLED는 같은 원승인이 이미 cancel 성공으로 끝난 뒤 들어온 reversal 방어 결과다.
         return switch (declineCode) {
             case ORIGINAL_NOT_FOUND -> ReversalResultCode.ORIGINAL_NOT_FOUND;
             case ORIGINAL_NOT_REVERSIBLE -> ReversalResultCode.ORIGINAL_NOT_REVERSIBLE;
             case ORIGINAL_MISMATCH -> ReversalResultCode.ORIGINAL_MISMATCH;
+            case ALREADY_CANCELLED -> ReversalResultCode.ALREADY_CANCELLED;
             default -> throw new IllegalStateException(
                     "Unsupported reversal declineCode: " + declineCode
             );
@@ -285,6 +318,7 @@ public class ReversalServiceImpl implements ReversalService {
     ) {
         // Reversal 거절도 원장에 저장한다.
         // 이후 같은 reversalPosTrx 또는 같은 original 재조회가 들어오면 이 row로 같은 거절 의미를 재응답한다.
+        // 이미 cancel 성공이 있는 경우도 ALREADY_CANCELLED declineCode로 이 경로에 기록한다.
         VanReversal reversal = VanReversal.builder()
                 .vanReversalTrxId(vanTransactionIdGenerator.generate())
                 .reversalPosTrx(command.reversalPosTrx())

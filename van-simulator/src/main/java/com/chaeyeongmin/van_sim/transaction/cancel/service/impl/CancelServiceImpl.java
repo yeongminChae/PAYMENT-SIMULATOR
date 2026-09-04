@@ -7,6 +7,9 @@ import com.chaeyeongmin.van_sim.ledger.cancel.entity.VanCancel;
 import com.chaeyeongmin.van_sim.ledger.cancel.repository.VanCancelRepository;
 import com.chaeyeongmin.van_sim.ledger.cancel.status.CancelResultCode;
 import com.chaeyeongmin.van_sim.ledger.cancel.status.VanCancelStatus;
+import com.chaeyeongmin.van_sim.ledger.reversal.entity.VanReversal;
+import com.chaeyeongmin.van_sim.ledger.reversal.repository.VanReversalRepository;
+import com.chaeyeongmin.van_sim.ledger.reversal.status.VanReversalStatus;
 import com.chaeyeongmin.van_sim.transaction.approval.service.support.VanTransactionIdGenerator;
 import com.chaeyeongmin.van_sim.transaction.cancel.CancelService;
 import com.chaeyeongmin.van_sim.transaction.cancel.service.command.CancelCommand;
@@ -35,6 +38,11 @@ import java.util.Optional;
  * {@link VanApprovalRepository#findByPosTrxAndAttemptSeqForUpdate(String, int)}에서 같은
  * van_approval row의 PESSIMISTIC_WRITE lock을 경쟁한다. lock을 얻은 뒤에는 cancel 원장을
  * 다시 조회해서, 기다리는 동안 먼저 처리된 취소를 반드시 반영한다.
+ *
+ * <p>
+ * 같은 원승인에 reversal이 이미 성공한 경우에는 cancel을 성공시키면 안 된다.
+ * 그래서 원승인 lock 이후 van_reversal 원장도 확인하고, REVERSED row가 있으면
+ * 신규 cancel을 CANCEL_DECLINED/ALREADY_REVERSED로 저장한다.
  */
 @Service
 @Profile("postgres")
@@ -44,9 +52,11 @@ public class CancelServiceImpl implements CancelService {
     private static final String ORIGINAL_NOT_FOUND = "ORIGINAL_NOT_FOUND";
     private static final String ORIGINAL_NOT_APPROVED = "ORIGINAL_NOT_APPROVED";
     private static final String ORIGINAL_MISMATCH = "ORIGINAL_MISMATCH";
+    private static final String ALREADY_REVERSED = "ALREADY_REVERSED";
 
     private final VanCancelRepository cancelRepository;
     private final VanApprovalRepository approvalRepository;
+    private final VanReversalRepository reversalRepository;
     private final VanTransactionIdGenerator vanTransactionIdGenerator;
     private final CancelApprovalNumberGenerator cancelApprovalNumberGenerator;
 
@@ -57,8 +67,7 @@ public class CancelServiceImpl implements CancelService {
         // 1. 동일 cancelPosTrx에 대한 빠른 idempotency check.
         // - 이미 같은 취소 거래번호로 저장된 row가 있으면 원승인 lock을 잡을 필요가 없다.
         // - 단, 같은 cancelPosTrx라도 payload가 다르면 멱등 재응답이 아니라 거래번호 재사용 충돌이다.
-        Optional<VanCancel> existing =
-                cancelRepository.findByCancelPosTrx(command.cancelPosTrx());
+        Optional<VanCancel> existing = cancelRepository.findByCancelPosTrx(command.cancelPosTrx());
 
         if (existing.isPresent()) {
             VanCancel existingCancel = existing.get();
@@ -93,8 +102,7 @@ public class CancelServiceImpl implements CancelService {
         // 3. lock을 기다리는 동안 같은 cancelPosTrx가 처리됐는지 재확인.
         // - 1번 사전검사 이후 현재 thread가 lock 대기하는 사이 같은 cancelPosTrx가 commit됐을 수 있다.
         // - lock 이후 재조회 결과가 최종 판단 기준이다.
-        Optional<VanCancel> existingAfterLock =
-                cancelRepository.findByCancelPosTrx(command.cancelPosTrx());
+        Optional<VanCancel> existingAfterLock = cancelRepository.findByCancelPosTrx(command.cancelPosTrx());
 
         if (existingAfterLock.isPresent()) {
             VanCancel existingCancel = existingAfterLock.get();
@@ -120,7 +128,27 @@ public class CancelServiceImpl implements CancelService {
             return alreadyProcessedResult(
                     command,
                     existingByOriginal.get()
+            );
+        }
+
+        // 4-1. lock을 기다리는 동안 같은 원승인이 reversal로 처리됐는지 확인.
+        // - cancel과 reversal은 서로 다른 원장 테이블에 저장되지만 같은 원승인에 대한 terminal 후속 거래다.
+        // - 이미 REVERSED가 확정된 원승인에 CANCELLED까지 저장하면 cross-ledger invariant가 깨진다.
+        // - 따라서 원승인 lock을 잡은 뒤 reversal 원장도 확인하고, 성공 reversal이 있으면 cancel은 거절 원장으로 남긴다.
+        Optional<VanReversal> existingReversal =
+                reversalRepository.findByOriginalPosTrxAndOriginalAttemptSeq(
+                        command.originalPosTrx(),
+                        command.originalAttemptSeq()
                 );
+
+        if (existingReversal.isPresent()
+                && existingReversal.get().getReversalStatus() == VanReversalStatus.REVERSED) {
+
+            return saveDeclined(
+                    command,
+                    "ALREADY_REVERSED",
+                    CancelResultCode.ALREADY_REVERSED
+            );
         }
 
         // 5. 실제 승인된 거래인지 확인.
@@ -148,6 +176,7 @@ public class CancelServiceImpl implements CancelService {
         // 7. 신규 정상 취소.
         // - 이 지점에 도달한 요청만 van_cancel 신규 owner가 된다.
         // - 같은 원승인에 대한 후속 요청은 4번 분기에서 이 row를 보고 ALREADY_CANCELLED로 돌아간다.
+        // - 이미 성공한 reversal도 4-1번에서 걸렀으므로 CANCELLED와 REVERSED가 동시에 생기지 않아야 한다.
         return saveCancelled(
                 command,
                 CancelResultCode.SUCCESS
@@ -163,7 +192,7 @@ public class CancelServiceImpl implements CancelService {
         return original.getAmount() != command.amount()
                 || original.getVanTrxId().equals(command.originalVanTrxId()) == false
                 || original.getApprovalNo().equals(command.originalApprovalNo()) == false
-                ;
+        ;
     }
 
     private void assertSamePayload(
@@ -247,13 +276,12 @@ public class CancelServiceImpl implements CancelService {
 
         // 거절 row는 declineCode를 영속 상태로 저장하고,
         // API 응답에서는 같은 의미를 CancelResultCode로 복원한다.
+        // ALREADY_REVERSED는 같은 원승인이 이미 reversal 성공으로 끝난 뒤 들어온 cancel 방어 결과다.
         return switch (declineCode) {
             case ORIGINAL_NOT_FOUND -> CancelResultCode.ORIGINAL_NOT_FOUND;
-
             case ORIGINAL_NOT_APPROVED -> CancelResultCode.ORIGINAL_NOT_APPROVED;
-
             case ORIGINAL_MISMATCH -> CancelResultCode.ORIGINAL_MISMATCH;
-
+            case ALREADY_REVERSED -> CancelResultCode.ALREADY_REVERSED;
             default -> throw new IllegalStateException(
                     "Unsupported cancel declineCode: " + declineCode
             );
@@ -314,6 +342,7 @@ public class CancelServiceImpl implements CancelService {
     ) {
         // 취소 거절도 VAN 취소 원장에 남긴다.
         // 이후 같은 cancelPosTrx replay는 이 row를 기준으로 같은 거절 응답을 재생한다.
+        // 이미 reversal 성공이 있는 경우도 ALREADY_REVERSED declineCode로 이 경로에 기록한다.
         VanCancel cancel = VanCancel.builder()
                 .vanCancelTrxId(vanTransactionIdGenerator.generate())
                 .cancelPosTrx(command.cancelPosTrx())
