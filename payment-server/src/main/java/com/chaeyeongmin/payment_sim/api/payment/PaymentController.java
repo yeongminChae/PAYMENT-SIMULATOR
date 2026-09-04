@@ -5,14 +5,17 @@ import com.chaeyeongmin.payment_sim.api.payment.dto.request.ApproveRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelInquiryRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.CancelRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.request.InquiryRequest;
+import com.chaeyeongmin.payment_sim.api.payment.dto.request.ReversalRequest;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.ApproveResponse;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.InquiryResponse;
+import com.chaeyeongmin.payment_sim.api.payment.dto.response.ReversalResponse;
 import com.chaeyeongmin.payment_sim.api.payment.mapper.PaymentApiResponseMapper;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelInquiryService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentInquiryService;
+import com.chaeyeongmin.payment_sim.api.payment.service.PaymentReversalService;
 import com.chaeyeongmin.payment_sim.common.api.ApiResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -48,6 +51,7 @@ public class PaymentController {
     private final PaymentInquiryService inquiryService;
     private final PaymentCancelService cancelService;
     private final PaymentCancelInquiryService cancelInquiryService;
+    private final PaymentReversalService reversalService;
     private final PaymentApiResponseMapper responseMapper;
 
     @PostMapping("/approve")
@@ -123,5 +127,27 @@ public class PaymentController {
         );
 
         return responseMapper.fromCancel(response);
+    }
+
+    @PostMapping("/reversal")
+    public ApiResponse<ReversalResponse> reversal(
+            @Valid @RequestBody ReversalRequest request
+    ) {
+        log.info("[reversal] request received. reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}",
+                request.reversalPosTrx(),
+                request.originalPosTrx(),
+                request.originalAttemptSeq()
+        );
+
+        ReversalResponse response = reversalService.reversal(request);
+
+        log.info("[reversal] response. reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}, reversalStatus={}",
+                response.reversalPosTrx(),
+                response.originalPosTrx(),
+                response.originalAttemptSeq(),
+                response.reversalStatus()
+        );
+
+        return responseMapper.fromReversal(response);
     }
 }

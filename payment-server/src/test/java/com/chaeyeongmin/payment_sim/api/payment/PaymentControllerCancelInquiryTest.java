@@ -8,6 +8,7 @@ import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelInquiryService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentCancelService;
 import com.chaeyeongmin.payment_sim.api.payment.service.PaymentInquiryService;
+import com.chaeyeongmin.payment_sim.api.payment.service.PaymentReversalService;
 import com.chaeyeongmin.payment_sim.common.api.ApiResponse;
 import org.junit.jupiter.api.Test;
 
@@ -27,11 +28,13 @@ class PaymentControllerCancelInquiryTest {
         PaymentInquiryService inquiryService = mock(PaymentInquiryService.class);
         PaymentCancelService cancelService = mock(PaymentCancelService.class);
         PaymentCancelInquiryService cancelInquiryService = mock(PaymentCancelInquiryService.class);
+        PaymentReversalService reversalService = mock(PaymentReversalService.class);
         PaymentController controller = new PaymentController(
                 approvalService,
                 inquiryService,
                 cancelService,
                 cancelInquiryService,
+                reversalService,
                 new PaymentApiResponseMapper()
         );
 

@@ -3,6 +3,7 @@ package com.chaeyeongmin.payment_sim.api.payment.mapper;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.ApproveResponse;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.CancelResponse;
 import com.chaeyeongmin.payment_sim.api.payment.dto.response.InquiryResponse;
+import com.chaeyeongmin.payment_sim.api.payment.dto.response.ReversalResponse;
 import com.chaeyeongmin.payment_sim.api.payment.service.support.PaymentResultCodeMapper;
 import com.chaeyeongmin.payment_sim.common.api.ApiResponse;
 import org.springframework.stereotype.Component;
@@ -62,6 +63,10 @@ public class PaymentApiResponseMapper {
      */
     public ApiResponse<CancelResponse> fromCancel(CancelResponse response) {
         return ApiResponse.of(PaymentResultCodeMapper.fromCancelResultStatus(response.cancelStatus()), response);
+    }
+
+    public ApiResponse<ReversalResponse> fromReversal(ReversalResponse response) {
+        return ApiResponse.of(PaymentResultCodeMapper.fromReversalResultStatus(response.reversalStatus()), response);
     }
 
 }

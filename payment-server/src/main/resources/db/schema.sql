@@ -135,7 +135,44 @@ CREATE INDEX IF NOT EXISTS IDX_PAYMENT_CANCEL_ORIGINAL_TRX
 	ON PAYMENT_CANCEL (ORIGINAL_TRX_NO);
 
 -- ---------------------------------------------------------------------
--- 5) BIN_CATALOG
+-- 5) PAYMENT_REVERSAL
+-- 목적: 장애 복구 reversal 추적용 row.
+--       원승인(ORIGINAL_TRX_NO, ORIGINAL_ATTEMPT_SEQ) 기준 중복 reversal 방지.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS PAYMENT_REVERSAL
+(
+	REVERSAL_ID          INTEGER PRIMARY KEY AUTOINCREMENT,
+	CURRENT_TRX_NO       TEXT    NOT NULL,
+	ORIGINAL_TRX_NO      TEXT    NOT NULL,
+	ORIGINAL_ATTEMPT_SEQ INTEGER NOT NULL,
+	AMOUNT               INTEGER NOT NULL,
+	REVERSAL_STATUS      TEXT    NOT NULL,
+	VAN_REVERSAL_TRX_ID  TEXT,
+	REVERSAL_APPROVAL_NO TEXT,
+	DECLINE_CODE         TEXT,
+	CREATED_AT           TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	UPDATED_AT           TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+
+	UNIQUE (CURRENT_TRX_NO),
+	UNIQUE (ORIGINAL_TRX_NO, ORIGINAL_ATTEMPT_SEQ),
+
+	FOREIGN KEY (ORIGINAL_TRX_NO, ORIGINAL_ATTEMPT_SEQ)
+		REFERENCES PAYMENT_ATTEMPT (POS_TRX, ATTEMPT_SEQ)
+		ON UPDATE RESTRICT
+		ON DELETE RESTRICT,
+
+	CHECK (AMOUNT > 0),
+	CHECK (REVERSAL_STATUS IN ('PENDING', 'REVERSED', 'REVERSAL_DECLINED'))
+);
+
+CREATE INDEX IF NOT EXISTS IDX_PAYMENT_REVERSAL_STATUS
+	ON PAYMENT_REVERSAL (REVERSAL_STATUS);
+
+CREATE INDEX IF NOT EXISTS IDX_PAYMENT_REVERSAL_ORIGINAL_TRX
+	ON PAYMENT_REVERSAL (ORIGINAL_TRX_NO);
+
+-- ---------------------------------------------------------------------
+-- 6) BIN_CATALOG
 -- 목적: BIN(카드빈) 매핑/검증 기준 데이터.
 --       이 프로젝트의 카드 식별 기준은 8자리 BIN이다.
 -- ---------------------------------------------------------------------
@@ -158,7 +195,7 @@ CREATE INDEX IF NOT EXISTS IDX_BIN_CATALOG_ACTIVE
 	ON BIN_CATALOG (ACTIVE_YN);
 
 -- ---------------------------------------------------------------------
--- 6) PAYMENT_EXTERNAL_INFO
+-- 7) PAYMENT_EXTERNAL_INFO
 -- 목적: 승인 attempt에 연결된 카드/VAN/대외거래 식별 정보.
 --       PAN 원문은 저장하지 않고 8자리 BIN, last4, masked card no만 저장한다.
 -- ---------------------------------------------------------------------
@@ -188,7 +225,7 @@ CREATE INDEX IF NOT EXISTS IDX_PAYMENT_EXTERNAL_INFO_POS_TRX
 	ON PAYMENT_EXTERNAL_INFO (POS_TRX);
 
 -- ---------------------------------------------------------------------
--- 7) PAYMENT_EVENT_LOG
+-- 8) PAYMENT_EVENT_LOG
 -- 목적: 승인/조회/취소 처리 과정의 중요 이벤트를 남기는 저널 테이블.
 --       전문 원문 저장은 하지 않고, 코드/요약만 기록한다.
 -- ---------------------------------------------------------------------

@@ -1,6 +1,7 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.support;
 
 import com.chaeyeongmin.payment_sim.api.payment.dto.enums.CancelResultStatus;
+import com.chaeyeongmin.payment_sim.api.payment.dto.enums.ReversalResultStatus;
 import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
@@ -30,6 +31,16 @@ public final class PaymentResultCodeMapper {
         };
     }
 
+    public static ResultCode fromReversalResultStatus(ReversalResultStatus status) {
+        return switch (status) {
+            case REVERSED -> ResultCode.OK;
+            case ALREADY_REVERSED -> ResultCode.ALREADY_REVERSED;
+            case REVERSAL_DECLINED -> ResultCode.REVERSAL_DECLINED;
+            case REVERSAL_NOT_ALLOWED -> ResultCode.REVERSAL_NOT_ALLOWED;
+            case RETRY_LATER -> ResultCode.RETRY_LATER;
+        };
+    }
+
     /**
      * 내부 취소 저장 상태를 공통 API 결과 코드로 변환한다.
      *
@@ -52,6 +63,10 @@ public final class PaymentResultCodeMapper {
 
     public static String codeName(CancelResultStatus status) {
         return fromCancelResultStatus(status).name();
+    }
+
+    public static String codeName(ReversalResultStatus status) {
+        return fromReversalResultStatus(status).name();
     }
 
     /**
