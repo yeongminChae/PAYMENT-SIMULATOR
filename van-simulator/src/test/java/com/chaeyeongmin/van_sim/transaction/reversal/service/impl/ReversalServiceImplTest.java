@@ -83,6 +83,7 @@ class ReversalServiceImplTest {
 
     @Test
     void UNKNOWN_원승인도_REVERSED로_저장하고_SUCCESS를_반환한다() {
+        // UNKNOWN은 승인 응답 유실 가능성이 있는 상태라 reversal 대상에서 제외하면 복구가 막힌다.
         ReversalCommand command = command();
         when(reversalRepository.findByReversalPosTrx(command.reversalPosTrx()))
                 .thenReturn(Optional.empty());
@@ -192,6 +193,7 @@ class ReversalServiceImplTest {
 
     @Test
     void 같은_원승인에_기존_REVERSED가_있으면_새_row없이_ALREADY_REVERSED를_반환한다() {
+        // follower 요청은 기존 owner row를 재사용하되, 응답 correlation은 자신의 reversalPosTrx를 유지해야 한다.
         ReversalCommand command = command();
         VanReversal existing = reversedLedger(command);
         ReversalCommand follower = new ReversalCommand(

@@ -74,6 +74,7 @@ public class ReversalServiceImpl implements ReversalService {
                         command.originalAttemptSeq()
                 );
 
+        // “lock 실패”가 아니라 원승인 row 자체가 VAN approval 원장에 없다면
         if (originalOptional.isEmpty()) {
             return saveDeclined(
                     command,
@@ -100,12 +101,15 @@ public class ReversalServiceImpl implements ReversalService {
         }
 
         // 4. 같은 원승인에 이미 reversal 사실이 있으면 새 row를 만들지 않는다.
+        // 이 조회는 lock 이후에 수행해야 한다. 그래야 동시에 들어온 다른 reversal이 먼저 commit한 row를 볼 수 있다.
         Optional<VanReversal> existingByOriginal =
                 reversalRepository.findByOriginalPosTrxAndOriginalAttemptSeq(
                         command.originalPosTrx(),
                         command.originalAttemptSeq()
                 );
 
+        // 같은 reversalPosTrx를 같은 내용으로 재요청한 건지 확인해서 commit한 row가 있다면
+        // 새 row를 만들지 않고 저장된 결과를 그대로 다시 응답.
         if (existingByOriginal.isPresent()) {
             return alreadyProcessedResult(
                     command,
@@ -138,6 +142,8 @@ public class ReversalServiceImpl implements ReversalService {
     }
 
     private boolean isReversible(VanApproval original) {
+        // UNKNOWN은 승인 응답 유실 가능성이 있는 상태라 reversal로 복구할 수 있어야 한다.
+        // DECLINED는 승인 사실이 없으므로 reversal 대상이 아니다.
         return switch (original.getApprovalStatus()) {
             case APPROVED, UNKNOWN -> true;
             case DECLINED -> false;
@@ -148,6 +154,8 @@ public class ReversalServiceImpl implements ReversalService {
             VanReversal existingReversal,
             ReversalCommand command
     ) {
+        // ReversalCommand에는 originalApprovalNo/originalVanTrxId가 없다.
+        // 따라서 같은 reversalPosTrx replay 여부는 original 식별자와 amount만으로 판단한다.
         if (existingReversal.getOriginalPosTrx().equals(command.originalPosTrx()) == false
                 || existingReversal.getOriginalAttemptSeq() != command.originalAttemptSeq()
                 || existingReversal.getAmount() != command.amount()) {
@@ -160,6 +168,8 @@ public class ReversalServiceImpl implements ReversalService {
             ReversalCommand command,
             VanReversal existingReversal
     ) {
+        // 같은 original의 기존 REVERSED row를 발견한 follower 요청이다.
+        // 저장 owner의 reversalPosTrx가 아니라 현재 요청 reversalPosTrx로 correlation을 유지한다.
         if (existingReversal.getReversalStatus() == VanReversalStatus.REVERSED) {
             return new ReversalResult(
                     existingReversal.getVanReversalTrxId(),
@@ -175,6 +185,7 @@ public class ReversalServiceImpl implements ReversalService {
             );
         }
 
+        // 기존 original row가 REVERSAL_DECLINED였다면 새 row를 만들지 않고 저장된 decline 의미를 재응답한다.
         return new ReversalResult(
                 existingReversal.getVanReversalTrxId(),
                 command.reversalPosTrx(),
@@ -190,6 +201,8 @@ public class ReversalServiceImpl implements ReversalService {
     }
 
     private ReversalResultCode resultCodeOf(VanReversal reversal) {
+        // 같은 reversalPosTrx replay는 "현재 요청이 기존 요청과 동일하다"는 의미이므로
+        // 저장 row가 REVERSED면 최초 처리와 같은 SUCCESS로 재생한다.
         if (reversal.getReversalStatus() == VanReversalStatus.REVERSED) {
             return ReversalResultCode.SUCCESS;
         }
@@ -210,6 +223,7 @@ public class ReversalServiceImpl implements ReversalService {
             );
         }
 
+        // declineCode는 영속화된 거절 사유이고, 응답에서는 다시 ReversalResultCode로 복원한다.
         return switch (declineCode) {
             case ORIGINAL_NOT_FOUND -> ReversalResultCode.ORIGINAL_NOT_FOUND;
             case ORIGINAL_NOT_REVERSIBLE -> ReversalResultCode.ORIGINAL_NOT_REVERSIBLE;
@@ -224,6 +238,8 @@ public class ReversalServiceImpl implements ReversalService {
             VanReversal reversal,
             ReversalResultCode resultCode
     ) {
+        // 저장된 VAN reversal 원장을 현재 요청의 응답 DTO로 변환한다.
+        // 같은 reversalPosTrx replay 경로에서는 저장 row의 reversalPosTrx가 그대로 응답된다.
         return new ReversalResult(
                 reversal.getVanReversalTrxId(),
                 reversal.getReversalPosTrx(),
@@ -242,6 +258,8 @@ public class ReversalServiceImpl implements ReversalService {
             ReversalCommand command,
             ReversalResultCode resultCode
     ) {
+        // 신규 reversal 성공 원장 생성.
+        // 원승인 approvalStatus는 바꾸지 않고 van_reversal에 REVERSED 사실과 reversalApprovalNo만 남긴다.
         VanReversal reversal = VanReversal.builder()
                 .vanReversalTrxId(vanTransactionIdGenerator.generate())
                 .reversalPosTrx(command.reversalPosTrx())
@@ -265,6 +283,8 @@ public class ReversalServiceImpl implements ReversalService {
             String declineCode,
             ReversalResultCode resultCode
     ) {
+        // Reversal 거절도 원장에 저장한다.
+        // 이후 같은 reversalPosTrx 또는 같은 original 재조회가 들어오면 이 row로 같은 거절 의미를 재응답한다.
         VanReversal reversal = VanReversal.builder()
                 .vanReversalTrxId(vanTransactionIdGenerator.generate())
                 .reversalPosTrx(command.reversalPosTrx())
@@ -277,13 +297,17 @@ public class ReversalServiceImpl implements ReversalService {
                 .processedAt(now())
                 .build();
 
+        // 거절도 최종 처리 사실이므로 van_reversal 원장에 저장한다.
+        // 이후 같은 reversalPosTrx replay나 같은 original follower 요청은 이 row를 기준으로 같은 거절 결과를 재응답한다.
+        VanReversal saved = reversalRepository.save(reversal);
         return toResult(
-                reversalRepository.save(reversal),
+                saved,
                 resultCode
         );
     }
 
     private LocalDateTime now() {
+        // PostgreSQL timestamp와 Java LocalDateTime 비교 흔들림을 줄이기 위해 마이크로초 단위로 맞춘다.
         return LocalDateTime.now()
                 .truncatedTo(ChronoUnit.MICROS);
     }

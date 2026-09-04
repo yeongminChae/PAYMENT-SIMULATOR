@@ -68,6 +68,8 @@ class PostgresReversalConcurrencyIntegrationTest {
     @Test
     @Timeout(value = 10, unit = TimeUnit.SECONDS)
     void 동일_원승인에_서로_다른_reversalPosTrx_동시_reversal은_row_1건으로_수렴한다() throws Exception {
+        // 같은 원승인에 대한 두 reversal 요청이 거의 동시에 들어오는 상황이다.
+        // 한 요청만 신규 REVERSED owner가 되고, 다른 요청은 기존 row를 보고 ALREADY_REVERSED로 수렴해야 한다.
         approvalRepository.saveAndFlush(approvedOriginal());
 
         ReversalCommand command1 = command(REVERSAL_POS_TRX_1);
@@ -100,6 +102,7 @@ class PostgresReversalConcurrencyIntegrationTest {
                     .extracting(ReversalResult::reversalPosTrx)
                     .containsExactlyInAnyOrder(REVERSAL_POS_TRX_1, REVERSAL_POS_TRX_2);
 
+            // 결과 코드만 맞고 row가 두 개 생기면 원장 불변식이 깨진 것이다.
             assertThat(reversalRepository.count()).isEqualTo(1);
 
             Optional<VanReversal> stored =
@@ -116,6 +119,7 @@ class PostgresReversalConcurrencyIntegrationTest {
                     ORIGINAL_POS_TRX,
                     ORIGINAL_ATTEMPT_SEQ
             ).orElseThrow();
+            // Reversal은 승인 원장을 종료시키는 거래가 아니라 별도 복구 사실이다.
             assertThat(original.getApprovalStatus()).isEqualTo(VanApprovalStatus.APPROVED);
         } finally {
             executor.shutdownNow();

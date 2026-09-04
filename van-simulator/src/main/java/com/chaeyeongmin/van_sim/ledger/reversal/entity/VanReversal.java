@@ -100,6 +100,8 @@ public class VanReversal {
             String declineCode,
             LocalDateTime processedAt
     ) {
+        // Entity 생성은 builder로만 열어 테스트와 service가 같은 필드 계약을 사용하게 한다.
+        // 상태별 payload 제약은 schema-postgres.sql의 check constraint와 함께 지켜진다.
         this.vanReversalTrxId = vanReversalTrxId;
         this.reversalPosTrx = reversalPosTrx;
         this.originalPosTrx = originalPosTrx;
