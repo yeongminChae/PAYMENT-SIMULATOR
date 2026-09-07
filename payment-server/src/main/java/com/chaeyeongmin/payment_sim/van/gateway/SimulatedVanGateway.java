@@ -180,6 +180,11 @@ public class SimulatedVanGateway implements VanGateway {
 
     }
 
+    @Override
+    public VanReversalResponse reversal(VanReversalRequest request) {
+        throw new UnsupportedOperationException("reversal is supported only in TCP VAN mode");
+    }
+
     private static void sleepSilently(long ms) {
         // 시뮬레이터 지연 처리 유틸
         // - Thread.sleep은 InterruptedException을 발생시킬 수 있으므로,

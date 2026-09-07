@@ -46,4 +46,11 @@ public class PaymentCancelRepositoryImpl implements PaymentCancelRepository {
         return mapper.updateCancelResult(param);
     }
 
+    @Override
+    public Optional<PaymentCancel> updateUnknownTimeoutToFinal(CancelResultUpdateParam param) {
+        // cancel inquiry 복구 전용 update다.
+        // SQL의 WHERE가 UNKNOWN_TIMEOUT으로 좁혀져 있어 일반 PENDING 취소 확정과 섞이지 않는다.
+        return mapper.updateUnknownTimeoutToFinal(param);
+    }
+
 }

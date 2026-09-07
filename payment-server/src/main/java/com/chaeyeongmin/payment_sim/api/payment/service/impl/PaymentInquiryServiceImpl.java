@@ -17,6 +17,7 @@ import com.chaeyeongmin.payment_sim.infra.repository.PaymentInquiryRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdateParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentAttemptUpdatedRow;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanInquiryAssembler;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResultCode;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResponse;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
@@ -187,7 +188,7 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
         // - 이미 APPROVED/DECLINED인 건은 DB에 실제 저장된 값을 기준으로 재응답한다.
         // - 불필요한 외부 VAN 조회를 줄이고, 저장된 상태와 응답이 어긋나는 상황을 막기 위해서다.
         VanInquiryResponse vanInquiryResponse = vanGateway.inquiry(vanInquiryRequest);
-        PaymentFinalStatus vanFinalStatus = vanInquiryResponse.finalStatus();
+        PaymentFinalStatus vanFinalStatus = toPaymentFinalStatus(vanInquiryResponse);
         String responseDeclineCode = VanDeclineCodeMapper.toCode(vanInquiryResponse.declineCode());
 
         // Q5c/Q8: VAN 조회 결과도 여전히 미확정.
@@ -381,6 +382,26 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
                     cardSummary
             );
 
+        };
+    }
+
+    private PaymentFinalStatus toPaymentFinalStatus(VanInquiryResponse response) {
+        if (response.resultCode() == VanInquiryResultCode.NOT_FOUND) {
+            return PaymentFinalStatus.UNKNOWN_TIMEOUT;
+        }
+
+        if (response.status() == null) {
+            throw new IllegalStateException("VAN inquiry SUCCESS response status is null");
+        }
+
+        return switch (response.status()) {
+            case APPROVED -> PaymentFinalStatus.APPROVED;
+            case DECLINED -> PaymentFinalStatus.DECLINED;
+            case UNKNOWN -> PaymentFinalStatus.UNKNOWN_TIMEOUT;
+            case CANCELLED,
+                 CANCEL_DECLINED -> throw new IllegalStateException(
+                    "Cancel inquiry status cannot be used in approval inquiry flow: " + response.status()
+            );
         };
     }
 

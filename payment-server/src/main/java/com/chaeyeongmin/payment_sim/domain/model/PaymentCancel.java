@@ -7,6 +7,7 @@ public record PaymentCancel(
         String originalPosTrx,
         int originalAttemptSeq,
         CancelStatus cancelStatus,
+        String vanCancelTrxId,
         String cancelApprovalNo,
         String declineCode
 ) {

@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.chaeyeongmin.payment_sim.infra.mybatis.mapper.PaymentReversalMapper">
+
+    <select id="insertPendingReversal"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentReversal">
+        INSERT INTO PAYMENT_REVERSAL (
+        CURRENT_TRX_NO,
+        ORIGINAL_TRX_NO,
+        ORIGINAL_ATTEMPT_SEQ,
+        AMOUNT,
+        REVERSAL_STATUS
+        )
+        VALUES (
+        #{reversal.reversalPosTrx},
+        #{reversal.originalPosTrx},
+        #{reversal.originalAttemptSeq},
+        #{reversal.amount},
+        #{reversal.reversalStatusValue}
+        )
+        RETURNING
+        CURRENT_TRX_NO AS reversalPosTrx,
+        ORIGINAL_TRX_NO AS originalPosTrx,
+        ORIGINAL_ATTEMPT_SEQ AS originalAttemptSeq,
+        AMOUNT AS amount,
+        REVERSAL_STATUS AS reversalStatus,
+        VAN_REVERSAL_TRX_ID AS vanReversalTrxId,
+        REVERSAL_APPROVAL_NO AS reversalApprovalNo,
+        DECLINE_CODE AS declineCode
+    </select>
+
+    <select id="updateReversalResult"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentReversal">
+        UPDATE PAYMENT_REVERSAL
+        SET
+        REVERSAL_STATUS = #{reversal.reversalStatusValue},
+        VAN_REVERSAL_TRX_ID = #{reversal.vanReversalTrxId},
+        REVERSAL_APPROVAL_NO = #{reversal.reversalApprovalNo},
+        DECLINE_CODE = #{reversal.declineCode},
+        UPDATED_AT = CURRENT_TIMESTAMP
+        WHERE CURRENT_TRX_NO = #{reversal.reversalPosTrx}
+        AND ORIGINAL_TRX_NO = #{reversal.originalPosTrx}
+        AND ORIGINAL_ATTEMPT_SEQ = #{reversal.originalAttemptSeq}
+        AND REVERSAL_STATUS = 'PENDING'
+        RETURNING
+        CURRENT_TRX_NO AS reversalPosTrx,
+        ORIGINAL_TRX_NO AS originalPosTrx,
+        ORIGINAL_ATTEMPT_SEQ AS originalAttemptSeq,
+        AMOUNT AS amount,
+        REVERSAL_STATUS AS reversalStatus,
+        VAN_REVERSAL_TRX_ID AS vanReversalTrxId,
+        REVERSAL_APPROVAL_NO AS reversalApprovalNo,
+        DECLINE_CODE AS declineCode
+    </select>
+
+    <delete id="deletePendingReversal">
+        DELETE FROM PAYMENT_REVERSAL
+        WHERE CURRENT_TRX_NO = #{reversalPosTrx}
+          AND ORIGINAL_TRX_NO = #{originalPosTrx}
+          AND ORIGINAL_ATTEMPT_SEQ = #{originalAttemptSeq}
+          AND REVERSAL_STATUS = 'PENDING'
+    </delete>
+
+    <select id="findByReversalPosTrx"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentReversal">
+        SELECT
+        R.CURRENT_TRX_NO AS reversalPosTrx,
+        R.ORIGINAL_TRX_NO AS originalPosTrx,
+        R.ORIGINAL_ATTEMPT_SEQ AS originalAttemptSeq,
+        R.AMOUNT AS amount,
+        R.REVERSAL_STATUS AS reversalStatus,
+        R.VAN_REVERSAL_TRX_ID AS vanReversalTrxId,
+        R.REVERSAL_APPROVAL_NO AS reversalApprovalNo,
+        R.DECLINE_CODE AS declineCode
+        FROM PAYMENT_REVERSAL R
+        WHERE R.CURRENT_TRX_NO = #{reversalPosTrx}
+        LIMIT 1
+    </select>
+
+    <select id="findByOriginalPosTrxAndOriginalAttemptSeq"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentReversal">
+        SELECT
+        R.CURRENT_TRX_NO AS reversalPosTrx,
+        R.ORIGINAL_TRX_NO AS originalPosTrx,
+        R.ORIGINAL_ATTEMPT_SEQ AS originalAttemptSeq,
+        R.AMOUNT AS amount,
+        R.REVERSAL_STATUS AS reversalStatus,
+        R.VAN_REVERSAL_TRX_ID AS vanReversalTrxId,
+        R.REVERSAL_APPROVAL_NO AS reversalApprovalNo,
+        R.DECLINE_CODE AS declineCode
+        FROM PAYMENT_REVERSAL R
+        WHERE R.ORIGINAL_TRX_NO = #{originalPosTrx}
+        AND R.ORIGINAL_ATTEMPT_SEQ = #{originalAttemptSeq}
+        LIMIT 1
+    </select>
+
+</mapper>

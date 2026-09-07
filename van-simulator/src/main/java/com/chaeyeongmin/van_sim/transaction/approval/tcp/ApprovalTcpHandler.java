@@ -48,8 +48,7 @@ public class ApprovalTcpHandler {
      * posTrx 안의 bizDate가 20260230 같은 허위 날짜로 들어오는 것을 막기 위한 strict parser다.
      */
     private static final DateTimeFormatter BIZ_DATE_FORMATTER =
-            DateTimeFormatter.ofPattern("uuuuMMdd")
-                    .withResolverStyle(ResolverStyle.STRICT);
+            DateTimeFormatter.ofPattern("uuuuMMdd").withResolverStyle(ResolverStyle.STRICT);
 
     private final ObjectMapper objectMapper;
     private final ApprovalTcpMessageMapper tcpMessageMapper;
@@ -63,6 +62,7 @@ public class ApprovalTcpHandler {
         // TCP 서버가 수신한 원본 JSON 바이트 payload를 승인 요청 전문 객체로 역직렬화한다.
         ApprovalRequestMessage approvalRequest = readApprovalRequest(payload);
 
+        // 취소 요청 전문 객체 값 체크
         validate(approvalRequest);
 
         // 승인 요청 전문에 담긴 거래 정보를 서비스 계층이 처리할 수 있는 커맨드 모델로 변환한다.
@@ -74,13 +74,10 @@ public class ApprovalTcpHandler {
 
         // DROP_RESPONSE는 발급사 승인 처리는 끝내되 TCP 응답만 유실시키는 transport 계층 시나리오다.
         // 따라서 서비스 트랜잭션 안에 넣지 않고, 업무 처리 완료 후 응답 payload를 만들기 전에 적용한다.
-        if (shouldDropResponse(approvalRequest)) {
-            return null;
-        }
+        if (shouldDropResponse(approvalRequest)) return null;
 
         // 원 요청 전문의 식별 정보와 서비스 처리 결과를 조합해 TCP 응답 전문 객체를 만든다.
-        ApprovalResponseMessage approvalResponse =
-                tcpMessageMapper.toResponse(approvalRequest, approvalResult);
+        ApprovalResponseMessage approvalResponse = tcpMessageMapper.toResponse(approvalRequest, approvalResult);
 
         // 응답 전문 객체를 TCP 클라이언트로 되돌려 보낼 JSON 바이트 payload로 직렬화한다.
         return writeApprovalResponse(approvalResponse);
@@ -108,8 +105,8 @@ public class ApprovalTcpHandler {
      * 지원하지 않는 전문이나 malformed PAN/expiry가 VAN 원장 처리로 내려가지 않게 막는다.
      */
     private void validate(ApprovalRequestMessage request) {
-        if (!PROTOCOL_VERSION.equals(request.protocolVersion())
-                || !MESSAGE_TYPE.equals(request.messageType())
+        if (PROTOCOL_VERSION.equals(request.protocolVersion()) == false
+                || MESSAGE_TYPE.equals(request.messageType()) == false
                 || isBlank(request.requestId())
                 || isInvalidPosTrx(request.posTrx())
                 || request.attemptSeq() <= 0
@@ -126,13 +123,13 @@ public class ApprovalTcpHandler {
      * 서비스 호출 전에 protocol boundary에서 차단한다.
      */
     private boolean isInvalidPosTrx(String posTrx) {
-        if (isBlank(posTrx) || POS_TRX_PATTERN.matcher(posTrx).matches() == false) {
-            return true;
-        }
+        if (isBlank(posTrx) || POS_TRX_PATTERN.matcher(posTrx).matches() == false) return true;
 
         String bizDate = posTrx.substring(5, 13);
+
         try {
             LocalDate.parse(bizDate, BIZ_DATE_FORMATTER);
+
             return false;
         } catch (DateTimeParseException e) {
             return true;

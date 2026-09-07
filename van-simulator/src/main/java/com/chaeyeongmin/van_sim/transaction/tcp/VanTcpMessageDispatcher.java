@@ -1,7 +1,9 @@
 package com.chaeyeongmin.van_sim.transaction.tcp;
 
 import com.chaeyeongmin.van_sim.transaction.approval.tcp.ApprovalTcpHandler;
+import com.chaeyeongmin.van_sim.transaction.cancel.tcp.CancelTcpHandler;
 import com.chaeyeongmin.van_sim.transaction.inquiry.tcp.InquiryTcpHandler;
+import com.chaeyeongmin.van_sim.transaction.reversal.tcp.ReversalTcpHandler;
 import com.chaeyeongmin.van_sim.transaction.tcp.exception.VanTcpMessageException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,6 +31,8 @@ public class VanTcpMessageDispatcher {
     private final ObjectMapper objectMapper;
     private final ApprovalTcpHandler approvalTcpHandler;
     private final InquiryTcpHandler inquiryTcpHandler;
+    private final CancelTcpHandler cancelTcpHandler;
+    private final ReversalTcpHandler reversalTcpHandler;
 
     /**
      * 수신 TCP payload를 messageType 기준으로 업무 핸들러에 위임한다.
@@ -43,6 +47,8 @@ public class VanTcpMessageDispatcher {
         return switch (messageType) {
             case "APPROVAL" -> approvalTcpHandler.handle(payload);
             case "INQUIRY" -> inquiryTcpHandler.handle(payload);
+            case "CANCEL" -> cancelTcpHandler.handle(payload);
+            case "REVERSAL" -> reversalTcpHandler.handle(payload);
             default -> throw new VanTcpMessageException(
                     "VAN_TCP_MESSAGE_TYPE_UNSUPPORTED: " + messageType
             );

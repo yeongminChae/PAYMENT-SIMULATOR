@@ -10,5 +10,7 @@ package com.chaeyeongmin.van_sim.protocol.inquiry;
 public enum InquiryResponseStatus {
     APPROVED,
     DECLINED,
-    UNKNOWN
+    UNKNOWN,
+    CANCELLED,
+    CANCEL_DECLINED
 }

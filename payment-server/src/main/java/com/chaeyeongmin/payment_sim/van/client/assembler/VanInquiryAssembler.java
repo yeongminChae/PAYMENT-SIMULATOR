@@ -1,6 +1,7 @@
 package com.chaeyeongmin.payment_sim.van.client.assembler;
 
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryRequest;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryTargetType;
 import com.chaeyeongmin.payment_sim.van.client.policy.VanTraceIdPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -29,10 +30,28 @@ public class VanInquiryAssembler {
         );
 
         return VanInquiryRequest.builder()
-                .posTrx(posTrx)
-                .attemptSeq(attemptSeq)
+                .targetType(VanInquiryTargetType.APPROVAL)
+                .targetTrxNo(posTrx)
+                .targetAttemptSeq(attemptSeq)
                 .vanTrxId(vanTrxId) // 저장된 VAN 추적키가 있으면 사용하고, 없으면 fallback 정책으로 생성
                 .cardLast4(cardLast4)
+                .build();
+    }
+
+    /**
+     * VAN Inquiry(CANCEL) 요청을 R5 공용 Inquiry 계약으로 구성한다.
+     *
+     * <p>
+     * CANCEL 조회의 targetTrxNo는 cancelPosTrx이고 targetAttemptSeq는 null이어야 한다.
+     * vanTrxId/cardLast4는 승인 조회 호환용 업무 DTO 필드이므로 TCP 전문에는 사용하지 않는다.
+     */
+    public VanInquiryRequest getCancelInquiryRequest(String cancelPosTrx) {
+        return VanInquiryRequest.builder()
+                .targetType(VanInquiryTargetType.CANCEL)
+                .targetTrxNo(cancelPosTrx)
+                .targetAttemptSeq(null)
+                .vanTrxId(null)
+                .cardLast4(null)
                 .build();
     }
 

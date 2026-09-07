@@ -85,17 +85,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
                         prepared.cardIdentity().cardLast4()
                 );
 
-        insertApproveEvent(
-                PaymentEventType.APPROVE_VAN_REQUESTED,
-                prepared.posTrx(),
-                prepared.attemptSeq(),
-                null,
-                PaymentFinalStatus.PROCESSING.name(),
-                null,
-                null,
-                null,
-                "VAN approve requested"
-        );
+        recordVanApproveRequested(prepared);
 
         final VanApproveResponse vanResponse;
         try {
@@ -116,6 +106,32 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         }
 
         // 이 이벤트는 실제 VanApproveResponse를 받은 경우에만 기록한다.
+        recordVanApproveResultReceived(prepared, vanResponse);
+
+        // TX2: VAN 결과 확정 트랜잭션.
+        // - FINAL_STATUS IS NULL 조건부 update로 최초 확정 요청만 저장한다.
+        // - update miss가 나면 DB를 다시 읽어 저장된 값을 우선 응답한다.
+        return transactionService.finalizeApproval(prepared, vanResponse);
+    }
+
+    private void recordVanApproveRequested(PaymentApprovalPrepareResult prepared) {
+        insertApproveEvent(
+                PaymentEventType.APPROVE_VAN_REQUESTED,
+                prepared.posTrx(),
+                prepared.attemptSeq(),
+                null,
+                PaymentFinalStatus.PROCESSING.name(),
+                null,
+                null,
+                null,
+                "VAN approve requested"
+        );
+    }
+
+    private void recordVanApproveResultReceived(
+            PaymentApprovalPrepareResult prepared,
+            VanApproveResponse vanResponse
+    ) {
         insertApproveEvent(
                 PaymentEventType.APPROVE_VAN_RESULT_RECEIVED,
                 prepared.posTrx(),
@@ -127,11 +143,6 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
                 VanDeclineCodeMapper.toCode(vanResponse.declineCode()),
                 "VAN approve result received"
         );
-
-        // TX2: VAN 결과 확정 트랜잭션.
-        // - FINAL_STATUS IS NULL 조건부 update로 최초 확정 요청만 저장한다.
-        // - update miss가 나면 DB를 다시 읽어 저장된 값을 우선 응답한다.
-        return transactionService.finalizeApproval(prepared, vanResponse);
     }
 
     /**

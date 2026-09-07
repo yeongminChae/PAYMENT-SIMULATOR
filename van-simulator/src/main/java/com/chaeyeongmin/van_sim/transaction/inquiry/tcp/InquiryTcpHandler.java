@@ -3,7 +3,8 @@ package com.chaeyeongmin.van_sim.transaction.inquiry.tcp;
 import com.chaeyeongmin.van_sim.protocol.inquiry.InquiryRequestMessage;
 import com.chaeyeongmin.van_sim.protocol.inquiry.InquiryResponseMessage;
 import com.chaeyeongmin.van_sim.transaction.inquiry.service.InquiryService;
-import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.InquiryResult;
+import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.ApprovalInquiryResult;
+import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.CancelInquiryResult;
 import com.chaeyeongmin.van_sim.transaction.inquiry.tcp.exception.InquiryTcpMessageException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -11,6 +12,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.util.Optional;
 
 /**
  * Inquiry TCP 요청 전문을 Inquiry 서비스에 연결하는 진입 핸들러다.
@@ -42,17 +44,42 @@ public class InquiryTcpHandler {
      */
     public byte[] handle(byte[] payload) {
         InquiryRequestMessage request = readInquiryRequest(payload);
+
         validate(request);
 
-        // 조회 키는 posTrx + attemptSeq다.
-        // 카드 last4나 기존 vanTrxId 없이도 VAN 원장의 unique key로 정확한 승인 시도를 찾을 수 있다.
-        InquiryResult result = inquiryService.inquire(
-                request.posTrx(),
-                request.attemptSeq()
-        );
-        InquiryResponseMessage response = tcpMessageMapper.toResponse(request, result);
+        InquiryResponseMessage response =
+                switch (request.targetType()) {
+                    // 조회 키는 posTrx + attemptSeq다.
+                    // 카드 last4나 기존 vanTrxId 없이도 VAN 원장의 unique key로 정확한 승인 시도를 찾을 수 있다.
+                    case APPROVAL -> handleApprovalInquiry(request);
+                    case CANCEL -> handleCancelInquiry(request);
+                };
 
         return writeInquiryResponse(response);
+    }
+
+    private InquiryResponseMessage handleApprovalInquiry(InquiryRequestMessage request) {
+        Optional<ApprovalInquiryResult> result =
+                inquiryService.inquireApproval(
+                        request.targetTrxNo(),
+                        request.targetAttemptSeq()
+                );
+
+        return result.isPresent()
+                ? tcpMessageMapper.toApprovalResponse(request, result.get())
+                : tcpMessageMapper.notFoundResponse(request)
+            ;
+
+    }
+
+    private InquiryResponseMessage handleCancelInquiry(InquiryRequestMessage request) {
+        Optional<CancelInquiryResult> result = inquiryService.inquireCancel(request.targetTrxNo());
+
+        return result.isPresent()
+                ? tcpMessageMapper.toCancelResponse(request, result.get())
+                : tcpMessageMapper.notFoundResponse(request)
+        ;
+
     }
 
     /**
@@ -80,13 +107,21 @@ public class InquiryTcpHandler {
      * posTrx/attemptSeq는 VAN 원장 조회 key이므로 비어 있거나 0 이하이면 조회 자체가 성립하지 않는다.
      */
     private void validate(InquiryRequestMessage request) {
-        if (!PROTOCOL_VERSION.equals(request.protocolVersion())
-                || !MESSAGE_TYPE.equals(request.messageType())
+        if (PROTOCOL_VERSION.equals(request.protocolVersion()) == false
+                || MESSAGE_TYPE.equals(request.messageType()) == false
                 || isBlank(request.requestId())
-                || isBlank(request.posTrx())
-                || request.attemptSeq() <= 0) {
+                || request.targetType() == null
+                || isBlank(request.targetTrxNo())
+                || isInvalidTargetAttemptSeq(request)) {
             throw new InquiryTcpMessageException("INQUIRY_TCP_REQUEST_INVALID");
         }
+    }
+
+    private boolean isInvalidTargetAttemptSeq(InquiryRequestMessage request) {
+        return switch (request.targetType()) {
+            case APPROVAL -> request.targetAttemptSeq() == null || request.targetAttemptSeq() <= 0;
+            case CANCEL -> request.targetAttemptSeq() != null;
+        };
     }
 
     /**

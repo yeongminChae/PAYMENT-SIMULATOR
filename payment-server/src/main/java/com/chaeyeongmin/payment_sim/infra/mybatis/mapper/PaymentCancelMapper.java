@@ -46,4 +46,14 @@ public interface PaymentCancelMapper {
             @Param("cancel") CancelResultUpdateParam param
     );
 
+    /**
+     * UNKNOWN_TIMEOUT cancel row를 VAN inquiry 최종 결과로 확정한다.
+     *
+     * <p>
+     * 일반 취소 확정 update와 별도 SQL을 써서 PENDING 전용 WHERE 조건이 넓어지는 것을 막는다.
+     */
+    Optional<PaymentCancel> updateUnknownTimeoutToFinal(
+            @Param("cancel") CancelResultUpdateParam param
+    );
+
 }

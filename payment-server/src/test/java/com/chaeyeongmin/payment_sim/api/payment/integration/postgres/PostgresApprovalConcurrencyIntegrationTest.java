@@ -7,6 +7,8 @@ import com.chaeyeongmin.payment_sim.api.payment.service.PaymentApprovalService;
 import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveResponse;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanReversalRequest;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanReversalResponse;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -297,6 +299,11 @@ class PostgresApprovalConcurrencyIntegrationTest {
                 com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryRequest request
         ) {
             throw new UnsupportedOperationException("inquiry is not used in this test");
+        }
+
+        @Override
+        public VanReversalResponse reversal(VanReversalRequest request) {
+            throw new UnsupportedOperationException("reversal is not used in this test");
         }
 
         void reset() {
