@@ -94,8 +94,9 @@ ALTER TABLE PAYMENT_ATTEMPT ADD COLUMN CARD_FINGERPRINT TEXT NULL;
 -- 목적: "전체취소" 추적용 row.
 --       원거래(ORIGINAL_TRX_NO, ORIGINAL_ATTEMPT_SEQ) 기준 중복 취소 방지.
 -- 상태: CANCEL_STATUS
---   - PENDING = 미확정(취소 타임아웃 등)
+--   - PENDING = VAN 결과 대기 중
 --   - CANCELLED / CANCEL_DECLINED = 확정 상태
+--   - UNKNOWN_TIMEOUT = VAN timeout으로 취소 성공/거절 여부를 단정할 수 없는 미확정 상태
 -- FK(물리): 원거래 attempt를 참조(정상 흐름에서는 존재해야 함)
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS PAYMENT_CANCEL
@@ -106,6 +107,7 @@ CREATE TABLE IF NOT EXISTS PAYMENT_CANCEL
 	ORIGINAL_TRX_NO      TEXT                                                 not null,
 	ORIGINAL_ATTEMPT_SEQ INTEGER                                              not null,
 	CANCEL_STATUS        TEXT                                                 not null,
+	VAN_CANCEL_TRX_ID    TEXT,
 	CANCEL_APPROVAL_NO   TEXT,
 	DECLINE_CODE         TEXT,
 	CREATED_AT           TEXT default (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')) not null,
@@ -119,8 +121,12 @@ CREATE TABLE IF NOT EXISTS PAYMENT_CANCEL
 		on update restrict
 		on delete restrict,
 
-	CHECK (CANCEL_STATUS IN ('PENDING', 'CANCELLED', 'CANCEL_DECLINED'))
+	CHECK (CANCEL_STATUS IN ('PENDING', 'CANCELLED', 'CANCEL_DECLINED', 'UNKNOWN_TIMEOUT'))
 );
+
+-- 기존 SQLite DB는 CREATE TABLE IF NOT EXISTS만으로 새 컬럼이 생기지 않는다.
+-- application.yml의 continue-on-error=true로 이미 존재하는 컬럼 오류는 통과시킨다.
+ALTER TABLE PAYMENT_CANCEL ADD COLUMN VAN_CANCEL_TRX_ID TEXT NULL;
 
 CREATE INDEX IF NOT EXISTS IDX_PAYMENT_CANCEL_STATUS
 	ON PAYMENT_CANCEL (CANCEL_STATUS);
@@ -129,7 +135,44 @@ CREATE INDEX IF NOT EXISTS IDX_PAYMENT_CANCEL_ORIGINAL_TRX
 	ON PAYMENT_CANCEL (ORIGINAL_TRX_NO);
 
 -- ---------------------------------------------------------------------
--- 5) BIN_CATALOG
+-- 5) PAYMENT_REVERSAL
+-- 목적: 장애 복구 reversal 추적용 row.
+--       원승인(ORIGINAL_TRX_NO, ORIGINAL_ATTEMPT_SEQ) 기준 중복 reversal 방지.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS PAYMENT_REVERSAL
+(
+	REVERSAL_ID          INTEGER PRIMARY KEY AUTOINCREMENT,
+	CURRENT_TRX_NO       TEXT    NOT NULL,
+	ORIGINAL_TRX_NO      TEXT    NOT NULL,
+	ORIGINAL_ATTEMPT_SEQ INTEGER NOT NULL,
+	AMOUNT               INTEGER NOT NULL,
+	REVERSAL_STATUS      TEXT    NOT NULL,
+	VAN_REVERSAL_TRX_ID  TEXT,
+	REVERSAL_APPROVAL_NO TEXT,
+	DECLINE_CODE         TEXT,
+	CREATED_AT           TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+	UPDATED_AT           TEXT    NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+
+	UNIQUE (CURRENT_TRX_NO),
+	UNIQUE (ORIGINAL_TRX_NO, ORIGINAL_ATTEMPT_SEQ),
+
+	FOREIGN KEY (ORIGINAL_TRX_NO, ORIGINAL_ATTEMPT_SEQ)
+		REFERENCES PAYMENT_ATTEMPT (POS_TRX, ATTEMPT_SEQ)
+		ON UPDATE RESTRICT
+		ON DELETE RESTRICT,
+
+	CHECK (AMOUNT > 0),
+	CHECK (REVERSAL_STATUS IN ('PENDING', 'REVERSED', 'REVERSAL_DECLINED'))
+);
+
+CREATE INDEX IF NOT EXISTS IDX_PAYMENT_REVERSAL_STATUS
+	ON PAYMENT_REVERSAL (REVERSAL_STATUS);
+
+CREATE INDEX IF NOT EXISTS IDX_PAYMENT_REVERSAL_ORIGINAL_TRX
+	ON PAYMENT_REVERSAL (ORIGINAL_TRX_NO);
+
+-- ---------------------------------------------------------------------
+-- 6) BIN_CATALOG
 -- 목적: BIN(카드빈) 매핑/검증 기준 데이터.
 --       이 프로젝트의 카드 식별 기준은 8자리 BIN이다.
 -- ---------------------------------------------------------------------
@@ -152,7 +195,7 @@ CREATE INDEX IF NOT EXISTS IDX_BIN_CATALOG_ACTIVE
 	ON BIN_CATALOG (ACTIVE_YN);
 
 -- ---------------------------------------------------------------------
--- 6) PAYMENT_EXTERNAL_INFO
+-- 7) PAYMENT_EXTERNAL_INFO
 -- 목적: 승인 attempt에 연결된 카드/VAN/대외거래 식별 정보.
 --       PAN 원문은 저장하지 않고 8자리 BIN, last4, masked card no만 저장한다.
 -- ---------------------------------------------------------------------
@@ -182,7 +225,7 @@ CREATE INDEX IF NOT EXISTS IDX_PAYMENT_EXTERNAL_INFO_POS_TRX
 	ON PAYMENT_EXTERNAL_INFO (POS_TRX);
 
 -- ---------------------------------------------------------------------
--- 7) PAYMENT_EVENT_LOG
+-- 8) PAYMENT_EVENT_LOG
 -- 목적: 승인/조회/취소 처리 과정의 중요 이벤트를 남기는 저널 테이블.
 --       전문 원문 저장은 하지 않고, 코드/요약만 기록한다.
 -- ---------------------------------------------------------------------

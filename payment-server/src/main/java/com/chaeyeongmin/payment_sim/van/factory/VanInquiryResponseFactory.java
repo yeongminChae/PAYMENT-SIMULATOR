@@ -1,8 +1,10 @@
 package com.chaeyeongmin.payment_sim.van.factory;
 
-import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResponse;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResultCode;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryTargetType;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryStatus;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -18,8 +20,10 @@ public class VanInquiryResponseFactory {
             LocalDateTime respondedAt
     ) {
         return VanInquiryResponse.builder()
-                .posTrx(posTrx)
-                .attemptSeq(attemptSeq)
+                .targetType(VanInquiryTargetType.APPROVAL)
+                .targetTrxNo(posTrx)
+                .targetAttemptSeq(attemptSeq)
+                .resultCode(VanInquiryResultCode.SUCCESS)
                 .vanTrxId(vanTrxId)
                 .respondedAt(respondedAt);
     }
@@ -32,8 +36,9 @@ public class VanInquiryResponseFactory {
             LocalDateTime respondedAt
     ) {
         return baseBuilder(posTrx, attemptSeq, vanTrxId, respondedAt)
-                .finalStatus(PaymentFinalStatus.APPROVED)
+                .status(VanInquiryStatus.APPROVED)
                 .approvalNo(approvalNo)
+                .cancelApprovalNo(null)
                 .declineCode(null)
                 .build();
     }
@@ -46,8 +51,9 @@ public class VanInquiryResponseFactory {
             LocalDateTime respondedAt
     ) {
         return baseBuilder(posTrx, attemptSeq, vanTrxId, respondedAt)
-                .finalStatus(PaymentFinalStatus.DECLINED)
+                .status(VanInquiryStatus.DECLINED)
                 .approvalNo(null)
+                .cancelApprovalNo(null)
                 .declineCode(declineCode)
                 .build();
     }
@@ -60,8 +66,9 @@ public class VanInquiryResponseFactory {
             LocalDateTime respondedAt
     ) {
         return baseBuilder(posTrx, attemptSeq, vanTrxId, respondedAt)
-                .finalStatus(PaymentFinalStatus.UNKNOWN_TIMEOUT)
+                .status(VanInquiryStatus.UNKNOWN)
                 .approvalNo(null)
+                .cancelApprovalNo(null)
                 .declineCode(declineCode)
                 .build();
     }

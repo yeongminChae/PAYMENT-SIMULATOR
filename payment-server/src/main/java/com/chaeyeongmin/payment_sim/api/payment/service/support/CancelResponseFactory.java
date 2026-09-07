@@ -23,6 +23,7 @@ public class CancelResponseFactory {
      * - PENDING         : 이전 취소 요청이 아직 미확정이므로 retryLater
      * - CANCELLED       : 이미 취소 완료. 응답은 alreadyCancelled 의미로 조립
      * - CANCEL_DECLINED : 이전 취소 요청이 거절 확정. declineCode와 함께 재응답
+     * - UNKNOWN_TIMEOUT : 이전 취소 요청이 VAN에 전달됐을 수 있으나 응답 유실. 중복 취소 방지를 위해 retryLater
      */
     public CancelResponse fromExistingCancel(
             CancelRequest request,
@@ -34,9 +35,10 @@ public class CancelResponseFactory {
         int originalAttemptSeq = request.originalAttemptSeq();
 
         return switch (cancelStatus) {
-            // PENDING -> 취소 처리 중/미확정.
+            // PENDING, UNKNOWN_TIMEOUT -> 취소 처리 중/미확정.
             // - VAN을 다시 호출하지 않고 클라이언트가 나중에 재시도/조회하도록 유도한다.
-            case PENDING -> CancelResponse.retryLater(
+            case PENDING,
+                 UNKNOWN_TIMEOUT  -> CancelResponse.retryLater(
                     posTrx,
                     originalPosTrx,
                     originalAttemptSeq
@@ -74,12 +76,16 @@ public class CancelResponseFactory {
      * <p>
      * - 기존 row 재응답: 현재 요청은 VAN을 호출하지 않은 중복 요청이므로 CANCELLED -> ALREADY_CANCELLED
      * - C7 복구 응답 : 현재 요청은 VAN을 이미 호출했으므로 CANCELLED -> CANCELLED
+     * - UNKNOWN_TIMEOUT: 현재 요청의 VAN 결과도 확정할 수 없으므로 재호출 없이 RETRY_LATER
      */
     public CancelResponse fromC7RecoveredCancel(
             PaymentCancel cancel
     ) {
         return switch (cancel.cancelStatus()) {
-            case PENDING -> CancelResponse.retryLater(
+            // PENDING, UNKNOWN_TIMEOUT -> 취소 처리 중/미확정.
+            // - VAN을 다시 호출하지 않고 클라이언트가 나중에 재시도/조회하도록 유도한다.
+            case PENDING,
+                 UNKNOWN_TIMEOUT -> CancelResponse.retryLater(
                     cancel.posTrx(),
                     cancel.originalPosTrx(),
                     cancel.originalAttemptSeq()

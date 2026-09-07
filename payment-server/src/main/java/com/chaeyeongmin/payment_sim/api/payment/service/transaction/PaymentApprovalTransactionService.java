@@ -65,10 +65,16 @@ public class PaymentApprovalTransactionService {
      * - 같은 posTrx의 동시 최초 승인 요청을 row lock으로 줄 세운다.
      * - 이미 확정/처리중인 동일 payload 요청은 DB 재응답으로 끝낸다.
      * - 신규 승인만 attemptSeq를 발급하고 PROCESSING attempt와 외부 식별 정보를 저장한다.
+     * - created 결과를 반환한 요청만 VAN approve를 호출하고, existing 결과를 반환한 요청은 VAN을 호출하지 않는다.
      *
      * <p>
      * 여기서 하지 않는 일:
      * - 외부 VAN 호출. 이 트랜잭션이 커밋된 뒤 호출해야 lock 점유 시간이 길어지지 않는다.
+     *
+     * <p>
+     * 결과 의미:
+     * - created: 신규 PROCESSING attempt를 만든 대표 요청이다. 호출자는 이 posTrx/attemptSeq로 VAN을 호출한다.
+     * - existing: 이미 DB에 응답할 수 있는 attempt가 있다. 호출자는 existingResponse를 그대로 반환한다.
      */
     @Transactional
     public PaymentApprovalPrepareResult prepare(ApproveRequest request) {
@@ -104,17 +110,7 @@ public class PaymentApprovalTransactionService {
                     log.info("[approve][A4] reuse db result. posTrx={}, attemptSeq={}, status={}",
                             trx, latest.attemptSeq(), status);
 
-                    insertApproveEvent(
-                            PaymentEventType.APPROVE_REUSED,
-                            trx,
-                            latest.attemptSeq(),
-                            PaymentResultCodeMapper.codeName(status),
-                            status.name(),
-                            latest.vanTrxId(),
-                            latest.approvalNo(),
-                            latest.declineCode(),
-                            "approval result reused by same posTrx and same payload"
-                    );
+                    recordApprovalReused(trx, latest, status);
 
                     // DB 재응답.
                     // - 저장된 attempt row를 기준으로 삼으므로, 응답도 DB 컬럼에서 조립한다.
@@ -137,17 +133,7 @@ public class PaymentApprovalTransactionService {
 
                 // 같은 posTrx로 카드/금액을 바꿔 승인하면 멱등 재요청이 아니라 거래번호 재사용이다.
                 // 외부 VAN 호출 전에 끊어야 중복 승인이나 서로 다른 승인 결과가 생기지 않는다.
-                insertApproveEvent(
-                        PaymentEventType.APPROVE_CONFLICT,
-                        trx,
-                        latest.attemptSeq(),
-                        ResultCode.CONFLICT.name(),
-                        status.name(),
-                        latest.vanTrxId(),
-                        latest.approvalNo(),
-                        latest.declineCode(),
-                        "POS_TRX_ALREADY_USED"
-                );
+                recordApprovalConflict(trx, latest, status);
                 throw new BusinessException(ResultCode.CONFLICT, "POS_TRX_ALREADY_USED");
 
             }
@@ -198,17 +184,7 @@ public class PaymentApprovalTransactionService {
                 createdAt
         ));
 
-        insertApproveEvent(
-                PaymentEventType.APPROVE_ATTEMPT_CREATED,
-                trx,
-                attemptSeq,
-                null,
-                PaymentFinalStatus.PROCESSING.name(),
-                null,
-                null,
-                null,
-                "approval attempt created"
-        );
+        recordApprovalAttemptCreated(trx, attemptSeq);
 
         return PaymentApprovalPrepareResult.created(trx, attemptSeq, cardIdentity);
     }
@@ -240,6 +216,124 @@ public class PaymentApprovalTransactionService {
             case UNKNOWN_TIMEOUT -> ApproveResponse.unknownTimeout(trx, attemptSeq, declineCode, cardSummary);
             case PROCESSING -> ApproveResponse.retryLater(trx, attemptSeq, cardSummary);
         };
+    }
+
+    private void recordApprovalReused(
+            String trx,
+            PaymentAttempt latest,
+            PaymentFinalStatus status
+    ) {
+        insertApproveEvent(
+                PaymentEventType.APPROVE_REUSED,
+                trx,
+                latest.attemptSeq(),
+                PaymentResultCodeMapper.codeName(status),
+                status.name(),
+                latest.vanTrxId(),
+                latest.approvalNo(),
+                latest.declineCode(),
+                "approval result reused by same posTrx and same payload"
+        );
+    }
+
+    private void recordApprovalConflict(
+            String trx,
+            PaymentAttempt latest,
+            PaymentFinalStatus status
+    ) {
+        insertApproveEvent(
+                PaymentEventType.APPROVE_CONFLICT,
+                trx,
+                latest.attemptSeq(),
+                ResultCode.CONFLICT.name(),
+                status.name(),
+                latest.vanTrxId(),
+                latest.approvalNo(),
+                latest.declineCode(),
+                "POS_TRX_ALREADY_USED"
+        );
+    }
+
+    private void recordApprovalAttemptCreated(String trx, int attemptSeq) {
+        insertApproveEvent(
+                PaymentEventType.APPROVE_ATTEMPT_CREATED,
+                trx,
+                attemptSeq,
+                null,
+                PaymentFinalStatus.PROCESSING.name(),
+                null,
+                null,
+                null,
+                "approval attempt created"
+        );
+    }
+
+    private void recordApprovalFinalized(
+            String trx,
+            int attemptSeq,
+            PaymentAttemptUpdatedRow row
+    ) {
+        insertApproveEvent(
+                PaymentEventType.APPROVE_FINALIZED,
+                trx,
+                attemptSeq,
+                PaymentResultCodeMapper.codeName(row.finalStatus()),
+                row.finalStatus().name(),
+                row.vanTrxId(),
+                row.approvalNo(),
+                row.declineCode(),
+                "approval finalized"
+        );
+    }
+
+    private void recordApprovalUnknownAfterFinalizeUpdateMiss(
+            String trx,
+            int attemptSeq,
+            VanApproveResponse vanResponse
+    ) {
+        insertApproveEvent(
+                PaymentEventType.APPROVE_UNKNOWN_TIMEOUT,
+                trx,
+                attemptSeq,
+                ResultCode.UNKNOWN_TIMEOUT.name(),
+                PaymentFinalStatus.UNKNOWN_TIMEOUT.name(),
+                vanResponse.vanTrxId(),
+                null,
+                "UNKNOWN_AFTER_UPDATE_MISS",
+                "approval unknown after finalize update miss"
+        );
+    }
+
+    private void recordApprovalTimeoutFinalized(
+            String trx,
+            int attemptSeq,
+            PaymentAttemptUpdatedRow row
+    ) {
+        insertApproveEvent(
+                PaymentEventType.APPROVE_UNKNOWN_TIMEOUT,
+                trx,
+                attemptSeq,
+                ResultCode.UNKNOWN_TIMEOUT.name(),
+                PaymentFinalStatus.UNKNOWN_TIMEOUT.name(),
+                null,
+                null,
+                row.declineCode(),
+                "VAN response timeout"
+        );
+    }
+
+    private void recordApprovalUnknownAfterTimeoutUpdateMiss(String trx, int attemptSeq) {
+        insertApproveEvent(
+                PaymentEventType.APPROVE_UNKNOWN_TIMEOUT,
+                trx,
+                attemptSeq,
+                ResultCode.UNKNOWN_TIMEOUT.name(),
+                PaymentFinalStatus.UNKNOWN_TIMEOUT.name(),
+                null,
+                null,
+                "UNKNOWN_AFTER_UPDATE_MISS",
+                "approval unknown after timeout update miss"
+        );
     }
 
     /**
@@ -338,17 +432,7 @@ public class PaymentApprovalTransactionService {
 
             log.info("[approve][FINALIZE] finalized. posTrx={}, attemptSeq={}, finalStatus={}, vanTrxId={}", trx, attemptSeq, row.finalStatus(), row.vanTrxId());
 
-            insertApproveEvent(
-                    PaymentEventType.APPROVE_FINALIZED,
-                    trx,
-                    attemptSeq,
-                    PaymentResultCodeMapper.codeName(row.finalStatus()),
-                    row.finalStatus().name(),
-                    row.vanTrxId(),
-                    row.approvalNo(),
-                    row.declineCode(),
-                    "approval finalized"
-            );
+            recordApprovalFinalized(trx, attemptSeq, row);
 
             // VAN 응답 원문이 아니라 실제 DB 저장값으로 응답한다.
             return getApproveResponse(
@@ -423,17 +507,7 @@ public class PaymentApprovalTransactionService {
         log.error("[approve][FINALIZE][ATTEMPT_NOT_FOUND] attempt row not found after VAN response. "
                         + "posTrx={}, attemptSeq={}, vanStatus={}, vanTrxId={}", trx, attemptSeq, vanResponse.finalStatus(), vanResponse.vanTrxId());
 
-        insertApproveEvent(
-                PaymentEventType.APPROVE_UNKNOWN_TIMEOUT,
-                trx,
-                attemptSeq,
-                ResultCode.UNKNOWN_TIMEOUT.name(),
-                PaymentFinalStatus.UNKNOWN_TIMEOUT.name(),
-                vanResponse.vanTrxId(),
-                null,
-                "UNKNOWN_AFTER_UPDATE_MISS",
-                "approval unknown after finalize update miss"
-        );
+        recordApprovalUnknownAfterFinalizeUpdateMiss(trx, attemptSeq, vanResponse);
 
         return ApproveResponse.unknownTimeout(
                 trx,
@@ -486,17 +560,7 @@ public class PaymentApprovalTransactionService {
 
             log.info("[approve][TIMEOUT] finalized as UNKNOWN_TIMEOUT. posTrx={}, attemptSeq={}", trx, attemptSeq);
 
-            insertApproveEvent(
-                    PaymentEventType.APPROVE_UNKNOWN_TIMEOUT,
-                    trx,
-                    attemptSeq,
-                    ResultCode.UNKNOWN_TIMEOUT.name(),
-                    PaymentFinalStatus.UNKNOWN_TIMEOUT.name(),
-                    null,
-                    null,
-                    row.declineCode(),
-                    "VAN response timeout"
-            );
+            recordApprovalTimeoutFinalized(trx, attemptSeq, row);
 
             // 실제 DB에 저장된 TIMEOUT 결과와 카드정보를 기준으로 응답한다.
             return ApproveResponse.unknownTimeout(
@@ -572,17 +636,7 @@ public class PaymentApprovalTransactionService {
         log.error("[approve][TIMEOUT][ATTEMPT_NOT_FOUND] attempt row not found after response timeout. "
                         + "posTrx={}, attemptSeq={}", trx, attemptSeq);
 
-        insertApproveEvent(
-                PaymentEventType.APPROVE_UNKNOWN_TIMEOUT,
-                trx,
-                attemptSeq,
-                ResultCode.UNKNOWN_TIMEOUT.name(),
-                PaymentFinalStatus.UNKNOWN_TIMEOUT.name(),
-                null,
-                null,
-                "UNKNOWN_AFTER_UPDATE_MISS",
-                "approval unknown after timeout update miss"
-        );
+        recordApprovalUnknownAfterTimeoutUpdateMiss(trx, attemptSeq);
 
         return ApproveResponse.unknownTimeout(
                 trx,

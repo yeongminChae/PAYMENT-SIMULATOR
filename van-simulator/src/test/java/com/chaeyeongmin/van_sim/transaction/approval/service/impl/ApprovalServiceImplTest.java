@@ -1,4 +1,4 @@
-package com.chaeyeongmin.van_sim.transaction.approval.service;
+package com.chaeyeongmin.van_sim.transaction.approval.service.impl;
 
 import com.chaeyeongmin.van_sim.control.scenario.approval.model.ApprovalScenario;
 import com.chaeyeongmin.van_sim.control.scenario.approval.model.IssuerResult;
@@ -9,7 +9,6 @@ import com.chaeyeongmin.van_sim.ledger.approval.repository.VanApprovalRepository
 import com.chaeyeongmin.van_sim.ledger.approval.status.VanApprovalStatus;
 import com.chaeyeongmin.van_sim.transaction.approval.service.command.ApprovalCommand;
 import com.chaeyeongmin.van_sim.transaction.approval.service.exception.ApprovalRequestConflictException;
-import com.chaeyeongmin.van_sim.transaction.approval.service.impl.ApprovalServiceImpl;
 import com.chaeyeongmin.van_sim.transaction.approval.service.result.ApprovalResult;
 import com.chaeyeongmin.van_sim.transaction.approval.service.support.ApprovalNumberGenerator;
 import com.chaeyeongmin.van_sim.transaction.approval.service.support.VanTransactionIdGenerator;

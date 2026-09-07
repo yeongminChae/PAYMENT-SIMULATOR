@@ -16,7 +16,10 @@ import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentAttemptUpdatedRo
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanInquiryAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResponse;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResultCode;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryTargetType;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryStatus;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -338,8 +341,9 @@ class PaymentInquiryServiceImplTest {
         // assembler가 만들어 줄 VAN 조회 요청 DTO다.
         // 테스트에서는 assembler도 mock이라, 아래 when(...)에서 이 객체를 반환하도록 지정한다.
         VanInquiryRequest vanInquiryReq = VanInquiryRequest.builder()
-                .posTrx(trx)
-                .attemptSeq(attemptSeq)
+                .targetType(VanInquiryTargetType.APPROVAL)
+                .targetTrxNo(trx)
+                .targetAttemptSeq(attemptSeq)
                 .vanTrxId(null)
                 .cardLast4("4242")
                 .build();
@@ -427,8 +431,9 @@ class PaymentInquiryServiceImplTest {
 
         // latest.cardLast4("1111")를 사용해 만들어질 VAN 조회 요청이다.
         VanInquiryRequest vanInquiryReq = VanInquiryRequest.builder()
-                .posTrx(trx)
-                .attemptSeq(attemptSeq)
+                .targetType(VanInquiryTargetType.APPROVAL)
+                .targetTrxNo(trx)
+                .targetAttemptSeq(attemptSeq)
                 .vanTrxId(null)
                 .cardLast4("1111")
                 .build();
@@ -521,8 +526,9 @@ class PaymentInquiryServiceImplTest {
         );
 
         VanInquiryRequest vanInquiryReq = VanInquiryRequest.builder()
-                .posTrx(trx)
-                .attemptSeq(attemptSeq)
+                .targetType(VanInquiryTargetType.APPROVAL)
+                .targetTrxNo(trx)
+                .targetAttemptSeq(attemptSeq)
                 .vanTrxId(null)
                 .cardLast4("4242")
                 .build();
@@ -606,8 +612,9 @@ class PaymentInquiryServiceImplTest {
         );
 
         VanInquiryRequest vanInquiryReq = VanInquiryRequest.builder()
-                .posTrx(trx)
-                .attemptSeq(attemptSeq)
+                .targetType(VanInquiryTargetType.APPROVAL)
+                .targetTrxNo(trx)
+                .targetAttemptSeq(attemptSeq)
                 .vanTrxId(null)
                 .cardLast4("1111")
                 .build();
@@ -682,8 +689,9 @@ class PaymentInquiryServiceImplTest {
 
         // VAN 조회 요청은 만들지만, VAN 결과가 미확정이면 DB update는 하지 않는다.
         VanInquiryRequest vanInquiryReq = VanInquiryRequest.builder()
-                .posTrx(trx)
-                .attemptSeq(attemptSeq)
+                .targetType(VanInquiryTargetType.APPROVAL)
+                .targetTrxNo(trx)
+                .targetAttemptSeq(attemptSeq)
                 .vanTrxId(null)
                 .cardLast4("0000")
                 .build();
@@ -810,10 +818,13 @@ class PaymentInquiryServiceImplTest {
 
     private VanInquiryResponse vanInquiryResApproved(String posTrx, int attemptSeq) {
         return VanInquiryResponse.builder()
-                .posTrx(posTrx)
-                .attemptSeq(attemptSeq)
-                .finalStatus(PaymentFinalStatus.APPROVED)
+                .targetType(VanInquiryTargetType.APPROVAL)
+                .targetTrxNo(posTrx)
+                .targetAttemptSeq(attemptSeq)
+                .resultCode(VanInquiryResultCode.SUCCESS)
+                .status(VanInquiryStatus.APPROVED)
                 .approvalNo("VAN-APPROVAL-0001")
+                .cancelApprovalNo(null)
                 .declineCode(null)
                 .vanTrxId("VAN-INQ-TRX-0001")
                 .message("APPROVED_BY_INQUIRY")
@@ -823,10 +834,13 @@ class PaymentInquiryServiceImplTest {
 
     private VanInquiryResponse vanInquiryResDeclined(String posTrx, int attemptSeq) {
         return VanInquiryResponse.builder()
-                .posTrx(posTrx)
-                .attemptSeq(attemptSeq)
-                .finalStatus(PaymentFinalStatus.DECLINED)
+                .targetType(VanInquiryTargetType.APPROVAL)
+                .targetTrxNo(posTrx)
+                .targetAttemptSeq(attemptSeq)
+                .resultCode(VanInquiryResultCode.SUCCESS)
+                .status(VanInquiryStatus.DECLINED)
                 .approvalNo(null)
+                .cancelApprovalNo(null)
                 .declineCode(VanDeclineCode.DO_NOT_HONOR)
                 .vanTrxId("VAN-INQ-TRX-0002")
                 .message("DECLINED_BY_INQUIRY")
@@ -836,10 +850,13 @@ class PaymentInquiryServiceImplTest {
 
     private VanInquiryResponse vanInquiryResUnknownTimeout(String posTrx, int attemptSeq) {
         return VanInquiryResponse.builder()
-                .posTrx(posTrx)
-                .attemptSeq(attemptSeq)
-                .finalStatus(PaymentFinalStatus.UNKNOWN_TIMEOUT)
+                .targetType(VanInquiryTargetType.APPROVAL)
+                .targetTrxNo(posTrx)
+                .targetAttemptSeq(attemptSeq)
+                .resultCode(VanInquiryResultCode.SUCCESS)
+                .status(VanInquiryStatus.UNKNOWN)
                 .approvalNo(null)
+                .cancelApprovalNo(null)
                 .declineCode(VanDeclineCode.TIMEOUT)
                 .vanTrxId("VAN-INQ-TRX-0003")
                 .message("STILL_UNKNOWN")

@@ -1,10 +1,19 @@
 package com.chaeyeongmin.payment_sim.van.gateway;
 
 import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
+import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveResponse;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelRequest;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelResponse;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResponse;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResultCode;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryTargetType;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanReversalRequest;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanReversalResponse;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanReversalResultCode;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanReversalStatus;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanResult;
 import com.chaeyeongmin.payment_sim.van.client.tcp.VanTcpClient;
@@ -13,9 +22,17 @@ import com.chaeyeongmin.payment_sim.van.client.tcp.exception.VanTcpRequestNotSen
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.approval.VanApprovalStatus;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.approval.VanApprovalTcpRequest;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.approval.VanApprovalTcpResponse;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.cancel.VanCancelTcpRequest;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.cancel.VanCancelTcpResponse;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.cancel.VanCancelTcpResultCode;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.cancel.VanCancelTcpStatus;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryStatus;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTcpRequest;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryTcpResponse;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.reversal.VanReversalTcpRequest;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.reversal.VanReversalTcpResponse;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.reversal.VanReversalTcpResultCode;
+import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.reversal.VanReversalTcpStatus;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.TcpVanGatewayException;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutException;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayRequestNotSentException;
@@ -34,6 +51,7 @@ import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -197,15 +215,19 @@ class TcpVanGatewayTest {
 
         assertThat(tcpRequest.protocolVersion()).isEqualTo("1");
         assertThat(tcpRequest.messageType()).isEqualTo("INQUIRY");
-        assertThat(tcpRequest.requestId()).isEqualTo("INQUIRY-2301-20260808-9999-0101-1");
-        assertThat(tcpRequest.posTrx()).isEqualTo(request.posTrx());
-        assertThat(tcpRequest.attemptSeq()).isEqualTo(request.attemptSeq());
+        assertThat(tcpRequest.requestId()).isEqualTo("INQUIRY-APPROVAL-2301-20260808-9999-0101-1");
+        assertThat(tcpRequest.targetType()).isEqualTo(VanInquiryTargetType.APPROVAL);
+        assertThat(tcpRequest.targetTrxNo()).isEqualTo(request.targetTrxNo());
+        assertThat(tcpRequest.targetAttemptSeq()).isEqualTo(request.targetAttemptSeq());
 
-        assertThat(response.posTrx()).isEqualTo(request.posTrx());
-        assertThat(response.attemptSeq()).isEqualTo(request.attemptSeq());
-        assertThat(response.finalStatus()).isEqualTo(PaymentFinalStatus.APPROVED);
+        assertThat(response.targetType()).isEqualTo(VanInquiryTargetType.APPROVAL);
+        assertThat(response.targetTrxNo()).isEqualTo(request.targetTrxNo());
+        assertThat(response.targetAttemptSeq()).isEqualTo(request.targetAttemptSeq());
+        assertThat(response.resultCode()).isEqualTo(VanInquiryResultCode.SUCCESS);
+        assertThat(response.status()).isEqualTo(VanInquiryStatus.APPROVED);
         assertThat(response.vanTrxId()).isEqualTo("VAN-INQ-001");
         assertThat(response.approvalNo()).isEqualTo("APPROVAL-INQ-001");
+        assertThat(response.cancelApprovalNo()).isNull();
         assertThat(response.declineCode()).isNull();
         assertThat(response.respondedAt()).isEqualTo(respondedAt);
     }
@@ -230,7 +252,8 @@ class TcpVanGatewayTest {
         VanInquiryResponse response = tcpVanGateway.inquiry(request);
 
         // then
-        assertThat(response.finalStatus()).isEqualTo(PaymentFinalStatus.DECLINED);
+        assertThat(response.resultCode()).isEqualTo(VanInquiryResultCode.SUCCESS);
+        assertThat(response.status()).isEqualTo(VanInquiryStatus.DECLINED);
         assertThat(response.approvalNo()).isNull();
         assertThat(response.declineCode()).isEqualTo(VanDeclineCode.DO_NOT_HONOR);
         assertThat(response.vanTrxId()).isEqualTo("VAN-INQ-002");
@@ -256,10 +279,75 @@ class TcpVanGatewayTest {
         VanInquiryResponse response = tcpVanGateway.inquiry(request);
 
         // then
-        assertThat(response.finalStatus()).isEqualTo(PaymentFinalStatus.UNKNOWN_TIMEOUT);
+        assertThat(response.resultCode()).isEqualTo(VanInquiryResultCode.SUCCESS);
+        assertThat(response.status()).isEqualTo(VanInquiryStatus.UNKNOWN);
         assertThat(response.approvalNo()).isNull();
         assertThat(response.declineCode()).isEqualTo(VanDeclineCode.TIMEOUT);
         assertThat(response.vanTrxId()).isEqualTo("VAN-INQ-003");
+    }
+
+    @Test
+    void TCP_APPROVAL_NOT_FOUND_조회응답을_NOT_FOUND_업무응답으로_변환한다() throws Exception {
+        VanInquiryRequest request = inquiryRequest("2301-20260808-9999-0106", 1);
+        VanInquiryTcpResponse tcpResponse = new VanInquiryTcpResponse(
+                "1",
+                "INQUIRY_RESPONSE",
+                "INQUIRY-APPROVAL-" + request.targetTrxNo() + "-" + request.targetAttemptSeq(),
+                VanInquiryTargetType.APPROVAL,
+                request.targetTrxNo(),
+                request.targetAttemptSeq(),
+                VanInquiryResultCode.NOT_FOUND,
+                null,
+                null,
+                null,
+                null,
+                null,
+                LocalDateTime.of(2026, 8, 24, 11, 34)
+        );
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        VanInquiryResponse response = tcpVanGateway.inquiry(request);
+
+        assertThat(response.resultCode()).isEqualTo(VanInquiryResultCode.NOT_FOUND);
+        assertThat(response.status()).isNull();
+        assertThat(response.vanTrxId()).isNull();
+        assertThat(response.approvalNo()).isNull();
+        assertThat(response.cancelApprovalNo()).isNull();
+        assertThat(response.declineCode()).isNull();
+    }
+
+    @Test
+    void TCP_CANCEL_CANCELLED_조회응답은_역직렬화와_검증을_통과한다() throws Exception {
+        VanInquiryRequest request = cancelInquiryRequest("2301-20260808-9999-0107");
+        VanInquiryTcpResponse tcpResponse = new VanInquiryTcpResponse(
+                "1",
+                "INQUIRY_RESPONSE",
+                "INQUIRY-CANCEL-" + request.targetTrxNo() + "-null",
+                VanInquiryTargetType.CANCEL,
+                request.targetTrxNo(),
+                null,
+                VanInquiryResultCode.SUCCESS,
+                "VAN-CANCEL-INQ-001",
+                VanInquiryStatus.CANCELLED,
+                null,
+                "CANCEL-APPROVAL-INQ-001",
+                null,
+                LocalDateTime.of(2026, 8, 24, 11, 35)
+        );
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        VanInquiryResponse response = tcpVanGateway.inquiry(request);
+
+        assertThat(response.targetType()).isEqualTo(VanInquiryTargetType.CANCEL);
+        assertThat(response.resultCode()).isEqualTo(VanInquiryResultCode.SUCCESS);
+        assertThat(response.status()).isEqualTo(VanInquiryStatus.CANCELLED);
+        assertThat(response.vanTrxId()).isEqualTo("VAN-CANCEL-INQ-001");
+        assertThat(response.approvalNo()).isNull();
+        assertThat(response.cancelApprovalNo()).isEqualTo("CANCEL-APPROVAL-INQ-001");
     }
 
     @Test
@@ -270,11 +358,14 @@ class TcpVanGatewayTest {
                 "1",
                 "INQUIRY_RESPONSE",
                 "INQUIRY-2301-20260808-9999-0104-1",
-                request.posTrx(),
+                VanInquiryTargetType.APPROVAL,
+                request.targetTrxNo(),
                 2,
+                VanInquiryResultCode.SUCCESS,
                 "VAN-INQ-004",
                 VanInquiryStatus.APPROVED,
                 "APPROVAL-INQ-004",
+                null,
                 null,
                 LocalDateTime.of(2026, 8, 24, 11, 33)
         );
@@ -283,6 +374,122 @@ class TcpVanGatewayTest {
                 .thenReturn(objectMapper.writeValueAsBytes(mismatchedResponse));
 
         // when & then
+        assertThatThrownBy(() -> tcpVanGateway.inquiry(request))
+                .isInstanceOf(TcpVanGatewayException.class)
+                .hasMessage("VAN_TCP_INQUIRY_RESPONSE_MISMATCH");
+    }
+
+    @Test
+    void TCP_CANCEL_조회응답이_UNKNOWN_status이면_gateway_예외를_던진다() throws Exception {
+        VanInquiryRequest request = cancelInquiryRequest("2301-20260808-9999-0108");
+        VanInquiryTcpResponse invalidResponse = inquiryTcpResponse(
+                request,
+                VanInquiryStatus.UNKNOWN,
+                "VAN-CANCEL-INQ-INVALID-001",
+                null,
+                null,
+                LocalDateTime.of(2026, 8, 24, 11, 36)
+        );
+
+        when(vanTcpClient.send(any(byte[].class))) .thenReturn(objectMapper.writeValueAsBytes(invalidResponse));
+
+        assertThatThrownBy(() -> tcpVanGateway.inquiry(request))
+                .isInstanceOf(TcpVanGatewayException.class)
+                .hasMessage("VAN_TCP_INQUIRY_RESPONSE_INVALID");
+    }
+
+    @Test
+    void TCP_APPROVAL_조회응답이_CANCELLED_status이면_gateway_예외를_던진다() throws Exception {
+        VanInquiryRequest request = inquiryRequest("2301-20260808-9999-0109", 1);
+        VanInquiryTcpResponse invalidResponse = inquiryTcpResponse(
+                request,
+                VanInquiryStatus.CANCELLED,
+                "VAN-INQ-INVALID-001",
+                null,
+                null,
+                LocalDateTime.of(2026, 8, 24, 11, 37)
+        );
+
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(invalidResponse));
+
+        assertThatThrownBy(() -> tcpVanGateway.inquiry(request))
+                .isInstanceOf(TcpVanGatewayException.class)
+                .hasMessage("VAN_TCP_INQUIRY_RESPONSE_INVALID");
+    }
+
+    @Test
+    void TCP_조회응답의_targetType_correlation이_다르면_gateway_예외를_던진다() throws Exception {
+        VanInquiryRequest request = inquiryRequest("2301-20260808-9999-0110", 1);
+        VanInquiryTcpResponse mismatchedResponse = new VanInquiryTcpResponse(
+                "1",
+                "INQUIRY_RESPONSE",
+                "INQUIRY-APPROVAL-" + request.targetTrxNo() + "-" + request.targetAttemptSeq(),
+                VanInquiryTargetType.CANCEL,
+                request.targetTrxNo(),
+                request.targetAttemptSeq(),
+                VanInquiryResultCode.SUCCESS,
+                "VAN-INQ-005",
+                VanInquiryStatus.CANCELLED,
+                null,
+                "CANCEL-APPROVAL-INQ-005",
+                null,
+                LocalDateTime.of(2026, 8, 24, 11, 38)
+        );
+
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(mismatchedResponse));
+
+        assertThatThrownBy(() -> tcpVanGateway.inquiry(request))
+                .isInstanceOf(TcpVanGatewayException.class)
+                .hasMessage("VAN_TCP_INQUIRY_RESPONSE_MISMATCH");
+    }
+
+    @Test
+    void TCP_조회응답의_targetTrxNo_correlation이_다르면_gateway_예외를_던진다() throws Exception {
+        VanInquiryRequest request = inquiryRequest("2301-20260808-9999-0111", 1);
+        VanInquiryTcpResponse mismatchedResponse = new VanInquiryTcpResponse(
+                "1",
+                "INQUIRY_RESPONSE",
+                "INQUIRY-APPROVAL-" + request.targetTrxNo() + "-" + request.targetAttemptSeq(),
+                VanInquiryTargetType.APPROVAL,
+                "2301-20260808-9999-DIFF",
+                request.targetAttemptSeq(),
+                VanInquiryResultCode.SUCCESS,
+                "VAN-INQ-006",
+                VanInquiryStatus.APPROVED,
+                "APPROVAL-INQ-006",
+                null,
+                null,
+                LocalDateTime.of(2026, 8, 24, 11, 39)
+        );
+
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(mismatchedResponse));
+
+        assertThatThrownBy(() -> tcpVanGateway.inquiry(request))
+                .isInstanceOf(TcpVanGatewayException.class)
+                .hasMessage("VAN_TCP_INQUIRY_RESPONSE_MISMATCH");
+    }
+
+    @Test
+    void TCP_조회응답의_nullable_targetAttemptSeq_correlation이_다르면_gateway_예외를_던진다() throws Exception {
+        VanInquiryRequest request = cancelInquiryRequest("2301-20260808-9999-0112");
+        VanInquiryTcpResponse mismatchedResponse = new VanInquiryTcpResponse(
+                "1",
+                "INQUIRY_RESPONSE",
+                "INQUIRY-CANCEL-" + request.targetTrxNo() + "-null",
+                VanInquiryTargetType.CANCEL,
+                request.targetTrxNo(),
+                1,
+                VanInquiryResultCode.SUCCESS,
+                "VAN-CANCEL-INQ-002",
+                VanInquiryStatus.CANCELLED,
+                null,
+                "CANCEL-APPROVAL-INQ-002",
+                null,
+                LocalDateTime.of(2026, 8, 24, 11, 40)
+        );
+
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(mismatchedResponse));
+
         assertThatThrownBy(() -> tcpVanGateway.inquiry(request))
                 .isInstanceOf(TcpVanGatewayException.class)
                 .hasMessage("VAN_TCP_INQUIRY_RESPONSE_MISMATCH");
@@ -304,11 +511,375 @@ class TcpVanGatewayTest {
                 .hasCauseInstanceOf(VanTcpResponseTimeoutException.class);
     }
 
+    @Test
+    void 기존_취소요청을_TCP_CANCEL_전문으로_변환하고_CANCELLED_응답을_업무응답으로_변환한다() throws Exception {
+        // given
+        VanCancelRequest request = cancelRequest("2301-20260808-9999-0201");
+        VanCancelTcpResponse tcpResponse = cancelTcpResponse(
+                request,
+                VanCancelTcpStatus.CANCELLED,
+                VanCancelTcpResultCode.SUCCESS,
+                "VAN-CANCEL-TCP-001",
+                "CANCEL-APPROVAL-TCP-001",
+                null
+        );
+
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        // when
+        VanCancelResponse response = tcpVanGateway.cancel(request);
+
+        // then
+        ArgumentCaptor<byte[]> requestPayloadCaptor = ArgumentCaptor.forClass(byte[].class);
+        verify(vanTcpClient).send(requestPayloadCaptor.capture());
+
+        VanCancelTcpRequest tcpRequest =
+                objectMapper.readValue(requestPayloadCaptor.getValue(), VanCancelTcpRequest.class);
+
+        assertThat(tcpRequest.protocolVersion()).isEqualTo("1");
+        assertThat(tcpRequest.messageType()).isEqualTo("CANCEL");
+        assertThat(tcpRequest.requestId()).isEqualTo("CANCEL-" + request.posTrx());
+        assertThat(tcpRequest.cancelPosTrx()).isEqualTo(request.posTrx());
+        assertThat(tcpRequest.originalPosTrx()).isEqualTo(request.originalPosTrx());
+        assertThat(tcpRequest.originalAttemptSeq()).isEqualTo(request.originalAttemptSeq());
+        assertThat(tcpRequest.originalVanTrxId()).isEqualTo(request.vanTrxId());
+        assertThat(tcpRequest.originalApprovalNo()).isEqualTo(request.approvalNo());
+        assertThat(tcpRequest.amount()).isEqualTo(request.amount());
+
+        assertThat(response.posTrx()).isEqualTo(request.posTrx());
+        assertThat(response.originalPosTrx()).isEqualTo(request.originalPosTrx());
+        assertThat(response.originalAttemptSeq()).isEqualTo(request.originalAttemptSeq());
+        assertThat(response.cancelStatus()).isEqualTo(CancelStatus.CANCELLED);
+        assertThat(response.cancelApprovalNo()).isEqualTo("CANCEL-APPROVAL-TCP-001");
+        assertThat(response.declineCode()).isNull();
+        assertThat(response.vanTrxId()).isEqualTo("VAN-CANCEL-TCP-001");
+        assertThat(response.message()).isEqualTo("SUCCESS");
+        assertThat(response.respondedAt()).isNotNull();
+    }
+
+    @Test
+    void TCP_ORIGINAL_MISMATCH_취소응답을_CANCEL_DECLINED_업무응답으로_변환한다() throws Exception {
+        // given
+        VanCancelRequest request = cancelRequest("2301-20260808-9999-0202");
+        VanCancelTcpResponse tcpResponse = cancelTcpResponse(
+                request,
+                VanCancelTcpStatus.CANCEL_DECLINED,
+                VanCancelTcpResultCode.ORIGINAL_MISMATCH,
+                "VAN-CANCEL-TCP-002",
+                null,
+                "ORIGINAL_MISMATCH"
+        );
+
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        // when
+        VanCancelResponse response = tcpVanGateway.cancel(request);
+
+        // then
+        assertThat(response.posTrx()).isEqualTo(request.posTrx());
+        assertThat(response.originalPosTrx()).isEqualTo(request.originalPosTrx());
+        assertThat(response.originalAttemptSeq()).isEqualTo(request.originalAttemptSeq());
+        assertThat(response.cancelStatus()).isEqualTo(CancelStatus.CANCEL_DECLINED);
+        assertThat(response.cancelApprovalNo()).isNull();
+        assertThat(response.declineCode()).isEqualTo(VanDeclineCode.ORIGINAL_MISMATCH);
+        assertThat(response.vanTrxId()).isEqualTo("VAN-CANCEL-TCP-002");
+        assertThat(response.message()).isEqualTo("ORIGINAL_MISMATCH");
+        assertThat(response.respondedAt()).isNotNull();
+    }
+
+    @Test
+    void TCP_CANCEL_응답의_correlation이_다르면_gateway_예외를_던진다() throws Exception {
+        // given
+        VanCancelRequest request = cancelRequest("2301-20260808-9999-0203");
+        VanCancelTcpResponse mismatchedResponse = new VanCancelTcpResponse(
+                "1",
+                "CANCEL_RESPONSE",
+                "CANCEL-DIFFERENT",
+                request.posTrx(),
+                request.originalPosTrx(),
+                request.originalAttemptSeq(),
+                "VAN-CANCEL-TCP-003",
+                VanCancelTcpStatus.CANCELLED,
+                VanCancelTcpResultCode.SUCCESS,
+                "CANCEL-APPROVAL-TCP-003",
+                null
+        );
+
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(mismatchedResponse));
+
+        // when & then
+        assertThatThrownBy(() -> tcpVanGateway.cancel(request))
+                .isInstanceOf(TcpVanGatewayException.class)
+                .hasMessage("VAN_TCP_CANCEL_RESPONSE_MISMATCH");
+    }
+
+    @Test
+    void TCP_CANCEL_응답의_상태_조합이_모순이면_gateway_예외를_던진다() throws Exception {
+        // given
+        VanCancelRequest request = cancelRequest("2301-20260808-9999-0204");
+        VanCancelTcpResponse invalidResponse = cancelTcpResponse(
+                request,
+                VanCancelTcpStatus.CANCELLED,
+                VanCancelTcpResultCode.ORIGINAL_NOT_FOUND,
+                "VAN-CANCEL-TCP-004",
+                "CANCEL-APPROVAL-TCP-004",
+                "ORIGINAL_NOT_FOUND"
+        );
+
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(invalidResponse));
+
+        // when & then
+        assertThatThrownBy(() -> tcpVanGateway.cancel(request))
+                .isInstanceOf(TcpVanGatewayException.class)
+                .hasMessage("VAN_TCP_CANCEL_RESPONSE_INVALID");
+    }
+
+    @Test
+    void TCP_CANCEL_응답_timeout이면_gateway_timeout으로_변환한다() {
+        // given
+        VanCancelRequest request = cancelRequest("2301-20260808-9999-0205");
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenThrow(new VanTcpResponseTimeoutException(
+                        new RuntimeException("timeout")
+                ));
+
+        // when & then
+        assertThatThrownBy(() -> tcpVanGateway.cancel(request))
+                .isInstanceOf(VanGatewayTimeoutException.class)
+                .hasCauseInstanceOf(VanTcpResponseTimeoutException.class);
+    }
+
+    @Test
+    void TCP_CANCEL_request_not_sent이면_gateway_request_not_sent로_변환한다() {
+        // given
+        VanCancelRequest request = cancelRequest("2301-20260808-9999-0206");
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenThrow(new VanTcpRequestNotSentException(new RuntimeException("connect failed")));
+
+        // when & then
+        assertThatThrownBy(() -> tcpVanGateway.cancel(request))
+                .isInstanceOf(VanGatewayRequestNotSentException.class)
+                .hasCauseInstanceOf(VanTcpRequestNotSentException.class);
+    }
+
+    @Test
+    void 기존_reversal요청을_TCP_REVERSAL_전문으로_변환하고_REVERSED_SUCCESS_응답을_업무응답으로_변환한다() throws Exception {
+        VanReversalRequest request = reversalRequest("2301-20260808-9999-0301");
+        VanReversalTcpResponse tcpResponse = reversalTcpResponse(
+                request,
+                VanReversalTcpStatus.REVERSED,
+                VanReversalTcpResultCode.SUCCESS,
+                "VAN-REVERSAL-TCP-001",
+                "REVERSAL-APPROVAL-TCP-001",
+                null
+        );
+
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        VanReversalResponse response = tcpVanGateway.reversal(request);
+
+        ArgumentCaptor<byte[]> requestPayloadCaptor = ArgumentCaptor.forClass(byte[].class);
+        verify(vanTcpClient).send(requestPayloadCaptor.capture());
+
+        VanReversalTcpRequest tcpRequest =
+                objectMapper.readValue(requestPayloadCaptor.getValue(), VanReversalTcpRequest.class);
+
+        assertThat(tcpRequest.protocolVersion()).isEqualTo("1");
+        assertThat(tcpRequest.messageType()).isEqualTo("REVERSAL");
+        assertThat(tcpRequest.requestId()).isEqualTo("REVERSAL-" + request.reversalPosTrx());
+        assertThat(tcpRequest.reversalPosTrx()).isEqualTo(request.reversalPosTrx());
+        assertThat(tcpRequest.originalPosTrx()).isEqualTo(request.originalPosTrx());
+        assertThat(tcpRequest.originalAttemptSeq()).isEqualTo(request.originalAttemptSeq());
+        assertThat(tcpRequest.amount()).isEqualTo(request.amount());
+
+        assertThat(response.reversalPosTrx()).isEqualTo(request.reversalPosTrx());
+        assertThat(response.originalPosTrx()).isEqualTo(request.originalPosTrx());
+        assertThat(response.originalAttemptSeq()).isEqualTo(request.originalAttemptSeq());
+        assertThat(response.reversalStatus()).isEqualTo(VanReversalStatus.REVERSED);
+        assertThat(response.resultCode()).isEqualTo(VanReversalResultCode.SUCCESS);
+        assertThat(response.reversalApprovalNo()).isEqualTo("REVERSAL-APPROVAL-TCP-001");
+        assertThat(response.declineCode()).isNull();
+        assertThat(response.vanReversalTrxId()).isEqualTo("VAN-REVERSAL-TCP-001");
+        assertThat(response.respondedAt()).isNotNull();
+    }
+
+    @Test
+    void TCP_ALREADY_REVERSED_reversal응답을_REVERSED_업무응답으로_변환한다() throws Exception {
+        VanReversalRequest request = reversalRequest("2301-20260808-9999-0302");
+        VanReversalTcpResponse tcpResponse = reversalTcpResponse(
+                request,
+                VanReversalTcpStatus.REVERSED,
+                VanReversalTcpResultCode.ALREADY_REVERSED,
+                "VAN-REVERSAL-TCP-002",
+                "REVERSAL-APPROVAL-TCP-002",
+                null
+        );
+
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        VanReversalResponse response = tcpVanGateway.reversal(request);
+
+        assertThat(response.reversalStatus()).isEqualTo(VanReversalStatus.REVERSED);
+        assertThat(response.resultCode()).isEqualTo(VanReversalResultCode.ALREADY_REVERSED);
+        assertThat(response.reversalApprovalNo()).isEqualTo("REVERSAL-APPROVAL-TCP-002");
+        assertThat(response.declineCode()).isNull();
+        assertThat(response.vanReversalTrxId()).isEqualTo("VAN-REVERSAL-TCP-002");
+    }
+
+    @Test
+    void TCP_REVERSAL_DECLINED_reversal응답을_업무응답으로_변환한다() throws Exception {
+        VanReversalRequest request = reversalRequest("2301-20260808-9999-0303");
+        VanReversalTcpResponse tcpResponse = reversalTcpResponse(
+                request,
+                VanReversalTcpStatus.REVERSAL_DECLINED,
+                VanReversalTcpResultCode.ORIGINAL_NOT_REVERSIBLE,
+                "VAN-REVERSAL-TCP-003",
+                null,
+                "ORIGINAL_NOT_REVERSIBLE"
+        );
+
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        VanReversalResponse response = tcpVanGateway.reversal(request);
+
+        assertThat(response.reversalStatus()).isEqualTo(VanReversalStatus.REVERSAL_DECLINED);
+        assertThat(response.resultCode()).isEqualTo(VanReversalResultCode.ORIGINAL_NOT_REVERSIBLE);
+        assertThat(response.reversalApprovalNo()).isNull();
+        assertThat(response.declineCode()).isEqualTo(VanDeclineCode.ORIGINAL_NOT_REVERSIBLE);
+        assertThat(response.vanReversalTrxId()).isEqualTo("VAN-REVERSAL-TCP-003");
+    }
+
+    @Test
+    void TCP_REVERSAL_응답의_correlation이_다르면_gateway_예외를_던진다() throws Exception {
+        VanReversalRequest request = reversalRequest("2301-20260808-9999-0304");
+        VanReversalTcpResponse mismatchedResponse = new VanReversalTcpResponse(
+                "1",
+                "REVERSAL_RESPONSE",
+                "REVERSAL-DIFFERENT",
+                request.reversalPosTrx(),
+                request.originalPosTrx(),
+                request.originalAttemptSeq(),
+                "VAN-REVERSAL-TCP-004",
+                VanReversalTcpStatus.REVERSED,
+                VanReversalTcpResultCode.SUCCESS,
+                "REVERSAL-APPROVAL-TCP-004",
+                null
+        );
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenReturn(objectMapper.writeValueAsBytes(mismatchedResponse));
+
+        assertThatThrownBy(() -> tcpVanGateway.reversal(request))
+                .isInstanceOf(TcpVanGatewayException.class)
+                .hasMessage("VAN_TCP_REVERSAL_RESPONSE_MISMATCH");
+    }
+
+    @Test
+    void TCP_REVERSAL_응답의_상태_조합이_모순이면_gateway_예외를_던진다() throws Exception {
+        VanReversalRequest request = reversalRequest("2301-20260808-9999-0305");
+        VanReversalTcpResponse invalidResponse = reversalTcpResponse(
+                request,
+                VanReversalTcpStatus.REVERSED,
+                VanReversalTcpResultCode.ORIGINAL_NOT_FOUND,
+                "VAN-REVERSAL-TCP-005",
+                "REVERSAL-APPROVAL-TCP-005",
+                "ORIGINAL_NOT_FOUND"
+        );
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenReturn(objectMapper.writeValueAsBytes(invalidResponse));
+
+        assertThatThrownBy(() -> tcpVanGateway.reversal(request))
+                .isInstanceOf(TcpVanGatewayException.class)
+                .hasMessage("VAN_TCP_REVERSAL_RESPONSE_INVALID");
+    }
+
+    @Test
+    void TCP_REVERSAL_request_not_sent이면_gateway_request_not_sent로_변환한다() {
+        VanReversalRequest request = reversalRequest("2301-20260808-9999-0306");
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenThrow(new VanTcpRequestNotSentException(new RuntimeException("connect failed")));
+
+        assertThatThrownBy(() -> tcpVanGateway.reversal(request))
+                .isInstanceOf(VanGatewayRequestNotSentException.class)
+                .hasCauseInstanceOf(VanTcpRequestNotSentException.class);
+    }
+
+    @Test
+    void TCP_REVERSAL_응답_timeout이면_gateway_timeout으로_변환한다() {
+        VanReversalRequest request = reversalRequest("2301-20260808-9999-0307");
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenThrow(new VanTcpResponseTimeoutException(
+                        new RuntimeException("timeout")
+                ));
+
+        assertThatThrownBy(() -> tcpVanGateway.reversal(request))
+                .isInstanceOf(VanGatewayTimeoutException.class)
+                .hasCauseInstanceOf(VanTcpResponseTimeoutException.class);
+    }
+
+    @Test
+    void cancel이_이미_reversal된_원승인이라는_TCP응답을_정상_변환한다() throws Exception {
+        VanCancelRequest request = cancelRequest("2301-20260907-9999-0204");
+        VanCancelTcpResponse tcpResponse  = cancelTcpResponse(
+                request,
+                VanCancelTcpStatus.CANCEL_DECLINED,
+                VanCancelTcpResultCode.ALREADY_REVERSED,
+                "VAN-CANCEL-TCP-004",
+                null,
+                "ALREADY_REVERSED"
+        );
+
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        VanCancelResponse result = tcpVanGateway.cancel(request);
+        assertThat(result.cancelStatus()).isEqualTo(CancelStatus.CANCEL_DECLINED);
+        assertThat(result.message()).isEqualTo("ALREADY_REVERSED");
+        assertThat(result.declineCode()).isEqualTo(VanDeclineCode.ALREADY_REVERSED);
+        assertDoesNotThrow(() -> tcpVanGateway.cancel(request));
+    }
+
+    @Test
+    void reversal이_이미_cancel된_원승인이라는_TCP응답을_정상_변환한다() throws Exception {
+        VanReversalRequest request = reversalRequest("2301-20260907-9999-0301");
+        VanReversalTcpResponse tcpResponse = reversalTcpResponse(
+                request,
+                VanReversalTcpStatus.REVERSAL_DECLINED,
+                VanReversalTcpResultCode.ALREADY_CANCELLED,
+                "VAN-REVERSAL-TCP-001",
+                null,
+                "ALREADY_CANCELLED"
+        );
+
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        VanReversalResponse result = tcpVanGateway.reversal(request);
+        assertThat(result.reversalStatus()).isEqualTo(VanReversalStatus.REVERSAL_DECLINED);
+        assertThat(result.resultCode()).isEqualTo(VanReversalResultCode.ALREADY_CANCELLED);
+        assertThat(result.declineCode()).isEqualTo(VanDeclineCode.ALREADY_CANCELLED);
+        assertDoesNotThrow(() -> tcpVanGateway.reversal(request));
+    }
+
     private VanInquiryRequest inquiryRequest(String posTrx, int attemptSeq) {
         return VanInquiryRequest.builder()
-                .posTrx(posTrx)
-                .attemptSeq(attemptSeq)
+                .targetType(VanInquiryTargetType.APPROVAL)
+                .targetTrxNo(posTrx)
+                .targetAttemptSeq(attemptSeq)
                 .vanTrxId("STORED-VAN-TRX")
+                .cardLast4("4242")
+                .build();
+    }
+
+    private VanInquiryRequest cancelInquiryRequest(String cancelPosTrx) {
+        return VanInquiryRequest.builder()
+                .targetType(VanInquiryTargetType.CANCEL)
+                .targetTrxNo(cancelPosTrx)
+                .targetAttemptSeq(null)
+                .vanTrxId("STORED-VAN-CANCEL-TRX")
                 .cardLast4("4242")
                 .build();
     }
@@ -324,14 +895,85 @@ class TcpVanGatewayTest {
         return new VanInquiryTcpResponse(
                 "1",
                 "INQUIRY_RESPONSE",
-                "INQUIRY-" + request.posTrx() + "-" + request.attemptSeq(),
-                request.posTrx(),
-                request.attemptSeq(),
+                "INQUIRY-" + request.targetType() + "-" + request.targetTrxNo()
+                        + "-" + (request.targetAttemptSeq() == null ? "null" : request.targetAttemptSeq()),
+                request.targetType(),
+                request.targetTrxNo(),
+                request.targetAttemptSeq(),
+                VanInquiryResultCode.SUCCESS,
                 vanTrxId,
                 status,
                 approvalNo,
+                status == VanInquiryStatus.CANCELLED ? "CANCEL-APPROVAL-INQ-HELPER" : null,
                 declineCode,
                 respondedAt
+        );
+    }
+
+    private VanCancelRequest cancelRequest(String cancelPosTrx) {
+        return VanCancelRequest.builder()
+                .posTrx(cancelPosTrx)
+                .originalPosTrx("2301-20260808-9999-0101")
+                .originalAttemptSeq(1)
+                .amount(10_000)
+                .approvalNo("APPROVAL-CANCEL-001")
+                .vanTrxId("VAN-APPROVAL-CANCEL-001")
+                .cardLast4("4242")
+                .build();
+    }
+
+    private VanCancelTcpResponse cancelTcpResponse(
+            VanCancelRequest request,
+            VanCancelTcpStatus status,
+            VanCancelTcpResultCode resultCode,
+            String vanCancelTrxId,
+            String cancelApprovalNo,
+            String declineCode
+    ) {
+        return new VanCancelTcpResponse(
+                "1",
+                "CANCEL_RESPONSE",
+                "CANCEL-" + request.posTrx(),
+                request.posTrx(),
+                request.originalPosTrx(),
+                request.originalAttemptSeq(),
+                vanCancelTrxId,
+                status,
+                resultCode,
+                cancelApprovalNo,
+                declineCode
+        );
+    }
+
+    private VanReversalRequest reversalRequest(String reversalPosTrx) {
+        return VanReversalRequest.builder()
+                .reversalPosTrx(reversalPosTrx)
+                .originalPosTrx("2301-20260808-9999-0101")
+                .originalAttemptSeq(1)
+                .amount(10_000)
+                .build();
+    }
+
+    private VanReversalTcpResponse reversalTcpResponse(
+            VanReversalRequest request,
+            VanReversalTcpStatus status,
+            VanReversalTcpResultCode resultCode,
+            String vanReversalTrxId,
+            String reversalApprovalNo,
+            String declineCode
+    ) {
+        return new VanReversalTcpResponse(
+                "1",
+                "REVERSAL_RESPONSE",
+                "REVERSAL-" + request.reversalPosTrx(),
+                request.reversalPosTrx(),
+                request.originalPosTrx(),
+                request.originalAttemptSeq(),
+                vanReversalTrxId,
+                status,
+                resultCode,
+                reversalApprovalNo,
+                declineCode
         );
     }
 

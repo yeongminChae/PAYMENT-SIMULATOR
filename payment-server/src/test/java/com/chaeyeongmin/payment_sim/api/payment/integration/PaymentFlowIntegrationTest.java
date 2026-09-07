@@ -333,6 +333,7 @@ class PaymentFlowIntegrationTest {
         assertEquals(attemptSeq, ((Number) cancelRow.get("ORIGINAL_ATTEMPT_SEQ")).intValue());
         assertEquals("CANCELLED", cancelRow.get("CANCEL_STATUS"));
         assertEquals(CANCEL_POS_TRX_IT_APP_005, cancelRow.get("CURRENT_TRX_NO"));
+        assertNotNull(cancelRow.get("VAN_CANCEL_TRX_ID"));
         assertNotNull(cancelRow.get("CANCEL_APPROVAL_NO"));
         assertNull(cancelRow.get("DECLINE_CODE"));
 
@@ -341,6 +342,7 @@ class PaymentFlowIntegrationTest {
                 .orElseThrow();
 
         assertEquals(CancelStatus.CANCELLED, paymentCancel.cancelStatus());
+        assertNotNull(paymentCancel.vanCancelTrxId());
 
     }
 
@@ -680,6 +682,7 @@ class PaymentFlowIntegrationTest {
                         ORIGINAL_TRX_NO,
                         ORIGINAL_ATTEMPT_SEQ,
                         CANCEL_STATUS,
+                        VAN_CANCEL_TRX_ID,
                         CANCEL_APPROVAL_NO,
                         DECLINE_CODE
                     FROM PAYMENT_CANCEL

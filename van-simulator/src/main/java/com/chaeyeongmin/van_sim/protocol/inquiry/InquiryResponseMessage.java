@@ -20,22 +20,28 @@ public record InquiryResponseMessage(
         String protocolVersion,
         String messageType,
         String requestId,
-        String posTrx,
-        int attemptSeq,
+        InquiryTargetType targetType,
+        String targetTrxNo,
+        Integer targetAttemptSeq,
+        InquiryResultCode resultCode,
         String vanTrxId,
         InquiryResponseStatus status,
         String approvalNo,
+        String cancelApprovalNo,
         String declineCode,
         LocalDateTime respondedAt
 ) {
 
     public static InquiryResponseMessage of(
             String requestId,
-            String posTrx,
-            int attemptSeq,
+            InquiryTargetType targetType,
+            String targetTrxNo,
+            Integer targetAttemptSeq,
+            InquiryResultCode resultCode,
             String vanTrxId,
             InquiryResponseStatus status,
             String approvalNo,
+            String cancelApprovalNo,
             String declineCode
     ) {
         // 요청 correlation 필드는 원 요청에서 받은 값을 그대로 복사한다.
@@ -44,13 +50,24 @@ public record InquiryResponseMessage(
                 .protocolVersion("1")
                 .messageType("INQUIRY_RESPONSE")
                 .requestId(requestId)
-                .posTrx(posTrx)
-                .attemptSeq(attemptSeq)
+                .targetType(targetType)
+                .targetTrxNo(targetTrxNo)
+                .targetAttemptSeq(targetAttemptSeq)
+                .resultCode(resultCode)
                 .vanTrxId(vanTrxId)
                 .status(status)
                 .approvalNo(approvalNo)
+                .cancelApprovalNo(cancelApprovalNo)
                 .declineCode(declineCode)
                 .respondedAt(LocalDateTime.now())
                 .build();
+    }
+
+    public String posTrx() {
+        return targetTrxNo;
+    }
+
+    public int attemptSeq() {
+        return targetAttemptSeq == null ? 0 : targetAttemptSeq;
     }
 }

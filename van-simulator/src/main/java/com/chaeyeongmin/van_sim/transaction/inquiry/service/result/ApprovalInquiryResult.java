@@ -19,7 +19,7 @@ import java.time.LocalDateTime;
  * - declineCode: DECLINED일 때만 값이 있다.
  * - processedAt: VAN 승인 처리가 원장에 기록된 시각이다. 원장이 없으면 null이다.
  */
-public record InquiryResult(
+public record ApprovalInquiryResult(
         String vanTrxId,
         String posTrx,
         int attemptSeq,
