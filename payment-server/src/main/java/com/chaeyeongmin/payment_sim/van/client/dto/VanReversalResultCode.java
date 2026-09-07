@@ -5,6 +5,7 @@ package com.chaeyeongmin.payment_sim.van.client.dto;
  */
 public enum VanReversalResultCode {
     SUCCESS,
+    ALREADY_CANCELLED,
     ALREADY_REVERSED,
     ORIGINAL_NOT_FOUND,
     ORIGINAL_NOT_REVERSIBLE,

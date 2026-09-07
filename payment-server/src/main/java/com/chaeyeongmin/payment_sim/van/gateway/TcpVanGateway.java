@@ -508,7 +508,8 @@ public class TcpVanGateway implements VanGateway {
                     throw new TcpVanGatewayException("VAN_TCP_CANCEL_RESPONSE_INVALID");
             }
 
-            case ORIGINAL_NOT_FOUND,
+            case ALREADY_REVERSED,
+                 ORIGINAL_NOT_FOUND,
                  ORIGINAL_NOT_APPROVED,
                  ORIGINAL_MISMATCH -> {
                 if (response.cancelStatus() != VanCancelTcpStatus.CANCEL_DECLINED
@@ -534,7 +535,8 @@ public class TcpVanGateway implements VanGateway {
                 }
             }
 
-            case ORIGINAL_NOT_FOUND,
+            case ALREADY_CANCELLED,
+                 ORIGINAL_NOT_FOUND,
                  ORIGINAL_NOT_REVERSIBLE,
                  ORIGINAL_MISMATCH -> {
                 if (response.reversalStatus() != VanReversalTcpStatus.REVERSAL_DECLINED
@@ -718,6 +720,7 @@ public class TcpVanGateway implements VanGateway {
     private VanReversalResultCode toReversalResultCode(VanReversalTcpResultCode resultCode) {
         return switch (resultCode) {
             case SUCCESS -> VanReversalResultCode.SUCCESS;
+            case ALREADY_CANCELLED -> VanReversalResultCode.ALREADY_CANCELLED;
             case ALREADY_REVERSED -> VanReversalResultCode.ALREADY_REVERSED;
             case ORIGINAL_NOT_FOUND -> VanReversalResultCode.ORIGINAL_NOT_FOUND;
             case ORIGINAL_NOT_REVERSIBLE -> VanReversalResultCode.ORIGINAL_NOT_REVERSIBLE;
@@ -731,17 +734,16 @@ public class TcpVanGateway implements VanGateway {
      * 현재 VAN Simulator 승인 정상 흐름은 APPROVED 중심이지만,
      * DECLINED/UNKNOWN 응답도 기존 Payment 저장 규칙에 맞게 방어적으로 매핑한다.
      */
-    private VanDeclineCode toDeclineCode(VanApprovalTcpResponse tcpResponse) {
-        if (tcpResponse.status() == VanApprovalStatus.APPROVED) {
+    private VanDeclineCode toDeclineCode(VanApprovalTcpResponse response) {
+        if (response.status() == VanApprovalStatus.APPROVED) {
             return null;
         }
 
-        if ("TIMEOUT".equals(tcpResponse.declineCode())
-                || tcpResponse.status() == VanApprovalStatus.UNKNOWN) {
+        if ("TIMEOUT".equals(response.declineCode()) || response.status() == VanApprovalStatus.UNKNOWN) {
             return VanDeclineCode.TIMEOUT;
         }
 
-        if ("INVALID_REQUEST".equals(tcpResponse.declineCode())) {
+        if ("INVALID_REQUEST".equals(response.declineCode())) {
             return VanDeclineCode.INVALID_REQUEST;
         }
 
@@ -755,19 +757,18 @@ public class TcpVanGateway implements VanGateway {
      * VAN이 "05" 또는 알 수 없는 거절 코드를 보내면 일반 거절인 DO_NOT_HONOR로 접고,
      * UNKNOWN 또는 TIMEOUT 문자열은 후속조회에서도 아직 미확정이라는 의미로 TIMEOUT에 매핑한다.
      */
-    private VanDeclineCode toDeclineCode(VanInquiryTcpResponse tcpResponse) {
-        if (tcpResponse.resultCode() == VanInquiryResultCode.NOT_FOUND
-                || tcpResponse.status() == VanInquiryStatus.APPROVED
-                || tcpResponse.status() == VanInquiryStatus.CANCELLED) {
+    private VanDeclineCode toDeclineCode(VanInquiryTcpResponse response) {
+        if (response.resultCode() == VanInquiryResultCode.NOT_FOUND
+                || response.status() == VanInquiryStatus.APPROVED
+                || response.status() == VanInquiryStatus.CANCELLED) {
             return null;
         }
 
-        if ("TIMEOUT".equals(tcpResponse.declineCode())
-                || tcpResponse.status() == VanInquiryStatus.UNKNOWN) {
+        if ("TIMEOUT".equals(response.declineCode()) || response.status() == VanInquiryStatus.UNKNOWN) {
             return VanDeclineCode.TIMEOUT;
         }
 
-        if ("INVALID_REQUEST".equals(tcpResponse.declineCode())) {
+        if ("INVALID_REQUEST".equals(response.declineCode())) {
             return VanDeclineCode.INVALID_REQUEST;
         }
 
@@ -790,15 +791,10 @@ public class TcpVanGateway implements VanGateway {
     private VanDeclineCode toDeclineCode(VanCancelTcpResponse response) {
         return switch (response.resultCode()) {
             case SUCCESS, ALREADY_CANCELLED -> null;
-
-            case ORIGINAL_NOT_FOUND ->
-                    VanDeclineCode.ORIGINAL_NOT_FOUND;
-
-            case ORIGINAL_NOT_APPROVED ->
-                    VanDeclineCode.ORIGINAL_NOT_APPROVED;
-
-            case ORIGINAL_MISMATCH ->
-                    VanDeclineCode.ORIGINAL_MISMATCH;
+            case ALREADY_REVERSED -> VanDeclineCode.ALREADY_REVERSED;
+            case ORIGINAL_NOT_FOUND -> VanDeclineCode.ORIGINAL_NOT_FOUND;
+            case ORIGINAL_NOT_APPROVED -> VanDeclineCode.ORIGINAL_NOT_APPROVED;
+            case ORIGINAL_MISMATCH -> VanDeclineCode.ORIGINAL_MISMATCH;
         };
     }
 
@@ -808,15 +804,10 @@ public class TcpVanGateway implements VanGateway {
     private VanDeclineCode toDeclineCode(VanReversalTcpResponse response) {
         return switch (response.resultCode()) {
             case SUCCESS, ALREADY_REVERSED -> null;
-
-            case ORIGINAL_NOT_FOUND ->
-                    VanDeclineCode.ORIGINAL_NOT_FOUND;
-
-            case ORIGINAL_NOT_REVERSIBLE ->
-                    VanDeclineCode.ORIGINAL_NOT_REVERSIBLE;
-
-            case ORIGINAL_MISMATCH ->
-                    VanDeclineCode.ORIGINAL_MISMATCH;
+            case ALREADY_CANCELLED -> VanDeclineCode.ALREADY_CANCELLED;
+            case ORIGINAL_NOT_FOUND -> VanDeclineCode.ORIGINAL_NOT_FOUND;
+            case ORIGINAL_NOT_REVERSIBLE -> VanDeclineCode.ORIGINAL_NOT_REVERSIBLE;
+            case ORIGINAL_MISMATCH -> VanDeclineCode.ORIGINAL_MISMATCH;
         };
     }
 

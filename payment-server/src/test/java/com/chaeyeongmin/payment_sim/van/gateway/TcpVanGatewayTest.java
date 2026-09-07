@@ -51,6 +51,7 @@ import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -390,8 +391,7 @@ class TcpVanGatewayTest {
                 LocalDateTime.of(2026, 8, 24, 11, 36)
         );
 
-        when(vanTcpClient.send(any(byte[].class)))
-                .thenReturn(objectMapper.writeValueAsBytes(invalidResponse));
+        when(vanTcpClient.send(any(byte[].class))) .thenReturn(objectMapper.writeValueAsBytes(invalidResponse));
 
         assertThatThrownBy(() -> tcpVanGateway.inquiry(request))
                 .isInstanceOf(TcpVanGatewayException.class)
@@ -410,8 +410,7 @@ class TcpVanGatewayTest {
                 LocalDateTime.of(2026, 8, 24, 11, 37)
         );
 
-        when(vanTcpClient.send(any(byte[].class)))
-                .thenReturn(objectMapper.writeValueAsBytes(invalidResponse));
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(invalidResponse));
 
         assertThatThrownBy(() -> tcpVanGateway.inquiry(request))
                 .isInstanceOf(TcpVanGatewayException.class)
@@ -437,8 +436,7 @@ class TcpVanGatewayTest {
                 LocalDateTime.of(2026, 8, 24, 11, 38)
         );
 
-        when(vanTcpClient.send(any(byte[].class)))
-                .thenReturn(objectMapper.writeValueAsBytes(mismatchedResponse));
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(mismatchedResponse));
 
         assertThatThrownBy(() -> tcpVanGateway.inquiry(request))
                 .isInstanceOf(TcpVanGatewayException.class)
@@ -464,8 +462,7 @@ class TcpVanGatewayTest {
                 LocalDateTime.of(2026, 8, 24, 11, 39)
         );
 
-        when(vanTcpClient.send(any(byte[].class)))
-                .thenReturn(objectMapper.writeValueAsBytes(mismatchedResponse));
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(mismatchedResponse));
 
         assertThatThrownBy(() -> tcpVanGateway.inquiry(request))
                 .isInstanceOf(TcpVanGatewayException.class)
@@ -491,8 +488,7 @@ class TcpVanGatewayTest {
                 LocalDateTime.of(2026, 8, 24, 11, 40)
         );
 
-        when(vanTcpClient.send(any(byte[].class)))
-                .thenReturn(objectMapper.writeValueAsBytes(mismatchedResponse));
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(mismatchedResponse));
 
         assertThatThrownBy(() -> tcpVanGateway.inquiry(request))
                 .isInstanceOf(TcpVanGatewayException.class)
@@ -528,8 +524,7 @@ class TcpVanGatewayTest {
                 null
         );
 
-        when(vanTcpClient.send(any(byte[].class)))
-                .thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
 
         // when
         VanCancelResponse response = tcpVanGateway.cancel(request);
@@ -575,8 +570,7 @@ class TcpVanGatewayTest {
                 "ORIGINAL_MISMATCH"
         );
 
-        when(vanTcpClient.send(any(byte[].class)))
-                .thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
 
         // when
         VanCancelResponse response = tcpVanGateway.cancel(request);
@@ -611,8 +605,7 @@ class TcpVanGatewayTest {
                 null
         );
 
-        when(vanTcpClient.send(any(byte[].class)))
-                .thenReturn(objectMapper.writeValueAsBytes(mismatchedResponse));
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(mismatchedResponse));
 
         // when & then
         assertThatThrownBy(() -> tcpVanGateway.cancel(request))
@@ -633,8 +626,7 @@ class TcpVanGatewayTest {
                 "ORIGINAL_NOT_FOUND"
         );
 
-        when(vanTcpClient.send(any(byte[].class)))
-                .thenReturn(objectMapper.writeValueAsBytes(invalidResponse));
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(invalidResponse));
 
         // when & then
         assertThatThrownBy(() -> tcpVanGateway.cancel(request))
@@ -684,8 +676,7 @@ class TcpVanGatewayTest {
                 null
         );
 
-        when(vanTcpClient.send(any(byte[].class)))
-                .thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
 
         VanReversalResponse response = tcpVanGateway.reversal(request);
 
@@ -726,8 +717,7 @@ class TcpVanGatewayTest {
                 null
         );
 
-        when(vanTcpClient.send(any(byte[].class)))
-                .thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
 
         VanReversalResponse response = tcpVanGateway.reversal(request);
 
@@ -750,8 +740,7 @@ class TcpVanGatewayTest {
                 "ORIGINAL_NOT_REVERSIBLE"
         );
 
-        when(vanTcpClient.send(any(byte[].class)))
-                .thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
 
         VanReversalResponse response = tcpVanGateway.reversal(request);
 
@@ -831,6 +820,48 @@ class TcpVanGatewayTest {
         assertThatThrownBy(() -> tcpVanGateway.reversal(request))
                 .isInstanceOf(VanGatewayTimeoutException.class)
                 .hasCauseInstanceOf(VanTcpResponseTimeoutException.class);
+    }
+
+    @Test
+    void cancel이_이미_reversal된_원승인이라는_TCP응답을_정상_변환한다() throws Exception {
+        VanCancelRequest request = cancelRequest("2301-20260907-9999-0204");
+        VanCancelTcpResponse tcpResponse  = cancelTcpResponse(
+                request,
+                VanCancelTcpStatus.CANCEL_DECLINED,
+                VanCancelTcpResultCode.ALREADY_REVERSED,
+                "VAN-CANCEL-TCP-004",
+                null,
+                "ALREADY_REVERSED"
+        );
+
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        VanCancelResponse result = tcpVanGateway.cancel(request);
+        assertThat(result.cancelStatus()).isEqualTo(CancelStatus.CANCEL_DECLINED);
+        assertThat(result.message()).isEqualTo("ALREADY_REVERSED");
+        assertThat(result.declineCode()).isEqualTo(VanDeclineCode.ALREADY_REVERSED);
+        assertDoesNotThrow(() -> tcpVanGateway.cancel(request));
+    }
+
+    @Test
+    void reversal이_이미_cancel된_원승인이라는_TCP응답을_정상_변환한다() throws Exception {
+        VanReversalRequest request = reversalRequest("2301-20260907-9999-0301");
+        VanReversalTcpResponse tcpResponse = reversalTcpResponse(
+                request,
+                VanReversalTcpStatus.REVERSAL_DECLINED,
+                VanReversalTcpResultCode.ALREADY_CANCELLED,
+                "VAN-REVERSAL-TCP-001",
+                null,
+                "ALREADY_CANCELLED"
+        );
+
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        VanReversalResponse result = tcpVanGateway.reversal(request);
+        assertThat(result.reversalStatus()).isEqualTo(VanReversalStatus.REVERSAL_DECLINED);
+        assertThat(result.resultCode()).isEqualTo(VanReversalResultCode.ALREADY_CANCELLED);
+        assertThat(result.declineCode()).isEqualTo(VanDeclineCode.ALREADY_CANCELLED);
+        assertDoesNotThrow(() -> tcpVanGateway.reversal(request));
     }
 
     private VanInquiryRequest inquiryRequest(String posTrx, int attemptSeq) {

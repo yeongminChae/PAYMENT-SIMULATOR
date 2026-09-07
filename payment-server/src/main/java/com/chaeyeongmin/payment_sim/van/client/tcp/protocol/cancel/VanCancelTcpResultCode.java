@@ -13,6 +13,8 @@ public enum VanCancelTcpResultCode {
     SUCCESS,
     // 같은 원승인이 이미 취소되어 기존 취소 결과를 반환했다.
     ALREADY_CANCELLED,
+    // VAN에서 이미 Reversal 성공 이면 뒤늦게 들어온 Cancel 거절
+    ALREADY_REVERSED,
     // 취소 대상 원승인을 찾지 못했다.
     ORIGINAL_NOT_FOUND,
     // 원승인이 APPROVED 상태가 아니라 취소할 수 없다.
