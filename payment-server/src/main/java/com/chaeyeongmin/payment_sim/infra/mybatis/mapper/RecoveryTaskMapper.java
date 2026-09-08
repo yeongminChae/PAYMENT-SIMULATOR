@@ -1,8 +1,11 @@
 package com.chaeyeongmin.payment_sim.infra.mybatis.mapper;
 
 import com.chaeyeongmin.payment_sim.domain.model.RecoveryCandidate;
+import com.chaeyeongmin.payment_sim.domain.model.RecoveryTask;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+
+import java.time.LocalDateTime;
 
 /**
  * PAYMENT_RECOVERY_TASK MyBatis mapper.
@@ -21,5 +24,12 @@ public interface RecoveryTaskMapper {
      * @return 1이면 신규 생성, 0이면 이미 같은 target의 task가 존재함
      */
     int insertIfAbsent(@Param("candidate") RecoveryCandidate candidate);
+
+
+    RecoveryTask claimNext(
+            @Param("claimToken") String claimToken,
+            @Param("now") LocalDateTime now,
+            @Param("leaseExpiresAt") LocalDateTime leaseExpiresAt
+    );
 
 }

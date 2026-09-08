@@ -1,10 +1,14 @@
 package com.chaeyeongmin.payment_sim.infra.repository.impl;
 
 import com.chaeyeongmin.payment_sim.domain.model.RecoveryCandidate;
+import com.chaeyeongmin.payment_sim.domain.model.RecoveryTask;
 import com.chaeyeongmin.payment_sim.infra.mybatis.mapper.RecoveryTaskMapper;
 import com.chaeyeongmin.payment_sim.infra.repository.RecoveryTaskRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
+
+import java.time.LocalDateTime;
+import java.util.Optional;
 
 /**
  * RecoveryTaskRepository의 MyBatis 구현체.
@@ -21,4 +25,10 @@ public class RecoveryTaskRepositoryMyBatis implements RecoveryTaskRepository {
     public int insertIfAbsent(RecoveryCandidate candidate) {
         return mapper.insertIfAbsent(candidate);
     }
+
+    @Override
+    public Optional<RecoveryTask> claimNext(String claimToken, LocalDateTime now, LocalDateTime leaseExpiresAt) {
+        return Optional.ofNullable(mapper.claimNext(claimToken, now, leaseExpiresAt));
+    }
+
 }

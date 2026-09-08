@@ -23,4 +23,50 @@
         )
         ON CONFLICT DO NOTHING
     </insert>
+
+    <select id="claimNext"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.RecoveryTask">
+        WITH candidate AS (
+            SELECT ID
+            FROM PAYMENT_RECOVERY_TASK
+            WHERE (
+                RECOVERY_STATUS = 'PENDING'
+                OR (
+                    RECOVERY_STATUS = 'RETRY_WAIT'
+                    AND NEXT_RETRY_AT &lt;= #{now}
+                )
+                OR (
+                    RECOVERY_STATUS = 'RUNNING'
+                    AND LEASE_EXPIRES_AT &lt;= #{now}
+                )
+            )
+            ORDER BY CREATED_AT, ID
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+            )
+        UPDATE PAYMENT_RECOVERY_TASK T
+        SET
+            RECOVERY_STATUS = 'RUNNING',
+            CLAIM_TOKEN = #{claimToken},
+            LEASE_EXPIRES_AT = #{leaseExpiresAt},
+            NEXT_RETRY_AT = NULL,
+            UPDATED_AT = CURRENT_TIMESTAMP
+        FROM candidate C
+        WHERE T.ID = C.ID
+        RETURNING
+            T.ID,
+            T.TARGET_TYPE,
+            T.TARGET_TRX_NO,
+            T.TARGET_ATTEMPT_SEQ,
+            T.ORIGINAL_POS_TRX,
+            T.ORIGINAL_ATTEMPT_SEQ,
+            T.RECOVERY_STATUS,
+            T.RETRY_COUNT,
+            T.NEXT_RETRY_AT,
+            T.CLAIM_TOKEN,
+            T.LEASE_EXPIRES_AT,
+            T.CREATED_AT,
+            T.UPDATED_AT
+    </select>
+
 </mapper>
