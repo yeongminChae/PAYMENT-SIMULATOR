@@ -2,7 +2,7 @@ package com.chaeyeongmin.payment_sim.api.payment.integration.postgres;
 
 import com.chaeyeongmin.payment_sim.domain.model.RecoveryCandidate;
 import com.chaeyeongmin.payment_sim.domain.policy.RecoveryTargetType;
-import com.chaeyeongmin.payment_sim.infra.mybatis.mapper.RecoveryCandidateMapper;
+import com.chaeyeongmin.payment_sim.infra.repository.RecoveryCandidateRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -61,7 +61,7 @@ class PostgresRecoveryCandidateDiscoveryIntegrationTest {
                     .withPassword("payment_sim_recovery_candidate_it");
 
     @Autowired
-    private RecoveryCandidateMapper recoveryCandidateMapper;
+    private RecoveryCandidateRepository repository;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -82,15 +82,15 @@ class PostgresRecoveryCandidateDiscoveryIntegrationTest {
     void findsOnlyStaleAmbiguousCandidatesWithPreservedIdentityAndCandidateSince() {
         int recoveryTaskCountBefore = recoveryTaskCount();
 
-        List<RecoveryCandidate> approvals = recoveryCandidateMapper.findApprovalCandidates(
+        List<RecoveryCandidate> approvals = repository.findApprovalCandidates(
                 UNKNOWN_TIMEOUT_BEFORE,
                 STALE_PROCESSING_BEFORE
         );
-        List<RecoveryCandidate> cancels = recoveryCandidateMapper.findCancelCandidates(
+        List<RecoveryCandidate> cancels = repository.findCancelCandidates(
                 UNKNOWN_TIMEOUT_BEFORE,
                 STALE_PENDING_BEFORE
         );
-        List<RecoveryCandidate> reversals = recoveryCandidateMapper.findReversalCandidates(
+        List<RecoveryCandidate> reversals = repository.findReversalCandidates(
                 STALE_PENDING_BEFORE
         );
 
