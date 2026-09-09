@@ -62,6 +62,13 @@ public interface PaymentReversalRepository {
     Optional<PaymentReversal> updateReversalResult(ReversalResultUpdateParam param);
 
     /**
+     * R6 Recovery 전용 망취소 결과 확정 update.
+     *
+     * <p>PENDING reversal row만 REVERSED/REVERSAL_DECLINED 최종 상태로 전환한다.
+     */
+    Optional<PaymentReversal> updateRecoverableToFinal(ReversalResultUpdateParam param);
+
+    /**
      * VAN에 요청이 전송되지 않은 경우에만 PENDING row를 삭제한다.
      *
      * <p>

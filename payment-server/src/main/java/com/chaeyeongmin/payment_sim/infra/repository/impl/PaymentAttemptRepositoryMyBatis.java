@@ -54,6 +54,11 @@ public class PaymentAttemptRepositoryMyBatis implements PaymentAttemptRepository
     }
 
     @Override
+    public Optional<PaymentAttemptUpdatedRow> updateRecoverableToFinal(AttemptResultUpdateParam attempt) {
+        return mapper.updateRecoverableToFinal(attempt);
+    }
+
+    @Override
     public Optional<Integer> lockProcessingAttemptForCleanup(String posTrx, int attemptSeq) {
         return mapper.lockProcessingAttemptForCleanup(posTrx, attemptSeq);
     }

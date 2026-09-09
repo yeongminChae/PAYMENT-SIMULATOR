@@ -28,6 +28,13 @@ public interface PaymentCancelRepository {
     Optional<PaymentCancel> updateCancelResult(CancelResultUpdateParam param);
 
     /**
+     * R6 Recovery 전용 취소 결과 확정 update.
+     *
+     * <p>PENDING 또는 UNKNOWN_TIMEOUT cancel row만 CANCELLED/CANCEL_DECLINED 최종 상태로 전환한다.
+     */
+    Optional<PaymentCancel> updateRecoverableToFinal(CancelResultUpdateParam param);
+
+    /**
      * UNKNOWN_TIMEOUT으로 남은 취소 row를 VAN Inquiry(CANCEL)의 확정 결과로 갱신한다.
      */
     Optional<PaymentCancel> updateUnknownTimeoutToFinal(CancelResultUpdateParam param);

@@ -28,6 +28,10 @@ public interface PaymentReversalMapper {
             @Param("reversal") ReversalResultUpdateParam reversal
     );
 
+    Optional<PaymentReversal> updateRecoverableToFinal(
+            @Param("reversal") ReversalResultUpdateParam reversal
+    );
+
     int deletePendingReversal(
             @Param("reversalPosTrx") String reversalPosTrx,
             @Param("originalPosTrx") String originalPosTrx,

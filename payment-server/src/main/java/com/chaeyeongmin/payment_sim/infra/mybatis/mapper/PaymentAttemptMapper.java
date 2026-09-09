@@ -95,6 +95,10 @@ public interface PaymentAttemptMapper {
             @Param("attempt") AttemptResultUpdateParam attempt
     );
 
+    Optional<PaymentAttemptUpdatedRow> updateRecoverableToFinal(
+            @Param("attempt") AttemptResultUpdateParam attempt
+    );
+
     Optional<Integer> lockProcessingAttemptForCleanup(
             @Param("posTrx") String posTrx,
             @Param("attemptSeq") int attemptSeq

@@ -56,6 +56,31 @@
         DECLINE_CODE AS declineCode
     </select>
 
+    <select id="updateRecoverableToFinal"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentReversal">
+        UPDATE PAYMENT_REVERSAL
+        SET
+        REVERSAL_STATUS = #{reversal.reversalStatusValue},
+        VAN_REVERSAL_TRX_ID = #{reversal.vanReversalTrxId},
+        REVERSAL_APPROVAL_NO = #{reversal.reversalApprovalNo},
+        DECLINE_CODE = #{reversal.declineCode},
+        UPDATED_AT = CURRENT_TIMESTAMP
+        WHERE CURRENT_TRX_NO = #{reversal.reversalPosTrx}
+        AND ORIGINAL_TRX_NO = #{reversal.originalPosTrx}
+        AND ORIGINAL_ATTEMPT_SEQ = #{reversal.originalAttemptSeq}
+        AND REVERSAL_STATUS = 'PENDING'
+        AND #{reversal.reversalStatusValue} IN ('REVERSED', 'REVERSAL_DECLINED')
+        RETURNING
+        CURRENT_TRX_NO AS reversalPosTrx,
+        ORIGINAL_TRX_NO AS originalPosTrx,
+        ORIGINAL_ATTEMPT_SEQ AS originalAttemptSeq,
+        AMOUNT AS amount,
+        REVERSAL_STATUS AS reversalStatus,
+        VAN_REVERSAL_TRX_ID AS vanReversalTrxId,
+        REVERSAL_APPROVAL_NO AS reversalApprovalNo,
+        DECLINE_CODE AS declineCode
+    </select>
+
     <delete id="deletePendingReversal">
         DELETE FROM PAYMENT_REVERSAL
         WHERE CURRENT_TRX_NO = #{reversalPosTrx}

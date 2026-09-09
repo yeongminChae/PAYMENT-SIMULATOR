@@ -40,6 +40,11 @@ public class PaymentReversalRepositoryImpl implements PaymentReversalRepository 
     }
 
     @Override
+    public Optional<PaymentReversal> updateRecoverableToFinal(ReversalResultUpdateParam param) {
+        return mapper.updateRecoverableToFinal(param);
+    }
+
+    @Override
     public int deletePendingReversal(String reversalPosTrx, String originalPosTrx, int originalAttemptSeq) {
         return mapper.deletePendingReversal(reversalPosTrx, originalPosTrx, originalAttemptSeq);
     }
