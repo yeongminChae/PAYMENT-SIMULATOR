@@ -69,4 +69,18 @@
             T.UPDATED_AT
     </select>
 
+    <update id="markResolved">
+        UPDATE PAYMENT_RECOVERY_TASK
+        SET
+            RECOVERY_STATUS = 'RESOLVED',
+            CLAIM_TOKEN = NULL,
+            LEASE_EXPIRES_AT = NULL,
+            NEXT_RETRY_AT = NULL,
+            UPDATED_AT = CURRENT_TIMESTAMP
+        WHERE ID = #{taskId}
+          AND RECOVERY_STATUS = 'RUNNING'
+          AND CLAIM_TOKEN = #{claimToken}
+          AND LEASE_EXPIRES_AT > #{now}
+    </update>
+
 </mapper>

@@ -31,4 +31,9 @@ public class RecoveryTaskRepositoryMyBatis implements RecoveryTaskRepository {
         return Optional.ofNullable(mapper.claimNext(claimToken, now, leaseExpiresAt));
     }
 
+    @Override
+    public int markResolved(Long taskId, String claimToken, LocalDateTime now) {
+        return mapper.markResolved(taskId, claimToken, now);
+    }
+
 }

@@ -32,4 +32,10 @@ public interface RecoveryTaskMapper {
             @Param("leaseExpiresAt") LocalDateTime leaseExpiresAt
     );
 
+    int markResolved(
+            @Param("taskId") Long taskId,
+            @Param("claimToken") String claimToken,
+            @Param("now") LocalDateTime now
+    );
+
 }

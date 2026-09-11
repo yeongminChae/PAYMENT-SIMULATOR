@@ -27,4 +27,10 @@ public interface RecoveryTaskRepository {
             LocalDateTime leaseExpiresAt
     );
 
+    int markResolved(
+            Long taskId,
+            String claimToken,
+            LocalDateTime now
+    );
+
 }

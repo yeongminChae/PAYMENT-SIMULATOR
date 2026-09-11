@@ -19,6 +19,9 @@ spring:
       continue-on-error: true
 
 payment:
+  recovery:
+    worker:
+      lease-duration: ${PAYMENT_RECOVERY_WORKER_LEASE_DURATION:30s}
   card:
     # fingerprint 재현성을 위해 실행 환경마다 고정된 비밀키를 주입하며, 저장소에는 실제 키를 남기지 않는다.
     secret-key: ${CARD_SECRET_KEY}
