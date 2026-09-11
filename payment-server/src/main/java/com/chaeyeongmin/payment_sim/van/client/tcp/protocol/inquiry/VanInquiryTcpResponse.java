@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
  * <p>
  * 이 DTO는 아직 Payment 업무 DTO가 아니다.
  * TcpVanGateway가 correlation/semantic validation을 통과한 뒤 VanInquiryResponse로 변환한다.
- * APPROVAL status와 CANCEL status가 섞이면 여기서 업무 계층으로 넘기지 않아야 한다.
+ * 조회 대상과 맞지 않는 APPROVAL/CANCEL/REVERSAL 상태가 섞이면 업무 계층으로 넘기지 않아야 한다.
  */
 public record VanInquiryTcpResponse(
         String protocolVersion,
@@ -32,7 +32,7 @@ public record VanInquiryTcpResponse(
         LocalDateTime respondedAt
 ) {
 
-    /** 기존 APPROVAL/CANCEL 호출부가 새 REVERSAL 전용 필드의 영향을 받지 않게 유지하는 호환 생성자다. */
+    /** 기존 APPROVAL/CANCEL 생성자 호출부의 소스 호환성을 유지하며 reversalApprovalNo를 null로 채운다. */
     public VanInquiryTcpResponse(
             String protocolVersion,
             String messageType,

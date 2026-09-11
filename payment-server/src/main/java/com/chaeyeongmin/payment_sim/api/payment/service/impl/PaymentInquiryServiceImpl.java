@@ -385,6 +385,7 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
         };
     }
 
+    /** 승인 조회 결과만 Payment 승인 최종 상태로 해석하고 다른 조회 대상의 상태는 거부한다. */
     private PaymentFinalStatus toPaymentFinalStatus(VanInquiryResponse response) {
         if (response.resultCode() == VanInquiryResultCode.NOT_FOUND) {
             return PaymentFinalStatus.UNKNOWN_TIMEOUT;

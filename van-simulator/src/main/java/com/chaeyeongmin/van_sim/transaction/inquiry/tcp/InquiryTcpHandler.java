@@ -21,7 +21,7 @@ import java.util.Optional;
  * 이 클래스의 책임은 transport payload와 Inquiry 업무 서비스를 이어주는 것이다.
  * 처리 순서는 항상 "역직렬화 -> 프로토콜 validation -> 원장 조회 -> 응답 전문 생성 -> 직렬화"다.
  * ApprovalTcpHandler와 달리 DROP_RESPONSE 같은 transport scenario를 적용하지 않는다.
- * Inquiry는 Payment가 이미 잃어버린 승인 결과를 복구하기 위한 조회이므로,
+ * Inquiry는 Payment가 받지 못한 승인·취소·망취소 결과를 원장에서 복구하기 위한 조회이므로,
  * 정상적으로 조회 응답을 돌려주는 것이 목적이다.
  */
 @Component
@@ -60,6 +60,7 @@ public class InquiryTcpHandler {
         return writeInquiryResponse(response);
     }
 
+    /** 승인 식별 키로 원장을 조회하고, 원장 유무에 따라 성공 또는 NOT_FOUND 응답을 만든다. */
     private InquiryResponseMessage handleApprovalInquiry(InquiryRequestMessage request) {
         Optional<ApprovalInquiryResult> result =
                 inquiryService.inquireApproval(
@@ -74,6 +75,7 @@ public class InquiryTcpHandler {
 
     }
 
+    /** cancelPosTrx로 취소 원장을 조회하고, 원장 유무에 따라 성공 또는 NOT_FOUND 응답을 만든다. */
     private InquiryResponseMessage handleCancelInquiry(InquiryRequestMessage request) {
         Optional<CancelInquiryResult> result = inquiryService.inquireCancel(request.targetTrxNo());
 
@@ -84,7 +86,7 @@ public class InquiryTcpHandler {
 
     }
 
-    /** reversalPosTrx로 원장 사실만 조회하며 reversal command를 실행하지 않는다. */
+    /** reversalPosTrx로 망취소 원장만 조회하며 망취소 거래 처리는 실행하지 않는다. */
     private InquiryResponseMessage handleReversalInquiry(InquiryRequestMessage request) {
         Optional<ReversalInquiryResult> result =
                 inquiryService.inquireReversal(request.targetTrxNo());
@@ -116,7 +118,8 @@ public class InquiryTcpHandler {
      * <p>
      * protocolVersion/messageType은 이 핸들러가 처리할 수 있는 전문인지 확인하는 값이고,
      * requestId는 Payment의 응답 correlation 검증에 필요하다.
-     * posTrx/attemptSeq는 VAN 원장 조회 key이므로 비어 있거나 0 이하이면 조회 자체가 성립하지 않는다.
+     * targetTrxNo는 모든 조회에서 필수다. targetAttemptSeq는 승인 조회에서는 양수여야 하고,
+     * 취소와 망취소 조회에서는 사용하지 않으므로 null이어야 한다.
      */
     private void validate(InquiryRequestMessage request) {
         if (PROTOCOL_VERSION.equals(request.protocolVersion()) == false
@@ -129,6 +132,7 @@ public class InquiryTcpHandler {
         }
     }
 
+    /** 조회 대상별 targetAttemptSeq 필수·금지 규칙을 검사한다. */
     private boolean isInvalidTargetAttemptSeq(InquiryRequestMessage request) {
         return switch (request.targetType()) {
             case APPROVAL -> request.targetAttemptSeq() == null || request.targetAttemptSeq() <= 0;

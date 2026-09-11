@@ -43,6 +43,7 @@ public final class AttemptResultUpdateParamFactory {
         );
     }
 
+    /** 승인 조회 결과만 승인 시도 갱신에 사용할 최종 상태로 변환한다. */
     private static PaymentFinalStatus toPaymentFinalStatus(VanInquiryResponse response) {
         if (response.resultCode() == VanInquiryResultCode.NOT_FOUND) {
             return PaymentFinalStatus.UNKNOWN_TIMEOUT;

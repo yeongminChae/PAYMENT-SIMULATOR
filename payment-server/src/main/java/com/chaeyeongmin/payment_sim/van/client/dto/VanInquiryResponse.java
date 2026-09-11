@@ -9,7 +9,8 @@ import java.time.LocalDateTime;
 /**
  * [VAN Response] VAN 조회 응답
  *
- * <p>approvalNo, cancelApprovalNo, reversalApprovalNo는 targetType과 status에 맞는 필드만 사용한다.
+ * <p>approvalNo, cancelApprovalNo, reversalApprovalNo는 조회 대상과 확정 상태에 대응하는 필드만 사용한다.
+ * 거절 상태에서는 대상과 관계없이 declineCode를 사용한다.
  * 이 DTO는 공용 Inquiry 계약을 표현하며 target별 업무 해석은 각 처리 흐름이 담당한다.
  */
 @Builder
