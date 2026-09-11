@@ -2,6 +2,7 @@ package com.chaeyeongmin.van_sim.transaction.inquiry.tcp;
 
 import com.chaeyeongmin.van_sim.ledger.approval.status.VanApprovalStatus;
 import com.chaeyeongmin.van_sim.ledger.cancel.status.VanCancelStatus;
+import com.chaeyeongmin.van_sim.ledger.reversal.status.VanReversalStatus;
 import com.chaeyeongmin.van_sim.protocol.inquiry.InquiryRequestMessage;
 import com.chaeyeongmin.van_sim.protocol.inquiry.InquiryResultCode;
 import com.chaeyeongmin.van_sim.protocol.inquiry.InquiryResponseMessage;
@@ -9,6 +10,7 @@ import com.chaeyeongmin.van_sim.protocol.inquiry.InquiryResponseStatus;
 import com.chaeyeongmin.van_sim.protocol.inquiry.InquiryTargetType;
 import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.CancelInquiryResult;
 import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.ApprovalInquiryResult;
+import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.ReversalInquiryResult;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
@@ -18,6 +20,7 @@ class InquiryTcpMessageMapperTest {
 
     private static final String APPROVAL_TRX_NO = "2301-20260808-9999-0001";
     private static final String CANCEL_TRX_NO = "2301-20260808-9999-0002";
+    private static final String REVERSAL_TRX_NO = "2301-20260808-9999-0003";
     private static final int ATTEMPT_SEQ = 1;
     private static final LocalDateTime PROCESSED_AT =
             LocalDateTime.of(2026, 9, 3, 10, 0);
@@ -106,6 +109,53 @@ class InquiryTcpMessageMapperTest {
         assertNotFound(response, request);
     }
 
+    @Test
+    void REVERSAL_REVERSED_원장을_SUCCESS_REVERSED_응답으로_변환한다() {
+        InquiryRequestMessage request = reversalRequest();
+        ReversalInquiryResult result = reversalResult(
+                VanReversalStatus.REVERSED,
+                "REVERSAL-APPROVAL-001",
+                null
+        );
+
+        InquiryResponseMessage response = mapper.toReversalResponse(request, result);
+
+        assertCommonSuccess(response, request, InquiryResponseStatus.REVERSED);
+        assertThat(response.vanTrxId()).isEqualTo("VAN-REVERSAL-001");
+        assertThat(response.approvalNo()).isNull();
+        assertThat(response.cancelApprovalNo()).isNull();
+        assertThat(response.reversalApprovalNo()).isEqualTo("REVERSAL-APPROVAL-001");
+        assertThat(response.declineCode()).isNull();
+    }
+
+    @Test
+    void REVERSAL_REVERSAL_DECLINED_원장을_SUCCESS_REVERSAL_DECLINED_응답으로_변환한다() {
+        InquiryRequestMessage request = reversalRequest();
+        ReversalInquiryResult result = reversalResult(
+                VanReversalStatus.REVERSAL_DECLINED,
+                null,
+                "R001"
+        );
+
+        InquiryResponseMessage response = mapper.toReversalResponse(request, result);
+
+        assertCommonSuccess(response, request, InquiryResponseStatus.REVERSAL_DECLINED);
+        assertThat(response.vanTrxId()).isEqualTo("VAN-REVERSAL-001");
+        assertThat(response.approvalNo()).isNull();
+        assertThat(response.cancelApprovalNo()).isNull();
+        assertThat(response.reversalApprovalNo()).isNull();
+        assertThat(response.declineCode()).isEqualTo("R001");
+    }
+
+    @Test
+    void REVERSAL_원장이_없으면_NOT_FOUND와_null_원장값으로_변환한다() {
+        InquiryRequestMessage request = reversalRequest();
+
+        InquiryResponseMessage response = mapper.notFoundResponse(request);
+
+        assertNotFound(response, request);
+    }
+
     private static InquiryRequestMessage approvalRequest() {
         return new InquiryRequestMessage(
                 "1",
@@ -124,6 +174,17 @@ class InquiryTcpMessageMapperTest {
                 "REQ-INQUIRY-002",
                 InquiryTargetType.CANCEL,
                 CANCEL_TRX_NO,
+                null
+        );
+    }
+
+    private static InquiryRequestMessage reversalRequest() {
+        return new InquiryRequestMessage(
+                "1",
+                "INQUIRY",
+                "REQ-INQUIRY-003",
+                InquiryTargetType.REVERSAL,
+                REVERSAL_TRX_NO,
                 null
         );
     }
@@ -159,6 +220,21 @@ class InquiryTcpMessageMapperTest {
         );
     }
 
+    private static ReversalInquiryResult reversalResult(
+            VanReversalStatus status,
+            String reversalApprovalNo,
+            String declineCode
+    ) {
+        return new ReversalInquiryResult(
+                "VAN-REVERSAL-001",
+                REVERSAL_TRX_NO,
+                status,
+                reversalApprovalNo,
+                declineCode,
+                PROCESSED_AT
+        );
+    }
+
     private static void assertCommonSuccess(
             InquiryResponseMessage response,
             InquiryRequestMessage request,
@@ -180,6 +256,7 @@ class InquiryTcpMessageMapperTest {
         assertThat(response.vanTrxId()).isNull();
         assertThat(response.approvalNo()).isNull();
         assertThat(response.cancelApprovalNo()).isNull();
+        assertThat(response.reversalApprovalNo()).isNull();
         assertThat(response.declineCode()).isNull();
         assertThat(response.respondedAt()).isNotNull();
     }

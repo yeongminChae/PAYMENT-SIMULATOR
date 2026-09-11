@@ -7,6 +7,7 @@ import com.chaeyeongmin.van_sim.protocol.inquiry.InquiryResponseStatus;
 import com.chaeyeongmin.van_sim.protocol.inquiry.InquiryTargetType;
 import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.CancelInquiryResult;
 import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.ApprovalInquiryResult;
+import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.ReversalInquiryResult;
 import org.springframework.stereotype.Component;
 
 import java.util.Optional;
@@ -76,6 +77,30 @@ public class InquiryTcpMessageMapper {
                 cancelResult.cancelApprovalNo(),
                 null,
                 cancelResult.declineCode()
+        );
+    }
+
+    public InquiryResponseMessage toReversalResponse(
+            InquiryRequestMessage request,
+            ReversalInquiryResult reversalResult
+    ) {
+        InquiryResponseStatus status = switch (reversalResult.status()) {
+            case REVERSED -> InquiryResponseStatus.REVERSED;
+            case REVERSAL_DECLINED -> InquiryResponseStatus.REVERSAL_DECLINED;
+        };
+
+        return InquiryResponseMessage.of(
+                request.requestId(),
+                InquiryTargetType.REVERSAL,
+                request.targetTrxNo(),
+                null,
+                InquiryResultCode.SUCCESS,
+                reversalResult.vanReversalTrxId(),
+                status,
+                null,
+                null,
+                reversalResult.reversalApprovalNo(),
+                reversalResult.declineCode()
         );
     }
 

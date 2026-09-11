@@ -6,9 +6,12 @@ import com.chaeyeongmin.van_sim.ledger.approval.status.VanApprovalStatus;
 import com.chaeyeongmin.van_sim.ledger.cancel.entity.VanCancel;
 import com.chaeyeongmin.van_sim.ledger.cancel.repository.VanCancelRepository;
 import com.chaeyeongmin.van_sim.ledger.cancel.status.VanCancelStatus;
+import com.chaeyeongmin.van_sim.ledger.reversal.entity.VanReversal;
+import com.chaeyeongmin.van_sim.ledger.reversal.repository.VanReversalRepository;
 import com.chaeyeongmin.van_sim.transaction.inquiry.service.InquiryService;
 import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.CancelInquiryResult;
 import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.ApprovalInquiryResult;
+import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.ReversalInquiryResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
@@ -32,6 +35,7 @@ public class InquiryServiceImpl implements InquiryService {
 
     private final VanApprovalRepository approvalRepository;
     private final VanCancelRepository cancelRepository;
+    private final VanReversalRepository reversalRepository;
 
     /**
      * VAN 승인 원장을 조회한다.
@@ -54,6 +58,18 @@ public class InquiryServiceImpl implements InquiryService {
         return cancelRepository
                 .findByCancelPosTrx(cancelPosTrx)
                 .map(cancel ->  InquiryServiceImpl.toCancelResult(cancel));
+    }
+
+    /**
+     * reversalPosTrx로 기존 reversal 원장을 조회한다.
+     * 원장이 없으면 Optional.empty()를 반환하며 새 reversal을 만들거나 재실행하지 않는다.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<ReversalInquiryResult> inquireReversal(String reversalPosTrx) {
+        return reversalRepository
+                .findByReversalPosTrx(reversalPosTrx)
+                .map(InquiryServiceImpl::toReversalResult);
     }
 
     /**
@@ -83,6 +99,17 @@ public class InquiryServiceImpl implements InquiryService {
                 cancel.getCancelApprovalNo(),
                 cancel.getDeclineCode(),
                 cancel.getProcessedAt()
+        );
+    }
+
+    private static ReversalInquiryResult toReversalResult(VanReversal reversal) {
+        return new ReversalInquiryResult(
+                reversal.getVanReversalTrxId(),
+                reversal.getReversalPosTrx(),
+                reversal.getReversalStatus(),
+                reversal.getReversalApprovalNo(),
+                reversal.getDeclineCode(),
+                reversal.getProcessedAt()
         );
     }
 

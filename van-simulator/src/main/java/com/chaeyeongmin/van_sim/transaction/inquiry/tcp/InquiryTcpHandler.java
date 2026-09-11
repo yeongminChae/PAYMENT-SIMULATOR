@@ -5,6 +5,7 @@ import com.chaeyeongmin.van_sim.protocol.inquiry.InquiryResponseMessage;
 import com.chaeyeongmin.van_sim.transaction.inquiry.service.InquiryService;
 import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.ApprovalInquiryResult;
 import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.CancelInquiryResult;
+import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.ReversalInquiryResult;
 import com.chaeyeongmin.van_sim.transaction.inquiry.tcp.exception.InquiryTcpMessageException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -53,8 +54,7 @@ public class InquiryTcpHandler {
                     // 카드 last4나 기존 vanTrxId 없이도 VAN 원장의 unique key로 정확한 승인 시도를 찾을 수 있다.
                     case APPROVAL -> handleApprovalInquiry(request);
                     case CANCEL -> handleCancelInquiry(request);
-                    // Phase 8-1은 protocol contract만 열고 reversal 원장 조회는 아직 수행하지 않는다.
-                    case REVERSAL -> throw new InquiryTcpMessageException("REVERSAL_INQUIRY_NOT_IMPLEMENTED");
+                    case REVERSAL -> handleReversalInquiry(request);
                 };
 
         return writeInquiryResponse(response);
@@ -82,6 +82,16 @@ public class InquiryTcpHandler {
                 : tcpMessageMapper.notFoundResponse(request)
         ;
 
+    }
+
+    /** reversalPosTrx로 원장 사실만 조회하며 reversal command를 실행하지 않는다. */
+    private InquiryResponseMessage handleReversalInquiry(InquiryRequestMessage request) {
+        Optional<ReversalInquiryResult> result =
+                inquiryService.inquireReversal(request.targetTrxNo());
+
+        return result.isPresent()
+                ? tcpMessageMapper.toReversalResponse(request, result.get())
+                : tcpMessageMapper.notFoundResponse(request);
     }
 
     /**

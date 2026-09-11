@@ -2,6 +2,7 @@ package com.chaeyeongmin.van_sim.transaction.inquiry.service;
 
 import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.CancelInquiryResult;
 import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.ApprovalInquiryResult;
+import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.ReversalInquiryResult;
 
 import java.util.Optional;
 
@@ -24,5 +25,8 @@ public interface InquiryService {
     Optional<ApprovalInquiryResult> inquireApproval(String posTrx, int attemptSeq);
 
     Optional<CancelInquiryResult> inquireCancel(String cancelPosTrx);
+
+    /** reversalPosTrx로 이미 저장된 VAN reversal 원장을 조회한다. */
+    Optional<ReversalInquiryResult> inquireReversal(String reversalPosTrx);
 
 }
