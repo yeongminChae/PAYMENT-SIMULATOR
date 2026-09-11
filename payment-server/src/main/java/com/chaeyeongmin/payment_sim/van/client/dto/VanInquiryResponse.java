@@ -9,10 +9,8 @@ import java.time.LocalDateTime;
 /**
  * [VAN Response] VAN 조회 응답
  *
- * finalStatus:
- * - APPROVED        : 조회로 승인 확정
- * - DECLINED        : 조회로 거절 확정
- * - UNKNOWN_TIMEOUT : 여전히 미확정
+ * <p>approvalNo, cancelApprovalNo, reversalApprovalNo는 targetType과 status에 맞는 필드만 사용한다.
+ * 이 DTO는 공용 Inquiry 계약을 표현하며 target별 업무 해석은 각 처리 흐름이 담당한다.
  */
 @Builder
 public record VanInquiryResponse(
@@ -24,6 +22,7 @@ public record VanInquiryResponse(
         String vanTrxId,
         String approvalNo,
         String cancelApprovalNo,
+        String reversalApprovalNo,
         VanDeclineCode declineCode,
         String message,
         LocalDateTime respondedAt

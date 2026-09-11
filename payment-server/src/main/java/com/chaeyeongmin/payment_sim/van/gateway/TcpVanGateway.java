@@ -676,7 +676,9 @@ public class TcpVanGateway implements VanGateway {
             case DECLINED -> PaymentFinalStatus.DECLINED;
             case UNKNOWN -> PaymentFinalStatus.UNKNOWN_TIMEOUT;
             case CANCELLED,
-                 CANCEL_DECLINED -> throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
+                 CANCEL_DECLINED,
+                 REVERSED,
+                 REVERSAL_DECLINED -> throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
         };
     }
 

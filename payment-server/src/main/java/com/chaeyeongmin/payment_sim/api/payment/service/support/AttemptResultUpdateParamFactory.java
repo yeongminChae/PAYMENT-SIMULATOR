@@ -60,6 +60,10 @@ public final class AttemptResultUpdateParamFactory {
                  CANCEL_DECLINED -> throw new IllegalStateException(
                     "Cancel inquiry status cannot be used in approval inquiry flow: " + response.status()
             );
+            case REVERSED,
+                 REVERSAL_DECLINED -> throw new IllegalStateException(
+                    "Reversal inquiry status cannot be used in approval inquiry flow: " + response.status()
+            );
         };
     }
 

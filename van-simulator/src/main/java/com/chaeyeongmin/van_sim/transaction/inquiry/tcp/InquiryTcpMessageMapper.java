@@ -50,6 +50,7 @@ public class InquiryTcpMessageMapper {
                 status,
                 approvalResult.approvalNo(),
                 null,
+                null,
                 approvalResult.declineCode()
         );
     }
@@ -73,6 +74,7 @@ public class InquiryTcpMessageMapper {
                 status,
                 null,
                 cancelResult.cancelApprovalNo(),
+                null,
                 cancelResult.declineCode()
         );
     }
@@ -84,6 +86,7 @@ public class InquiryTcpMessageMapper {
                 request.targetTrxNo(),
                 request.targetAttemptSeq(),
                 InquiryResultCode.NOT_FOUND,
+                null,
                 null,
                 null,
                 null,

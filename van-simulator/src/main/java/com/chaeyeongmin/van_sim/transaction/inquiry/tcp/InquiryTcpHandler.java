@@ -53,6 +53,8 @@ public class InquiryTcpHandler {
                     // 카드 last4나 기존 vanTrxId 없이도 VAN 원장의 unique key로 정확한 승인 시도를 찾을 수 있다.
                     case APPROVAL -> handleApprovalInquiry(request);
                     case CANCEL -> handleCancelInquiry(request);
+                    // Phase 8-1은 protocol contract만 열고 reversal 원장 조회는 아직 수행하지 않는다.
+                    case REVERSAL -> throw new InquiryTcpMessageException("REVERSAL_INQUIRY_NOT_IMPLEMENTED");
                 };
 
         return writeInquiryResponse(response);
@@ -120,7 +122,7 @@ public class InquiryTcpHandler {
     private boolean isInvalidTargetAttemptSeq(InquiryRequestMessage request) {
         return switch (request.targetType()) {
             case APPROVAL -> request.targetAttemptSeq() == null || request.targetAttemptSeq() <= 0;
-            case CANCEL -> request.targetAttemptSeq() != null;
+            case CANCEL, REVERSAL -> request.targetAttemptSeq() != null;
         };
     }
 

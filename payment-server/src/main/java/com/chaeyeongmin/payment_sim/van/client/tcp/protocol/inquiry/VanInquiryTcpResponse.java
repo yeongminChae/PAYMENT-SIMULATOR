@@ -27,7 +27,42 @@ public record VanInquiryTcpResponse(
         VanInquiryStatus status,
         String approvalNo,
         String cancelApprovalNo,
+        String reversalApprovalNo,
         String declineCode,
         LocalDateTime respondedAt
 ) {
+
+    /** 기존 APPROVAL/CANCEL 호출부가 새 REVERSAL 전용 필드의 영향을 받지 않게 유지하는 호환 생성자다. */
+    public VanInquiryTcpResponse(
+            String protocolVersion,
+            String messageType,
+            String requestId,
+            VanInquiryTargetType targetType,
+            String targetTrxNo,
+            Integer targetAttemptSeq,
+            VanInquiryResultCode resultCode,
+            String vanTrxId,
+            VanInquiryStatus status,
+            String approvalNo,
+            String cancelApprovalNo,
+            String declineCode,
+            LocalDateTime respondedAt
+    ) {
+        this(
+                protocolVersion,
+                messageType,
+                requestId,
+                targetType,
+                targetTrxNo,
+                targetAttemptSeq,
+                resultCode,
+                vanTrxId,
+                status,
+                approvalNo,
+                cancelApprovalNo,
+                null,
+                declineCode,
+                respondedAt
+        );
+    }
 }

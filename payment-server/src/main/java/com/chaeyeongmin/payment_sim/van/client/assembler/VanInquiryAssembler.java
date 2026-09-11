@@ -55,4 +55,19 @@ public class VanInquiryAssembler {
                 .build();
     }
 
+    /**
+     * VAN Inquiry(REVERSAL) 요청을 공용 Inquiry 계약으로 구성한다.
+     *
+     * <p>REVERSAL 조회 identity는 reversalPosTrx 하나이며, attempt 및 승인 전용 조회 값은 사용하지 않는다.
+     */
+    public VanInquiryRequest getReversalInquiryRequest(String reversalPosTrx) {
+        return VanInquiryRequest.builder()
+                .targetType(VanInquiryTargetType.REVERSAL)
+                .targetTrxNo(reversalPosTrx)
+                .targetAttemptSeq(null)
+                .vanTrxId(null)
+                .cardLast4(null)
+                .build();
+    }
+
 }

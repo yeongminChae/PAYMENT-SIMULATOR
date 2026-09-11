@@ -5,13 +5,14 @@ import lombok.Builder;
 import java.time.LocalDateTime;
 
 /**
- * VAN 시뮬레이터가 결제 서버로 반환하는 승인 결과 조회 응답 전문 모델이다.
+ * VAN 시뮬레이터가 결제 서버로 반환하는 공용 Inquiry 응답 전문 모델이다.
  * <p>
  * 이 record는 TCP JSON 응답 계약 그 자체다.
  * Payment 쪽 TcpVanGateway가 동일한 field 이름으로 역직렬화하므로,
  * protocolVersion/messageType/requestId/posTrx/attemptSeq/status 등의 이름을 변경하면 양쪽 계약이 깨진다.
  * <p>
  * status가 APPROVED이면 approvalNo와 vanTrxId가 Payment 복구에 사용된다.
+ * status가 CANCELLED이면 cancelApprovalNo, REVERSED이면 reversalApprovalNo를 사용한다.
  * status가 DECLINED이면 declineCode가 사용된다.
  * status가 UNKNOWN이면 Payment는 기존 UNKNOWN_TIMEOUT 상태를 유지한다.
  */
@@ -28,6 +29,7 @@ public record InquiryResponseMessage(
         InquiryResponseStatus status,
         String approvalNo,
         String cancelApprovalNo,
+        String reversalApprovalNo,
         String declineCode,
         LocalDateTime respondedAt
 ) {
@@ -42,6 +44,7 @@ public record InquiryResponseMessage(
             InquiryResponseStatus status,
             String approvalNo,
             String cancelApprovalNo,
+            String reversalApprovalNo,
             String declineCode
     ) {
         // 요청 correlation 필드는 원 요청에서 받은 값을 그대로 복사한다.
@@ -58,6 +61,7 @@ public record InquiryResponseMessage(
                 .status(status)
                 .approvalNo(approvalNo)
                 .cancelApprovalNo(cancelApprovalNo)
+                .reversalApprovalNo(reversalApprovalNo)
                 .declineCode(declineCode)
                 .respondedAt(LocalDateTime.now())
                 .build();
