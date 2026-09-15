@@ -2,7 +2,7 @@ package com.chaeyeongmin.payment_sim.api.payment.service.recovery.worker;
 
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler.RecoveryHandler;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler.RecoveryHandlerResult;
-import com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler.RecoveryHandlerResultType;
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler.RecoveryRetryPolicy;
 import com.chaeyeongmin.payment_sim.common.util.IdGenerator;
 import com.chaeyeongmin.payment_sim.domain.model.RecoveryTask;
 import com.chaeyeongmin.payment_sim.domain.policy.RecoveryTargetType;
@@ -21,10 +21,12 @@ import java.util.Optional;
 /**
  * 실행 가능한 Recovery Task 한 건을 claim하고 target별 Handler에 위임한다.
  *
- * <p>거래별 DB 조회, VAN 통신, finalization은 전부 Handler의 책임이다. Worker는 task lifecycle만
- * 조립한다. Handler가 RESOLVED를 반환하면 claim token과 유효한 lease로 소유권을 확인하면서 task를
- * 완료 처리하고, 나머지 Handler 결과는 Worker 결과로 변환해 호출자에게 그대로 전달한다.
- * RETRY_WAIT/MANUAL_REVIEW 전이는 후속 단계에서 추가한다.
+ * <p>거래별 DB 조회, VAN 통신, finalization은 전부 Handler의 책임이다. Worker는 task lifecycle만 조립한다.
+ * Handler가 RESOLVED를 반환하면 claim token과 유효한 lease로 소유권을 확인하면서 task를
+ * Handler 결과를 Recovery Task lifecycle 정책으로 해석한다.
+ * RESOLVED는 완료 처리하고,
+ * STILL_UNRESOLVED는 retry 정책에 따라 RETRY_WAIT 또는 MANUAL_REVIEW로,
+ * TERMINAL_CONFLICT/TARGET_NOT_FOUND는 MANUAL_REVIEW로 전이한다.
  */
 @Component
 public class RecoveryWorker {
@@ -41,6 +43,8 @@ public class RecoveryWorker {
     /** claim 시각과 완료 시각을 각각 읽을 수 있게 주입받는 애플리케이션 시간 기준이다. */
     private final Clock clock;
 
+    private final RecoveryRetryPolicy recoveryRetryPolicy;
+
     /**
      * Worker 실행에 필요한 저장소, Handler, lease 정책, 시간 기준을 구성한다.
      *
@@ -51,6 +55,7 @@ public class RecoveryWorker {
      * @param handlers Spring에 등록된 거래 종류별 RecoveryHandler 목록
      * @param leaseDuration 한 Worker가 claim한 task를 소유할 수 있는 시간
      * @param clock claim 시각과 완료 시각을 제공하는 시간 기준
+     * @param recoveryRetryPolicy unresolved task의 retry 가능 여부와 다음 재시도 시각을 결정하는 정책
      * @throws IllegalArgumentException leaseDuration이 0 이하인 경우
      * @throws IllegalStateException 같은 targetType의 Handler가 중복 등록된 경우
      */
@@ -59,18 +64,18 @@ public class RecoveryWorker {
             List<RecoveryHandler> handlers,
             @Value("${payment.recovery.worker.lease-duration:30s}")
             Duration leaseDuration,
-            Clock clock
+            Clock clock,
+            RecoveryRetryPolicy recoveryRetryPolicy
     ) {
         if (leaseDuration.isZero() || leaseDuration.isNegative()) {
-            throw new IllegalArgumentException(
-                    "Recovery worker lease duration must be positive"
-            );
+            throw new IllegalArgumentException("Recovery worker lease duration must be positive");
         }
 
         this.recoveryTaskRepository = recoveryTaskRepository;
         this.handlers = indexHandlers(handlers);
         this.leaseDuration = leaseDuration;
         this.clock = clock;
+        this.recoveryRetryPolicy = recoveryRetryPolicy;
     }
 
     /**
@@ -104,36 +109,57 @@ public class RecoveryWorker {
         // 6. 거래 종류별 세부 복구는 Worker가 직접 처리하지 않고 해당 Handler에 위임한다.
         RecoveryHandlerResult handlerResult = handleClaimedTask(task);
 
-        // 7. Handler가 복구 완료를 확인한 경우에만 Recovery Task 자체를 RESOLVED로 바꾼다.
-        if (handlerResult.resultType() == RecoveryHandlerResultType.RESOLVED) {
-            // Handler 처리 중 시간이 흘렀을 수 있으므로 완료 시점의 현재 시간을 다시 구한다.
-            int updated = recoveryTaskRepository.markResolved(task.id(), claimToken, LocalDateTime.now(clock));
-
-            // claim token과 lease가 아직 유효해 update되면 RESOLVED, 아니면 소유권 상실로 반환한다.
-            return new RecoveryWorkerResult(
-                    updated == 1
-                            ? RecoveryWorkerResultType.RESOLVED
-                            : RecoveryWorkerResultType.OWNERSHIP_LOST,
-                    task.id(),
-                    handlerResult
-            );
-
-        }
-
-        // 8. 미완료 결과는 task를 변경하지 않고 동일한 의미의 Worker 결과 타입으로 변환한다.
-        RecoveryWorkerResultType workerResultType = switch (handlerResult.resultType()) {
-            case STILL_UNRESOLVED -> RecoveryWorkerResultType.STILL_UNRESOLVED;
-            case TERMINAL_CONFLICT -> RecoveryWorkerResultType.TERMINAL_CONFLICT;
-            case TARGET_NOT_FOUND -> RecoveryWorkerResultType.TARGET_NOT_FOUND;
-            case RESOLVED -> throw new IllegalStateException("Unexpected RESOLVED result");
-        };
-
         return new RecoveryWorkerResult(
-                workerResultType,
+                applyRecoveryTransition(handlerResult, task, claimToken),
                 task.id(),
                 handlerResult
         );
 
+    }
+
+    private RecoveryWorkerResultType applyRecoveryTransition(
+            RecoveryHandlerResult handlerResult,
+            RecoveryTask task,
+            String claimToken
+    ) {
+        switch (handlerResult.resultType()) {
+
+            // Handler가 복구 완료를 확인한 경우에만 Recovery Task 자체를 RESOLVED로 바꾼다.
+            case RESOLVED: {
+                // Handler 처리 중 시간이 흘렀을 수 있으므로 완료 시점의 현재 시간을 다시 구한다.
+                return recoveryTaskRepository.markResolved(task.id(), claimToken, LocalDateTime.now(clock)) == 1
+                        // claim token과 lease가 아직 유효해 update되면 RESOLVED, 아니면 소유권 상실로 반환한다.
+                        ? RecoveryWorkerResultType.RESOLVED
+                        : RecoveryWorkerResultType.OWNERSHIP_LOST;
+            }
+
+            case STILL_UNRESOLVED: {
+                LocalDateTime now = LocalDateTime.now(clock);
+
+                if (recoveryRetryPolicy.canRetry(task.retryCount())) {
+                    LocalDateTime nextRetryAt = recoveryRetryPolicy.nextRetryAt(task.retryCount(), now);
+
+                    return  recoveryTaskRepository.markRetryWait(task.id(), claimToken, now, nextRetryAt) == 1
+                            ? RecoveryWorkerResultType.RETRY_WAIT
+                            : RecoveryWorkerResultType.OWNERSHIP_LOST;
+                }
+
+                return recoveryTaskRepository.markManualReview(task.id(), claimToken, now) == 1
+                        ? RecoveryWorkerResultType.MANUAL_REVIEW
+                        : RecoveryWorkerResultType.OWNERSHIP_LOST;
+            }
+
+            case TERMINAL_CONFLICT:
+            case TARGET_NOT_FOUND: {
+                LocalDateTime now = LocalDateTime.now(clock);
+
+                return recoveryTaskRepository.markManualReview(task.id(), claimToken, now) == 1
+                        ? RecoveryWorkerResultType.MANUAL_REVIEW
+                        : RecoveryWorkerResultType.OWNERSHIP_LOST;
+            }
+
+            default: throw new IllegalStateException("Unexpected handler result: " + handlerResult.resultType());
+        }
     }
 
     /**
@@ -173,8 +199,9 @@ public class RecoveryWorker {
             RecoveryHandler previous = indexed.put(handler.targetType(), handler);
 
             // 기존 값이 있었다면 동일 targetType을 담당하는 Handler가 이미 등록된 것이다.
-            if (previous != null)
+            if (previous != null) {
                 throw new IllegalStateException("Duplicate RecoveryHandler for target type: " + handler.targetType());
+            }
 
         }
 
