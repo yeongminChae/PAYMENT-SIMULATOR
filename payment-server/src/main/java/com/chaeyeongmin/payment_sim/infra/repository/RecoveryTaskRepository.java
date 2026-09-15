@@ -21,16 +21,12 @@ public interface RecoveryTaskRepository {
      */
     int insertIfAbsent(RecoveryCandidate candidate);
 
-    Optional<RecoveryTask> claimNext(
-            String claimToken,
-            LocalDateTime now,
-            LocalDateTime leaseExpiresAt
-    );
+    Optional<RecoveryTask> claimNext(String claimToken, LocalDateTime now, LocalDateTime leaseExpiresAt);
 
-    int markResolved(
-            Long taskId,
-            String claimToken,
-            LocalDateTime now
-    );
+    int markResolved(Long taskId, String claimToken, LocalDateTime now);
+
+    int markRetryWait(Long taskId, String claimToken, LocalDateTime now, LocalDateTime nextRetryAt);
+
+    int markManualReview(Long taskId, String claimToken, LocalDateTime now);
 
 }

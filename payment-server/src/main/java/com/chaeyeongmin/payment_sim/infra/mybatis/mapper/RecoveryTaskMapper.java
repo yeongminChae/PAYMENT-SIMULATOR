@@ -38,4 +38,17 @@ public interface RecoveryTaskMapper {
             @Param("now") LocalDateTime now
     );
 
+    int markRetryWait(
+            @Param("taskId") Long taskId,
+            @Param("claimToken") String claimToken,
+            @Param("now") LocalDateTime now,
+            @Param("nextRetryAt") LocalDateTime nextRetryAt
+    );
+
+    int markManualReview(
+            @Param("taskId") Long taskId,
+            @Param("claimToken") String claimToken,
+            @Param("now") LocalDateTime now
+    );
+
 }

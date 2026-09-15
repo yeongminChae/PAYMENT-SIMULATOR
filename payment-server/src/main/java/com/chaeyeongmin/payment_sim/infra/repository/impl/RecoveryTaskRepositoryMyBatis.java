@@ -36,4 +36,14 @@ public class RecoveryTaskRepositoryMyBatis implements RecoveryTaskRepository {
         return mapper.markResolved(taskId, claimToken, now);
     }
 
+    @Override
+    public int markRetryWait(Long taskId, String claimToken, LocalDateTime now, LocalDateTime nextRetryAt) {
+        return mapper.markRetryWait(taskId, claimToken, now, nextRetryAt);
+    }
+
+    @Override
+    public int markManualReview(Long taskId, String claimToken, LocalDateTime now) {
+        return mapper.markManualReview(taskId, claimToken, now);
+    }
+
 }
