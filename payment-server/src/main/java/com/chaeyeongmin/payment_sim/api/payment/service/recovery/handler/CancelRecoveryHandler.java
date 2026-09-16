@@ -1,6 +1,7 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler;
 
 import com.chaeyeongmin.payment_sim.api.payment.service.RecoveryFinalizationService;
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.exception.RecoveryInvariantViolationException;
 import com.chaeyeongmin.payment_sim.api.payment.service.support.VanDeclineCodeMapper;
 import com.chaeyeongmin.payment_sim.api.payment.service.transaction.model.RecoveryFinalizeResult;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
@@ -57,6 +58,10 @@ public class CancelRecoveryHandler implements RecoveryHandler {
             throw new IllegalArgumentException("CancelRecoveryHandler requires CANCEL task");
         }
 
+        if (task.targetAttemptSeq() != null) {
+            throw new IllegalArgumentException("Cancel recovery task must not have targetAttemptSeq");
+        }
+
         /*
          * task 생성 당시 상태는 이미 오래됐을 수 있다. 현재 취소 거래번호로 target row를 다시 읽어
          * 지금 시점의 DB 상태를 기준으로 shortcut 또는 Inquiry 여부를 결정한다.
@@ -92,6 +97,12 @@ public class CancelRecoveryHandler implements RecoveryHandler {
                     null,
                     dbStatus.name()
             );
+        }
+
+        // Recovery가 자동으로 VAN Inquiry를 해도 되는 내부 상태를 명시적으로 제한
+        // 추후 상태 추가시, 아무런 방어없이 흘러가서 밴 호출되는 경우를 방지
+        if (dbStatus != CancelStatus.PENDING && dbStatus != CancelStatus.UNKNOWN_TIMEOUT) {
+            throw new IllegalStateException("Unexpected PAYMENT_CANCEL status for recovery: " + dbStatus);
         }
 
         /*
@@ -145,6 +156,7 @@ public class CancelRecoveryHandler implements RecoveryHandler {
                     response.vanTrxId(),
                     response.cancelApprovalNo()
             );
+
             case CANCEL_DECLINED -> CancelResultUpdateParam.declined(
                     cancel.posTrx(),
                     cancel.originalPosTrx(),
@@ -152,7 +164,8 @@ public class CancelRecoveryHandler implements RecoveryHandler {
                     response.vanTrxId(),
                     VanDeclineCodeMapper.toCode(response.declineCode())
             );
-            default -> throw new IllegalStateException(
+
+            default -> throw new RecoveryInvariantViolationException(
                     "Unexpected VAN inquiry status for CANCEL: " + response.status()
             );
         };
@@ -177,7 +190,7 @@ public class CancelRecoveryHandler implements RecoveryHandler {
     private void validateIdentity(RecoveryTask task, PaymentCancel cancel) {
         if (Objects.equals(cancel.originalPosTrx(), task.originalPosTrx()) == false
                 || cancel.originalAttemptSeq() != task.originalAttemptSeq()) {
-            throw new IllegalStateException("RECOVERY_CANCEL_TARGET_IDENTITY_MISMATCH");
+            throw new RecoveryInvariantViolationException("RECOVERY_CANCEL_TARGET_IDENTITY_MISMATCH");
         }
     }
 
@@ -190,7 +203,7 @@ public class CancelRecoveryHandler implements RecoveryHandler {
                 || Objects.equals(cancel.posTrx(), response.targetTrxNo()) == false
                 || response.targetAttemptSeq() != null
                 || response.status() == null) {
-            throw new IllegalStateException("Invalid VAN inquiry response for CANCEL recovery");
+            throw new RecoveryInvariantViolationException("Invalid VAN inquiry response for CANCEL recovery");
         }
     }
 
@@ -201,21 +214,26 @@ public class CancelRecoveryHandler implements RecoveryHandler {
                     finalizeResult.intendedStatus(),
                     finalizeResult.dbStatus()
             );
+
             case STILL_UNRESOLVED -> new RecoveryHandlerResult(
                     RecoveryHandlerResultType.STILL_UNRESOLVED,
                     finalizeResult.intendedStatus(),
                     finalizeResult.dbStatus()
             );
+
             case TERMINAL_CONFLICT -> new RecoveryHandlerResult(
                     RecoveryHandlerResultType.TERMINAL_CONFLICT,
                     finalizeResult.intendedStatus(),
                     finalizeResult.dbStatus()
             );
+
             case TARGET_NOT_FOUND -> new RecoveryHandlerResult(
                     RecoveryHandlerResultType.TARGET_NOT_FOUND,
                     finalizeResult.intendedStatus(),
                     finalizeResult.dbStatus()
             );
+
         };
+
     }
 }

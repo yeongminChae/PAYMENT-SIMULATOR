@@ -1,6 +1,7 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler;
 
 import com.chaeyeongmin.payment_sim.api.payment.service.RecoveryFinalizationService;
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.exception.RecoveryInvariantViolationException;
 import com.chaeyeongmin.payment_sim.api.payment.service.transaction.model.RecoveryFinalizeResult;
 import com.chaeyeongmin.payment_sim.api.payment.service.transaction.model.RecoveryFinalizeResultType;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
@@ -309,6 +310,48 @@ class ApprovalRecoveryHandlerTest {
         assertThat(result.dbStatus()).isNull();
     }
 
+    @Test
+    @DisplayName("VAN SUCCESS 응답의 targetType이 APPROVAL이 아니면 invariant violation이다")
+    void handle_successTargetTypeMismatch_shouldThrowInvariantViolation() {
+        stubInquiry(PaymentFinalStatus.PROCESSING, inquiryResponse(
+                VanInquiryResultCode.SUCCESS,
+                VanInquiryStatus.APPROVED,
+                VanInquiryTargetType.CANCEL,
+                POS_TRX,
+                ATTEMPT_SEQ
+        ));
+
+        assertInvalidSuccessfulResponse();
+    }
+
+    @Test
+    @DisplayName("VAN SUCCESS 응답의 targetTrxNo가 다르면 invariant violation이다")
+    void handle_successTargetTrxNoMismatch_shouldThrowInvariantViolation() {
+        stubInquiry(PaymentFinalStatus.PROCESSING, inquiryResponse(
+                VanInquiryResultCode.SUCCESS,
+                VanInquiryStatus.APPROVED,
+                VanInquiryTargetType.APPROVAL,
+                POS_TRX + "-MISMATCH",
+                ATTEMPT_SEQ
+        ));
+
+        assertInvalidSuccessfulResponse();
+    }
+
+    @Test
+    @DisplayName("VAN SUCCESS 응답의 targetAttemptSeq가 다르면 invariant violation이다")
+    void handle_successTargetAttemptSeqMismatch_shouldThrowInvariantViolation() {
+        stubInquiry(PaymentFinalStatus.PROCESSING, inquiryResponse(
+                VanInquiryResultCode.SUCCESS,
+                VanInquiryStatus.APPROVED,
+                VanInquiryTargetType.APPROVAL,
+                POS_TRX,
+                ATTEMPT_SEQ + 1
+        ));
+
+        assertInvalidSuccessfulResponse();
+    }
+
     @ParameterizedTest
     @EnumSource(value = VanInquiryStatus.class, names = {"CANCELLED", "CANCEL_DECLINED"})
     @DisplayName("APPROVAL Inquiry의 cancel 계열 VAN status는 명시적으로 거부한다")
@@ -319,8 +362,8 @@ class ApprovalRecoveryHandlerTest {
         );
 
         assertThatThrownBy(() -> handler.handle(approvalTask()))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("Unexpected VAN inquiry status for APPROVAL: " + status);
+                .isInstanceOf(RecoveryInvariantViolationException.class)
+                .hasMessage("RECOVERY_APPROVAL_INQUIRY_STATUS_INVALID: " + status);
 
         verifyNoInteractions(recoveryFinalizationService);
     }
@@ -334,8 +377,8 @@ class ApprovalRecoveryHandlerTest {
         );
 
         assertThatThrownBy(() -> handler.handle(approvalTask()))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("Unexpected VAN inquiry status for APPROVAL: null");
+                .isInstanceOf(RecoveryInvariantViolationException.class)
+                .hasMessage("RECOVERY_APPROVAL_INQUIRY_RESPONSE_INVALID");
 
         verifyNoInteractions(recoveryFinalizationService);
     }
@@ -419,16 +462,40 @@ class ApprovalRecoveryHandlerTest {
             VanInquiryResultCode resultCode,
             VanInquiryStatus status
     ) {
+        return inquiryResponse(
+                resultCode,
+                status,
+                VanInquiryTargetType.APPROVAL,
+                POS_TRX,
+                ATTEMPT_SEQ
+        );
+    }
+
+    private VanInquiryResponse inquiryResponse(
+            VanInquiryResultCode resultCode,
+            VanInquiryStatus status,
+            VanInquiryTargetType targetType,
+            String targetTrxNo,
+            Integer targetAttemptSeq
+    ) {
         return VanInquiryResponse.builder()
-                .targetType(VanInquiryTargetType.APPROVAL)
-                .targetTrxNo(POS_TRX)
-                .targetAttemptSeq(ATTEMPT_SEQ)
+                .targetType(targetType)
+                .targetTrxNo(targetTrxNo)
+                .targetAttemptSeq(targetAttemptSeq)
                 .resultCode(resultCode)
                 .status(status)
                 .vanTrxId(RESPONSE_VAN_TRX_ID)
                 .approvalNo(status == VanInquiryStatus.APPROVED ? APPROVAL_NO : null)
                 .declineCode(status == VanInquiryStatus.DECLINED ? VanDeclineCode.DO_NOT_HONOR : null)
                 .build();
+    }
+
+    private void assertInvalidSuccessfulResponse() {
+        assertThatThrownBy(() -> handler.handle(approvalTask()))
+                .isInstanceOf(RecoveryInvariantViolationException.class)
+                .hasMessage("RECOVERY_APPROVAL_INQUIRY_RESPONSE_INVALID");
+
+        verifyNoInteractions(recoveryFinalizationService);
     }
 
     private RecoveryFinalizeResult finalizeResult(

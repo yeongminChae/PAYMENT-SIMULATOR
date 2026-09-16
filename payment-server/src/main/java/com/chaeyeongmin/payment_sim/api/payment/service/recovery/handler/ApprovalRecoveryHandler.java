@@ -1,6 +1,7 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler;
 
 import com.chaeyeongmin.payment_sim.api.payment.service.RecoveryFinalizationService;
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.exception.RecoveryInvariantViolationException;
 import com.chaeyeongmin.payment_sim.api.payment.service.support.AttemptResultUpdateParamFactory;
 import com.chaeyeongmin.payment_sim.api.payment.service.transaction.model.RecoveryFinalizeResult;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
@@ -13,11 +14,13 @@ import com.chaeyeongmin.payment_sim.van.client.assembler.VanInquiryAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResponse;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResultCode;
+import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryTargetType;
 import com.chaeyeongmin.payment_sim.van.client.tcp.protocol.inquiry.VanInquiryStatus;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -116,6 +119,8 @@ public class ApprovalRecoveryHandler implements RecoveryHandler {
             );
         }
 
+        validateSuccessfulResponse(task, response);
+
         /*
          * SUCCESS + UNKNOWN은 VAN row는 존재하지만 VAN도 결론을 내리지 못한 상태다.
          * NOT_FOUND와 결과 타입은 같지만 운영에서 원인을 구분할 수 있도록 observedStatus를 보존한다.
@@ -133,7 +138,7 @@ public class ApprovalRecoveryHandler implements RecoveryHandler {
          * Cancel 계열 상태는 정상 미확정으로 삼키지 않고 protocol/target mismatch로 즉시 드러낸다.
          */
         if (response.status() != VanInquiryStatus.APPROVED && response.status() != VanInquiryStatus.DECLINED) {
-            throw new IllegalStateException("Unexpected VAN inquiry status for APPROVAL: " + response.status());
+            throw new RecoveryInvariantViolationException("RECOVERY_APPROVAL_INQUIRY_STATUS_INVALID: " + response.status());
         }
 
         /*
@@ -155,6 +160,16 @@ public class ApprovalRecoveryHandler implements RecoveryHandler {
          */
         return getRecoveryHandlerResult(finalizeResult);
 
+    }
+
+    private void validateSuccessfulResponse(RecoveryTask task, VanInquiryResponse response) {
+        if (response.resultCode() != VanInquiryResultCode.SUCCESS
+                || response.targetType() != VanInquiryTargetType.APPROVAL
+                || Objects.equals(task.targetTrxNo(), response.targetTrxNo()) == false
+                || Objects.equals(task.targetAttemptSeq(), response.targetAttemptSeq()) == false
+                || response.status() == null) {
+            throw new RecoveryInvariantViolationException("RECOVERY_APPROVAL_INQUIRY_RESPONSE_INVALID");
+        }
     }
 
     private RecoveryHandlerResult getRecoveryHandlerResult(RecoveryFinalizeResult finalizeResult) {
@@ -182,6 +197,7 @@ public class ApprovalRecoveryHandler implements RecoveryHandler {
                     finalizeResult.intendedStatus(),
                     finalizeResult.dbStatus()
             );
+
         };
 
     }

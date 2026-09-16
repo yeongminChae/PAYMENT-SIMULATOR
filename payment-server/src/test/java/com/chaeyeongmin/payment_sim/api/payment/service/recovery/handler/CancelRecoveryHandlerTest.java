@@ -1,6 +1,7 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler;
 
 import com.chaeyeongmin.payment_sim.api.payment.service.RecoveryFinalizationService;
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.exception.RecoveryInvariantViolationException;
 import com.chaeyeongmin.payment_sim.api.payment.service.transaction.model.RecoveryFinalizeResult;
 import com.chaeyeongmin.payment_sim.api.payment.service.transaction.model.RecoveryFinalizeResultType;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
@@ -279,6 +280,56 @@ class CancelRecoveryHandlerTest {
         assertThat(result.dbStatus()).isNull();
     }
 
+    @Test
+    @DisplayName("SUCCESS 응답의 targetType이 CANCEL이 아니면 invariant violation이다")
+    void handle_successTargetTypeMismatch_shouldThrowInvariantViolation() {
+        stubInquiry(CancelStatus.PENDING, inquiryResponse(
+                VanInquiryResultCode.SUCCESS,
+                VanInquiryStatus.CANCELLED,
+                VanInquiryTargetType.APPROVAL,
+                CANCEL_POS_TRX,
+                null
+        ));
+
+        assertInvalidSuccessfulResponse();
+    }
+
+    @Test
+    @DisplayName("SUCCESS 응답의 targetTrxNo가 다르면 invariant violation이다")
+    void handle_successTargetTrxNoMismatch_shouldThrowInvariantViolation() {
+        stubInquiry(CancelStatus.PENDING, inquiryResponse(
+                VanInquiryResultCode.SUCCESS,
+                VanInquiryStatus.CANCELLED,
+                VanInquiryTargetType.CANCEL,
+                CANCEL_POS_TRX + "-MISMATCH",
+                null
+        ));
+
+        assertInvalidSuccessfulResponse();
+    }
+
+    @Test
+    @DisplayName("SUCCESS CANCEL 응답의 targetAttemptSeq가 non-null이면 invariant violation이다")
+    void handle_successTargetAttemptSeq_shouldThrowInvariantViolation() {
+        stubInquiry(CancelStatus.PENDING, inquiryResponse(
+                VanInquiryResultCode.SUCCESS,
+                VanInquiryStatus.CANCELLED,
+                VanInquiryTargetType.CANCEL,
+                CANCEL_POS_TRX,
+                1
+        ));
+
+        assertInvalidSuccessfulResponse();
+    }
+
+    @Test
+    @DisplayName("SUCCESS 응답의 status가 null이면 invariant violation이다")
+    void handle_successNullStatus_shouldThrowInvariantViolation() {
+        stubInquiry(CancelStatus.PENDING, inquiryResponse(VanInquiryResultCode.SUCCESS, null));
+
+        assertInvalidSuccessfulResponse();
+    }
+
     @ParameterizedTest
     @EnumSource(value = VanInquiryStatus.class, names = {"APPROVED", "DECLINED"})
     @DisplayName("CANCEL Inquiry의 approval 계열 VAN status는 명시적으로 거부한다")
@@ -286,7 +337,7 @@ class CancelRecoveryHandlerTest {
         stubInquiry(CancelStatus.PENDING, inquiryResponse(VanInquiryResultCode.SUCCESS, status));
 
         assertThatThrownBy(() -> handler.handle(cancelTask()))
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOf(RecoveryInvariantViolationException.class)
                 .hasMessage("Unexpected VAN inquiry status for CANCEL: " + status);
 
         verifyNoInteractions(recoveryFinalizationService);
@@ -304,7 +355,7 @@ class CancelRecoveryHandlerTest {
         );
 
         assertThatThrownBy(() -> handler.handle(mismatchedTask))
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOf(RecoveryInvariantViolationException.class)
                 .hasMessage("RECOVERY_CANCEL_TARGET_IDENTITY_MISMATCH");
 
         verifyNoInteractions(vanInquiryAssembler, vanGateway, recoveryFinalizationService);
@@ -381,16 +432,40 @@ class CancelRecoveryHandlerTest {
             VanInquiryResultCode resultCode,
             VanInquiryStatus status
     ) {
+        return inquiryResponse(
+                resultCode,
+                status,
+                VanInquiryTargetType.CANCEL,
+                CANCEL_POS_TRX,
+                null
+        );
+    }
+
+    private VanInquiryResponse inquiryResponse(
+            VanInquiryResultCode resultCode,
+            VanInquiryStatus status,
+            VanInquiryTargetType targetType,
+            String targetTrxNo,
+            Integer targetAttemptSeq
+    ) {
         return VanInquiryResponse.builder()
-                .targetType(VanInquiryTargetType.CANCEL)
-                .targetTrxNo(CANCEL_POS_TRX)
-                .targetAttemptSeq(null)
+                .targetType(targetType)
+                .targetTrxNo(targetTrxNo)
+                .targetAttemptSeq(targetAttemptSeq)
                 .resultCode(resultCode)
                 .status(status)
                 .vanTrxId(VAN_CANCEL_TRX_ID)
                 .cancelApprovalNo(status == VanInquiryStatus.CANCELLED ? CANCEL_APPROVAL_NO : null)
                 .declineCode(status == VanInquiryStatus.CANCEL_DECLINED ? VanDeclineCode.DO_NOT_HONOR : null)
                 .build();
+    }
+
+    private void assertInvalidSuccessfulResponse() {
+        assertThatThrownBy(() -> handler.handle(cancelTask()))
+                .isInstanceOf(RecoveryInvariantViolationException.class)
+                .hasMessage("Invalid VAN inquiry response for CANCEL recovery");
+
+        verifyNoInteractions(recoveryFinalizationService);
     }
 
     private RecoveryFinalizeResult finalizeResult(

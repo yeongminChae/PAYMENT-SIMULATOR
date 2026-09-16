@@ -1,6 +1,7 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler;
 
 import com.chaeyeongmin.payment_sim.api.payment.service.RecoveryFinalizationService;
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.exception.RecoveryInvariantViolationException;
 import com.chaeyeongmin.payment_sim.api.payment.service.support.VanDeclineCodeMapper;
 import com.chaeyeongmin.payment_sim.api.payment.service.transaction.model.RecoveryFinalizeResult;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentReversal;
@@ -147,7 +148,7 @@ public class ReversalRecoveryHandler implements RecoveryHandler {
                                     VanDeclineCodeMapper.toCode(response.declineCode())
                             );
 
-                    default -> throw new IllegalStateException(
+                    default -> throw new RecoveryInvariantViolationException(
                             "Unexpected VAN inquiry status for REVERSAL: " + response.status());
                 };
 
@@ -174,7 +175,7 @@ public class ReversalRecoveryHandler implements RecoveryHandler {
                 || response.targetAttemptSeq() != null
                 || response.status() == null
         ) {
-            throw new IllegalStateException("Invalid VAN inquiry response for REVERSAL recovery");
+            throw new RecoveryInvariantViolationException("Invalid VAN inquiry response for REVERSAL recovery");
         }
 
     }
@@ -223,7 +224,7 @@ public class ReversalRecoveryHandler implements RecoveryHandler {
         if (Objects.equals(reversal.originalPosTrx(), task.originalPosTrx()) == false
                 || reversal.originalAttemptSeq() != task.originalAttemptSeq()
         ) {
-            throw new IllegalStateException("RECOVERY_REVERSAL_TARGET_IDENTITY_MISMATCH");
+            throw new RecoveryInvariantViolationException("RECOVERY_REVERSAL_TARGET_IDENTITY_MISMATCH");
         }
 
     }

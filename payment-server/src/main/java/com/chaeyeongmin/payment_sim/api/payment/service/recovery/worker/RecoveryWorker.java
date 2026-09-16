@@ -1,5 +1,7 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.recovery.worker;
 
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.failure.RecoveryFailureClassifier;
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.failure.RecoveryFailureType;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler.RecoveryHandler;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler.RecoveryHandlerResult;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler.RecoveryRetryPolicy;
@@ -45,6 +47,8 @@ public class RecoveryWorker {
 
     private final RecoveryRetryPolicy recoveryRetryPolicy;
 
+    private final RecoveryFailureClassifier recoveryFailureClassifier;
+
     /**
      * Worker 실행에 필요한 저장소, Handler, lease 정책, 시간 기준을 구성한다.
      *
@@ -56,6 +60,7 @@ public class RecoveryWorker {
      * @param leaseDuration 한 Worker가 claim한 task를 소유할 수 있는 시간
      * @param clock claim 시각과 완료 시각을 제공하는 시간 기준
      * @param recoveryRetryPolicy unresolved task의 retry 가능 여부와 다음 재시도 시각을 결정하는 정책
+     * @param recoveryFailureClassifier Handler 예외를 retry/manual/unknown으로 분류하는 정책
      * @throws IllegalArgumentException leaseDuration이 0 이하인 경우
      * @throws IllegalStateException 같은 targetType의 Handler가 중복 등록된 경우
      */
@@ -65,7 +70,8 @@ public class RecoveryWorker {
             @Value("${payment.recovery.worker.lease-duration:30s}")
             Duration leaseDuration,
             Clock clock,
-            RecoveryRetryPolicy recoveryRetryPolicy
+            RecoveryRetryPolicy recoveryRetryPolicy,
+            RecoveryFailureClassifier recoveryFailureClassifier
     ) {
         if (leaseDuration.isZero() || leaseDuration.isNegative()) {
             throw new IllegalArgumentException("Recovery worker lease duration must be positive");
@@ -76,6 +82,7 @@ public class RecoveryWorker {
         this.leaseDuration = leaseDuration;
         this.clock = clock;
         this.recoveryRetryPolicy = recoveryRetryPolicy;
+        this.recoveryFailureClassifier = recoveryFailureClassifier;
     }
 
     /**
@@ -107,7 +114,13 @@ public class RecoveryWorker {
         RecoveryTask task = recoveryTask.get();
 
         // 6. 거래 종류별 세부 복구는 Worker가 직접 처리하지 않고 해당 Handler에 위임한다.
-        RecoveryHandlerResult handlerResult = handleClaimedTask(task);
+        RecoveryHandler handler = getHandler(task);
+        RecoveryHandlerResult handlerResult;
+        try {
+            handlerResult = handler.handle(task);
+        } catch (RuntimeException e) {
+            return handleRecoveryFailure(task, claimToken, e);
+        }
 
         return new RecoveryWorkerResult(
                 applyRecoveryTransition(handlerResult, task, claimToken),
@@ -133,33 +146,16 @@ public class RecoveryWorker {
                         : RecoveryWorkerResultType.OWNERSHIP_LOST;
             }
 
-            case STILL_UNRESOLVED: {
-                LocalDateTime now = LocalDateTime.now(clock);
-
-                if (recoveryRetryPolicy.canRetry(task.retryCount())) {
-                    LocalDateTime nextRetryAt = recoveryRetryPolicy.nextRetryAt(task.retryCount(), now);
-
-                    return  recoveryTaskRepository.markRetryWait(task.id(), claimToken, now, nextRetryAt) == 1
-                            ? RecoveryWorkerResultType.RETRY_WAIT
-                            : RecoveryWorkerResultType.OWNERSHIP_LOST;
-                }
-
-                return recoveryTaskRepository.markManualReview(task.id(), claimToken, now) == 1
-                        ? RecoveryWorkerResultType.MANUAL_REVIEW
-                        : RecoveryWorkerResultType.OWNERSHIP_LOST;
-            }
+            case STILL_UNRESOLVED:
+                return applyRetryOrManualReview(task, claimToken);
 
             case TERMINAL_CONFLICT:
-            case TARGET_NOT_FOUND: {
-                LocalDateTime now = LocalDateTime.now(clock);
-
-                return recoveryTaskRepository.markManualReview(task.id(), claimToken, now) == 1
-                        ? RecoveryWorkerResultType.MANUAL_REVIEW
-                        : RecoveryWorkerResultType.OWNERSHIP_LOST;
-            }
+            case TARGET_NOT_FOUND:
+                return applyManualReview(task, claimToken);
 
             default: throw new IllegalStateException("Unexpected handler result: " + handlerResult.resultType());
         }
+
     }
 
     /**
@@ -172,13 +168,12 @@ public class RecoveryWorker {
      * @return 선택된 Handler가 반환한 거래 복구 결과
      * @throws IllegalStateException 해당 targetType의 Handler가 등록되지 않은 경우
      */
-    private RecoveryHandlerResult handleClaimedTask(RecoveryTask task) {
+    private RecoveryHandler getHandler(RecoveryTask task) {
         // Recovery Task의 targetType을 처리하는 Handler를 찾는다.
         RecoveryHandler handler = handlers.get(task.targetType());
         if (handler == null) throw new IllegalStateException("No RecoveryHandler for target type: " + task.targetType());
 
-        // VAN/DB 세부 복구 흐름은 Handler 내부에서 수행한다.
-        return handler.handle(task);
+        return handler;
     }
 
     /**
@@ -206,6 +201,59 @@ public class RecoveryWorker {
         }
 
         return Map.copyOf(indexed);
+    }
+
+    private RecoveryWorkerResult handleRecoveryFailure(
+            RecoveryTask task,
+            String claimToken,
+            RuntimeException exception
+    ) {
+        RecoveryFailureType failureType = recoveryFailureClassifier.classify(exception);
+
+        switch (failureType) {
+            case RETRYABLE:
+                return new RecoveryWorkerResult(
+                        applyRetryOrManualReview(task, claimToken),
+                        task.id(),
+                        null
+                );
+
+            case MANUAL_REVIEW:
+                return new RecoveryWorkerResult(
+                        applyManualReview(task, claimToken),
+                        task.id(),
+                        null
+                );
+
+            case UNKNOWN: throw exception;
+
+            default: throw new IllegalStateException("Unexpected recovery failure type: " + failureType);
+        }
+
+    }
+
+    private RecoveryWorkerResultType applyManualReview(RecoveryTask task, String claimToken) {
+        return applyManualReview(task, claimToken, LocalDateTime.now(clock));
+    }
+
+    private RecoveryWorkerResultType applyManualReview(RecoveryTask task, String claimToken, LocalDateTime now) {
+        return recoveryTaskRepository.markManualReview(task.id(), claimToken, now) == 1
+                ? RecoveryWorkerResultType.MANUAL_REVIEW
+                : RecoveryWorkerResultType.OWNERSHIP_LOST;
+    }
+
+    private RecoveryWorkerResultType applyRetryOrManualReview(RecoveryTask task, String claimToken) {
+        LocalDateTime now = LocalDateTime.now(clock);
+
+        if (recoveryRetryPolicy.canRetry(task.retryCount())) {
+            LocalDateTime nextRetryAt = recoveryRetryPolicy.nextRetryAt(task.retryCount(), now);
+
+            return recoveryTaskRepository.markRetryWait(task.id(), claimToken, now, nextRetryAt) == 1
+                    ? RecoveryWorkerResultType.RETRY_WAIT
+                    : RecoveryWorkerResultType.OWNERSHIP_LOST;
+        }
+
+        return applyManualReview(task, claimToken, now);
     }
 
 }

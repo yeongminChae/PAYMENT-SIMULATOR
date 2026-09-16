@@ -1,6 +1,7 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler;
 
 import com.chaeyeongmin.payment_sim.api.payment.service.RecoveryFinalizationService;
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.exception.RecoveryInvariantViolationException;
 import com.chaeyeongmin.payment_sim.api.payment.service.transaction.model.RecoveryFinalizeResult;
 import com.chaeyeongmin.payment_sim.api.payment.service.transaction.model.RecoveryFinalizeResultType;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentReversal;
@@ -119,7 +120,7 @@ class ReversalRecoveryHandlerTest {
         );
 
         assertThatThrownBy(() -> handler.handle(task))
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOf(RecoveryInvariantViolationException.class)
                 .hasMessage("RECOVERY_REVERSAL_TARGET_IDENTITY_MISMATCH");
 
         verifyNoInteractions(vanInquiryAssembler, vanGateway, recoveryFinalizationService);
@@ -138,7 +139,7 @@ class ReversalRecoveryHandlerTest {
         );
 
         assertThatThrownBy(() -> handler.handle(task))
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOf(RecoveryInvariantViolationException.class)
                 .hasMessage("RECOVERY_REVERSAL_TARGET_IDENTITY_MISMATCH");
 
         verifyNoInteractions(vanInquiryAssembler, vanGateway, recoveryFinalizationService);
@@ -374,7 +375,7 @@ class ReversalRecoveryHandlerTest {
 
     private void assertInvalidSuccessfulResponse() {
         assertThatThrownBy(() -> handler.handle(reversalTask()))
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOf(RecoveryInvariantViolationException.class)
                 .hasMessage("Invalid VAN inquiry response for REVERSAL recovery");
 
         verify(recoveryFinalizationService, never()).finalizeReversal(any());
@@ -382,7 +383,7 @@ class ReversalRecoveryHandlerTest {
 
     private void assertUnexpectedStatus(VanInquiryStatus status) {
         assertThatThrownBy(() -> handler.handle(reversalTask()))
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOf(RecoveryInvariantViolationException.class)
                 .hasMessage("Unexpected VAN inquiry status for REVERSAL: " + status);
 
         verify(recoveryFinalizationService, never()).finalizeReversal(any());
