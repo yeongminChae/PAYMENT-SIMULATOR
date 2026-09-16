@@ -4,12 +4,14 @@
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
 <mapper namespace="com.chaeyeongmin.payment_sim.infra.mybatis.mapper.RecoveryHistoryMapper">
+    <!-- tryNo는 실제 Worker 실행 순서이며, 첫 실행은 1이다. -->
     <select id="nextTryNo" resultType="int">
         SELECT COALESCE(MAX(TRY_NO), 0) + 1
         FROM PAYMENT_RECOVERY_HISTORY
         WHERE RECOVERY_TASK_ID = #{recoveryTaskId}
     </select>
 
+    <!-- 실행 시작 시점에는 결과가 아직 없으므로 완료 관련 컬럼은 null로 둔다. -->
     <select id="insertStarted"
             resultType="com.chaeyeongmin.payment_sim.domain.model.RecoveryHistory"
             affectData="true"

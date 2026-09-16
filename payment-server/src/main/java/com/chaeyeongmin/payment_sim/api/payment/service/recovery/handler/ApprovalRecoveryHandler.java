@@ -162,6 +162,10 @@ public class ApprovalRecoveryHandler implements RecoveryHandler {
 
     }
 
+    /**
+     * SUCCESS 응답이 현재 승인 task와 같은 거래를 가리키고 필수 상태를 포함하는지 확인한다.
+     * 잘못된 응답을 finalizer에 넘기면 다른 attempt를 확정할 수 있으므로 먼저 차단한다.
+     */
     private void validateSuccessfulResponse(RecoveryTask task, VanInquiryResponse response) {
         if (response.resultCode() != VanInquiryResultCode.SUCCESS
                 || response.targetType() != VanInquiryTargetType.APPROVAL
@@ -172,6 +176,7 @@ public class ApprovalRecoveryHandler implements RecoveryHandler {
         }
     }
 
+    /** finalizer의 DB 반영 결과를 Worker가 공통으로 이해하는 결과로 바꾼다. */
     private RecoveryHandlerResult getRecoveryHandlerResult(RecoveryFinalizeResult finalizeResult) {
         return switch (finalizeResult.resultType()) {
             case APPLIED, ALREADY_CONSISTENT -> new RecoveryHandlerResult(

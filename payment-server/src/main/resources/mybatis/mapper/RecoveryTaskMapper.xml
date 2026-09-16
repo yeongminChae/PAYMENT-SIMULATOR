@@ -24,6 +24,10 @@
         ON CONFLICT DO NOTHING
     </insert>
 
+    <!--
+        실행 가능한 task 중 가장 오래된 한 건을 claim한다.
+        SKIP LOCKED로 다른 Worker가 처리 중인 행을 기다리지 않고 다음 후보를 찾는다.
+    -->
     <select id="claimNext"
             resultType="com.chaeyeongmin.payment_sim.domain.model.RecoveryTask">
         WITH candidate AS (
@@ -69,6 +73,7 @@
             T.UPDATED_AT
     </select>
 
+    <!-- claim token이 같고 lease가 남아 있는 현재 owner만 완료할 수 있다. -->
     <update id="markResolved">
         UPDATE PAYMENT_RECOVERY_TASK
         SET
@@ -83,6 +88,7 @@
           AND LEASE_EXPIRES_AT > #{now}
     </update>
 
+    <!-- 다음 실행 시각을 저장하고 소유권을 반납한다. retryCount는 RETRY_WAIT 전이 횟수다. -->
     <update id="markRetryWait">
         UPDATE PAYMENT_RECOVERY_TASK
         SET RECOVERY_STATUS = 'RETRY_WAIT',
@@ -97,6 +103,7 @@
             AND LEASE_EXPIRES_AT > #{now}
     </update>
 
+    <!-- 자동 실행을 끝내고 운영자 확인 대상으로 넘기면서 소유권을 반납한다. -->
     <update id="markManualReview">
         UPDATE PAYMENT_RECOVERY_TASK
         SET RECOVERY_STATUS = 'MANUAL_REVIEW',

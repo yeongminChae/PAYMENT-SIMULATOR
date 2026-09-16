@@ -51,6 +51,10 @@ public class ReversalRecoveryHandler implements RecoveryHandler {
         return RecoveryTargetType.REVERSAL;
     }
 
+    /**
+     * 망취소 task의 현재 DB 상태를 다시 확인하고, 필요할 때만 VAN Inquiry로 최종 사실을 조회한다.
+     * 이미 끝난 거래는 바로 RESOLVED로 반환하고, 미확정 거래만 finalizer에 반영한다.
+     */
     @Override
     public RecoveryHandlerResult handle(RecoveryTask task) {
 

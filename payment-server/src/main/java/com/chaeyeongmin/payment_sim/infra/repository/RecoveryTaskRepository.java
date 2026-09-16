@@ -7,10 +7,10 @@ import java.time.LocalDateTime;
 import java.util.Optional;
 
 /**
- * 복구 task 생성을 위한 저장소 포트.
+ * Recovery Task 생성, claim, 상태 전이를 위한 저장소 포트다.
  *
- * <p>동일 target 중복 방지는 DB unique constraint에 위임하고,
- * 호출자는 반환 row count로 신규 생성 여부만 판단한다.
+ * <p>claim과 상태 전이는 claim token과 lease를 이용해 현재 Worker의 소유권을 지킨다.
+ * 동일 target 생성 방지는 DB unique constraint에 맡긴다.
  */
 public interface RecoveryTaskRepository {
 
@@ -21,12 +21,21 @@ public interface RecoveryTaskRepository {
      */
     int insertIfAbsent(RecoveryCandidate candidate);
 
+    /**
+     * 지금 실행할 수 있는 task 한 건을 골라 RUNNING으로 claim한다.
+     *
+     * <p>PENDING, 실행 시각이 지난 RETRY_WAIT, lease가 만료된 RUNNING이 대상이다.
+     * 다른 transaction이 잡고 있는 행은 건너뛴다.
+     */
     Optional<RecoveryTask> claimNext(String claimToken, LocalDateTime now, LocalDateTime leaseExpiresAt);
 
+    /** 현재 Worker가 소유한 RUNNING task를 RESOLVED로 끝낸다. */
     int markResolved(Long taskId, String claimToken, LocalDateTime now);
 
+    /** 미해결 task의 retryCount를 올리고 다음 실행 시각까지 RETRY_WAIT로 보낸다. */
     int markRetryWait(Long taskId, String claimToken, LocalDateTime now, LocalDateTime nextRetryAt);
 
+    /** 자동 복구를 중단하고 task를 MANUAL_REVIEW로 보낸다. */
     int markManualReview(Long taskId, String claimToken, LocalDateTime now);
 
 }

@@ -23,12 +23,11 @@ import java.util.Optional;
 /**
  * 실행 가능한 Recovery Task 한 건을 claim하고 target별 Handler에 위임한다.
  *
- * <p>거래별 DB 조회, VAN 통신, finalization은 전부 Handler의 책임이다. Worker는 task lifecycle만 조립한다.
- * Handler가 RESOLVED를 반환하면 claim token과 유효한 lease로 소유권을 확인하면서 task를
- * Handler 결과를 Recovery Task lifecycle 정책으로 해석한다.
- * RESOLVED는 완료 처리하고,
+ * <p>거래별 DB 조회, VAN 통신, finalization은 Handler의 책임이다. Worker는 Handler 결과를
+ * Recovery Task 상태로 바꾸는 일만 담당한다. RESOLVED는 완료 처리하고,
  * STILL_UNRESOLVED는 retry 정책에 따라 RETRY_WAIT 또는 MANUAL_REVIEW로,
  * TERMINAL_CONFLICT/TARGET_NOT_FOUND는 MANUAL_REVIEW로 전이한다.
+ * 상태를 바꿀 때는 claim token과 lease를 함께 확인해 현재 소유자만 변경할 수 있게 한다.
  */
 @Component
 public class RecoveryWorker {
@@ -45,8 +44,10 @@ public class RecoveryWorker {
     /** claim 시각과 완료 시각을 각각 읽을 수 있게 주입받는 애플리케이션 시간 기준이다. */
     private final Clock clock;
 
+    /** 미해결 task의 재시도 가능 여부와 다음 실행 시각을 정한다. */
     private final RecoveryRetryPolicy recoveryRetryPolicy;
 
+    /** Handler 예외를 재시도, 운영자 확인, 원본 전파 중 하나로 분류한다. */
     private final RecoveryFailureClassifier recoveryFailureClassifier;
 
     /**
@@ -130,6 +131,12 @@ public class RecoveryWorker {
 
     }
 
+    /**
+     * Handler가 반환한 업무 결과를 Recovery Task의 다음 상태로 반영한다.
+     *
+     * <p>repository update가 0이면 lease가 끝났거나 다른 Worker가 재claim한 것이므로
+     * 성공으로 간주하지 않고 OWNERSHIP_LOST를 반환한다.
+     */
     private RecoveryWorkerResultType applyRecoveryTransition(
             RecoveryHandlerResult handlerResult,
             RecoveryTask task,
@@ -159,13 +166,13 @@ public class RecoveryWorker {
     }
 
     /**
-     * claim한 task의 targetType에 맞는 Handler를 선택하고 거래별 복구를 위임한다.
+     * claim한 task의 targetType에 맞는 Handler를 선택한다.
      *
      * <p>이 메서드는 Recovery Task 상태를 변경하지 않는다. Handler가 반환한 업무 결과의 해석과
      * task lifecycle 반영은 executeOne()이 담당한다.
      *
      * @param task 이번 Worker가 claim한 Recovery Task
-     * @return 선택된 Handler가 반환한 거래 복구 결과
+     * @return 해당 targetType을 처리할 Handler
      * @throws IllegalStateException 해당 targetType의 Handler가 등록되지 않은 경우
      */
     private RecoveryHandler getHandler(RecoveryTask task) {
@@ -203,6 +210,13 @@ public class RecoveryWorker {
         return Map.copyOf(indexed);
     }
 
+    /**
+     * Handler 예외를 분류해 task의 다음 상태를 결정한다.
+     *
+     * <p>RETRYABLE은 일반 미해결 결과와 같은 retry 정책을 사용하고, MANUAL_REVIEW는 즉시
+     * 운영자 확인 상태로 보낸다. UNKNOWN은 Worker가 의미를 추측하지 않고 원래 예외를 다시 던진다.
+     * 이 메서드는 Handler 예외에만 사용하며 repository 예외에는 적용하지 않는다.
+     */
     private RecoveryWorkerResult handleRecoveryFailure(
             RecoveryTask task,
             String claimToken,
@@ -232,16 +246,21 @@ public class RecoveryWorker {
 
     }
 
+    /** 현재 시각을 기준으로 task를 운영자 확인 상태로 바꾼다. */
     private RecoveryWorkerResultType applyManualReview(RecoveryTask task, String claimToken) {
         return applyManualReview(task, claimToken, LocalDateTime.now(clock));
     }
 
+    /** 전달받은 시각에 소유권을 확인하고 MANUAL_REVIEW 전이를 시도한다. */
     private RecoveryWorkerResultType applyManualReview(RecoveryTask task, String claimToken, LocalDateTime now) {
         return recoveryTaskRepository.markManualReview(task.id(), claimToken, now) == 1
                 ? RecoveryWorkerResultType.MANUAL_REVIEW
                 : RecoveryWorkerResultType.OWNERSHIP_LOST;
     }
 
+    /**
+     * 남은 재시도 횟수가 있으면 RETRY_WAIT로 보내고, 모두 사용했으면 MANUAL_REVIEW로 보낸다.
+     */
     private RecoveryWorkerResultType applyRetryOrManualReview(RecoveryTask task, String claimToken) {
         LocalDateTime now = LocalDateTime.now(clock);
 

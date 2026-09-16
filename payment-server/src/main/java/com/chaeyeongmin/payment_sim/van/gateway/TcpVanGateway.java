@@ -162,8 +162,8 @@ public class TcpVanGateway implements VanGateway {
      * Payment Reversal 요청을 TCP VAN Simulator reversal 호출로 변환한다.
      *
      * <p>
-     * Reversal은 Release 5 TCP mode 전용 boundary다.
-     * 요청 correlation은 requestId + reversalPosTrx + originalPosTrx + originalAttemptSeq로 검증한다.
+     * 요청 correlation은 requestId + reversalPosTrx + originalPosTrx + originalAttemptSeq로 검증해
+     * 다른 망취소 요청의 응답을 현재 거래에 반영하지 않도록 한다.
      */
     @Override
     public VanReversalResponse reversal(VanReversalRequest request) {
@@ -391,6 +391,10 @@ public class TcpVanGateway implements VanGateway {
         validateInquiryResult(tcpResponse);
     }
 
+    /**
+     * Inquiry 결과 코드에 맞는 필드 조합인지 확인한다.
+     * NOT_FOUND 응답에 거래 상태나 승인 정보가 섞여 있으면 어떤 사실을 믿어야 할지 모호하므로 거부한다.
+     */
     private void validateInquiryResult(VanInquiryTcpResponse response) {
         if (response.resultCode() == null) {
             throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
@@ -425,6 +429,10 @@ public class TcpVanGateway implements VanGateway {
         }
     }
 
+    /**
+     * SUCCESS 응답이 조회 대상 종류에 맞는 상태와 결과 필드를 가지고 있는지 확인한다.
+     * 승인, 취소, 망취소의 상태가 서로 섞인 응답은 Payment DB 복구에 사용하지 않는다.
+     */
     private void validateInquirySuccessResult(VanInquiryTcpResponse response) {
         if (response.targetType() == null || response.status() == null) {
             throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
@@ -555,6 +563,7 @@ public class TcpVanGateway implements VanGateway {
 
     /**
      * TCP Reversal 응답의 상태 조합이 업무적으로 유효한지 확인한다.
+     * 성공 계열은 REVERSED와 승인번호가 필요하고, 실패 계열은 REVERSAL_DECLINED와 거절코드가 필요하다.
      */
     private void validateReversalResult(VanReversalTcpResponse response) {
         switch (response.resultCode()) {
@@ -825,6 +834,7 @@ public class TcpVanGateway implements VanGateway {
         return VanDeclineCode.DO_NOT_HONOR;
     }
 
+    /** 조회 대상이 없으면 결과 코드를, 있으면 확인된 거래 상태를 응답 메시지로 사용한다. */
     private String inquiryMessage(VanInquiryTcpResponse response) {
         return response.resultCode() == VanInquiryResultCode.NOT_FOUND
                 ? response.resultCode().name()
@@ -881,6 +891,7 @@ public class TcpVanGateway implements VanGateway {
                 + "-" + nullToDash(request.targetAttemptSeq());
     }
 
+    /** attemptSeq가 없는 취소·망취소 조회도 항상 같은 형식의 requestId를 만들도록 문자열로 바꾼다. */
     private String nullToDash(Integer value) {
         return value == null ? "null" : value.toString();
     }

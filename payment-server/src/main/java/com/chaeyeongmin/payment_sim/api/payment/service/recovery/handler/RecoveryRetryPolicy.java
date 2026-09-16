@@ -2,6 +2,11 @@ package com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler;
 
 import java.time.LocalDateTime;
 
+/**
+ * 복구에 실패한 task를 언제까지, 언제 다시 실행할지 정하는 정책이다.
+ *
+ * <p>{@code retryCount}는 Worker 실행 횟수가 아니라 task가 RETRY_WAIT로 바뀐 횟수다.
+ */
 public interface RecoveryRetryPolicy {
 
     /**
@@ -14,7 +19,7 @@ public interface RecoveryRetryPolicy {
      * 0 -> 최초 실행 중
      * 1 -> 1회 retry 예정/수행
      * 2 -> 2회 retry
-     * 3 -> 마지막 retry
+     * 3 -> 이미 세 번 RETRY_WAIT를 거쳤으므로 추가 retry 불가
      */
     boolean canRetry(int retryCount);
 

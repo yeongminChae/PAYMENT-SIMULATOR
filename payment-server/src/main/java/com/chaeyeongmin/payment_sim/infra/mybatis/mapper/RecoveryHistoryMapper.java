@@ -6,11 +6,14 @@ import org.apache.ibatis.annotations.Param;
 
 import java.time.LocalDateTime;
 
+/** PAYMENT_RECOVERY_HISTORY의 실행 시작 기록을 조회하고 저장하는 MyBatis mapper다. */
 @Mapper
 public interface RecoveryHistoryMapper {
 
+    /** 해당 task의 다음 실행 번호를 계산한다. */
     int nextTryNo(@Param("recoveryTaskId") Long recoveryTaskId);
 
+    /** STARTED_AT만 채운 실행 시작 이력을 만들고 생성된 행을 반환한다. */
     RecoveryHistory insertStarted(
             @Param("recoveryTaskId") Long recoveryTaskId,
             @Param("tryNo") int tryNo,

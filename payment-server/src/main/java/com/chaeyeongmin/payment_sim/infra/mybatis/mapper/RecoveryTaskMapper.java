@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
 /**
  * PAYMENT_RECOVERY_TASK MyBatis mapper.
  *
- * <p>복구 task row 저장만 담당하고, 후보 판정이나 복구 실행 판단은 하지 않는다.
+ * <p>실행 가능한 행 선택과 소유권 조건은 SQL로 보장하지만, Handler 실행이나 retry 정책 판단은 하지 않는다.
  */
 @Mapper
 public interface RecoveryTaskMapper {
@@ -25,19 +25,21 @@ public interface RecoveryTaskMapper {
      */
     int insertIfAbsent(@Param("candidate") RecoveryCandidate candidate);
 
-
+    /** 실행 가능한 task 한 건을 잠그고 RUNNING 상태와 새 lease를 부여한다. */
     RecoveryTask claimNext(
             @Param("claimToken") String claimToken,
             @Param("now") LocalDateTime now,
             @Param("leaseExpiresAt") LocalDateTime leaseExpiresAt
     );
 
+    /** claim token과 lease가 아직 유효한 task만 RESOLVED로 변경한다. */
     int markResolved(
             @Param("taskId") Long taskId,
             @Param("claimToken") String claimToken,
             @Param("now") LocalDateTime now
     );
 
+    /** 현재 소유한 task만 RETRY_WAIT로 변경하고 retryCount를 1 증가시킨다. */
     int markRetryWait(
             @Param("taskId") Long taskId,
             @Param("claimToken") String claimToken,
@@ -45,6 +47,7 @@ public interface RecoveryTaskMapper {
             @Param("nextRetryAt") LocalDateTime nextRetryAt
     );
 
+    /** 현재 소유한 task만 MANUAL_REVIEW로 변경한다. */
     int markManualReview(
             @Param("taskId") Long taskId,
             @Param("claimToken") String claimToken,

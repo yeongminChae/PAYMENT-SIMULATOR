@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
 
+/** 서비스 계층이 MyBatis mapper를 직접 사용하지 않도록 감싼 History 저장소 구현체다. */
 @Repository
 @RequiredArgsConstructor
 public class RecoveryHistoryRepositoryMyBatis implements RecoveryHistoryRepository {

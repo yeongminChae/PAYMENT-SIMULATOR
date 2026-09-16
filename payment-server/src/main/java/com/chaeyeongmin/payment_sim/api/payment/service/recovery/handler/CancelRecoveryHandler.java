@@ -207,6 +207,7 @@ public class CancelRecoveryHandler implements RecoveryHandler {
         }
     }
 
+    /** finalizer의 DB 반영 결과를 Worker가 공통으로 이해하는 결과로 바꾼다. */
     private RecoveryHandlerResult getRecoveryHandlerResult(RecoveryFinalizeResult finalizeResult) {
         return switch (finalizeResult.resultType()) {
             case APPLIED, ALREADY_CONSISTENT -> new RecoveryHandlerResult(
