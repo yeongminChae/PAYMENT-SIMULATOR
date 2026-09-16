@@ -18,7 +18,11 @@ public interface RecoveryHistoryRepository {
      */
     RecoveryHistory insertStarted(Long recoveryTaskId, int tryNo, LocalDateTime startedAt);
 
-    /** 아직 종료되지 않은 실행 이력에 최종 결과를 기록한다. */
+    /**
+     * 아직 종료되지 않은 실행 이력에 최종 결과를 기록한다.
+     *
+     * @return 정상 종료하면 1, 이미 끝났거나 대상이 없으면 0
+     */
     int finish(Long historyId, RecoveryHistoryResult result, String errorCode, LocalDateTime finishedAt);
 
 }

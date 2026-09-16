@@ -28,8 +28,8 @@ import java.util.Optional;
 /**
  * 실행 가능한 Recovery Task 한 건을 claim하고 target별 Handler에 위임한다.
  *
- * <p>거래별 DB 조회, VAN 통신, finalization은 Handler의 책임이다. Worker는 Handler 결과를
- * Recovery Task 상태로 바꾸는 일만 담당한다. RESOLVED는 완료 처리하고,
+ * <p>거래별 DB 조회, VAN 통신, 거래 원장 마무리는 Handler의 책임이다. Worker는 Handler 결과를
+ * Recovery Task 상태와 실행 History에 반영한다. RESOLVED는 완료 처리하고,
  * STILL_UNRESOLVED는 retry 정책에 따라 RETRY_WAIT 또는 MANUAL_REVIEW로,
  * TERMINAL_CONFLICT/TARGET_NOT_FOUND는 MANUAL_REVIEW로 전이한다.
  * 상태를 바꿀 때는 claim token과 lease를 함께 확인해 현재 소유자만 변경할 수 있게 한다.
@@ -37,6 +37,7 @@ import java.util.Optional;
 @Component
 public class RecoveryWorker {
 
+    /** Task claim과 History 시작, Task 상태와 History 종료를 각각 짧은 transaction으로 처리한다. */
     private final RecoveryExecutionTransactionService transactionService;
 
     /** targetType을 키로 사용해 claim한 task를 담당 Handler에 연결한다. */
@@ -93,8 +94,8 @@ public class RecoveryWorker {
     /**
      * 실행 가능한 task를 최대 한 건 claim해 처리한다.
      *
-     * <p>처리 순서는 claim token 생성 → task 한 건 claim → Handler 위임 → 결과에 따른
-     * task lifecycle 반영이다. 실행할 task가 없으면 NO_TASK를 반환하며 Handler를 호출하지 않는다.
+     * <p>처리 순서는 claim token 생성 → Task claim과 History 시작 → Handler 위임 → 결과에 따른
+     * Task와 History 종료다. 실행할 task가 없으면 NO_TASK를 반환하며 Handler를 호출하지 않는다.
      * Worker는 VAN 호출이나 거래별 DB 처리 방법을 알지 못한다.
      *
      * @return task ID와 Handler 상세 결과를 포함한 이번 한 건의 Worker 처리 결과
@@ -107,7 +108,7 @@ public class RecoveryWorker {
         // 2. claim 판단의 기준 시각을 한 번만 구하고, 그 시각에서 lease 만료 시각을 계산한다.
         LocalDateTime claimedAt = LocalDateTime.now(clock);
 
-        // 3. PENDING, 재시도 시각이 지난 RETRY_WAIT, lease가 만료된 RUNNING 중 최대 한 건을 claim한다.
+        // 3. 실행 가능한 Task를 claim하고 같은 transaction에서 이번 실행 History도 시작한다.
         Optional<ClaimedRecoveryExecution> recoveryTask =
                 transactionService.claimAndStart(claimToken, claimedAt, claimedAt.plus(leaseDuration));
 
@@ -116,13 +117,14 @@ public class RecoveryWorker {
             return new RecoveryWorkerResult(RecoveryWorkerResultType.NO_TASK, null, null);
         }
 
-        // 5. claim에 성공했으므로 소유한 task, history를 꺼낸다.
+        // 5. claim한 Task와 이번 실행을 기록할 History는 이후 상태 전이에서도 항상 함께 사용한다.
         ClaimedRecoveryExecution claimed = recoveryTask.get();
 
         RecoveryTask task = claimed.task();
         RecoveryHistory history = claimed.history();
 
-        // 6. 거래 종류별 세부 복구는 Worker가 직접 처리하지 않고 해당 Handler에 위임한다.
+        // 6. 예외 분류는 Handler 선택과 실행에서 난 오류에만 적용한다.
+        // 이후 transactionService에서 난 DB 오류는 아래 catch 밖에서 그대로 전파된다.
         RecoveryHandlerResult handlerResult;
         try {
             RecoveryHandler handler = getHandler(task);
@@ -142,8 +144,9 @@ public class RecoveryWorker {
     /**
      * Handler가 반환한 업무 결과를 Recovery Task의 다음 상태로 반영한다.
      *
-     * <p>repository update가 0이면 lease가 끝났거나 다른 Worker가 재claim한 것이므로
-     * 성공으로 간주하지 않고 OWNERSHIP_LOST를 반환한다.
+     * <p>Task 전이와 History 종료는 transactionService가 하나의 transaction으로 처리한다.
+     * Task update가 0이면 lease가 끝났거나 다른 Worker가 재claim한 것이므로
+     * History를 OWNERSHIP_LOST로 끝내고 그 결과를 반환한다.
      */
     private RecoveryWorkerResultType applyRecoveryTransition(
             RecoveryHandlerResult handlerResult,
@@ -165,6 +168,7 @@ public class RecoveryWorker {
             }
 
             case STILL_UNRESOLVED:
+                // 정상 조회 결과가 아직 미해결인 경우에는 오류 코드 없이 기존 재시도 정책을 따른다.
                 return applyRetryOrManualReview(
                         task,
                         history,
@@ -173,6 +177,7 @@ public class RecoveryWorker {
                 );
 
             case TERMINAL_CONFLICT:
+                // 이미 서로 양립할 수 없는 최종 상태이므로 자동 재시도하지 않는다.
                 return applyManualReview(
                         task,
                         history,
@@ -182,6 +187,7 @@ public class RecoveryWorker {
                 );
 
             case TARGET_NOT_FOUND:
+                // 복구 대상 자체를 찾지 못한 경우 운영자가 원거래를 확인해야 한다.
                 return applyManualReview(
                         task,
                         history,
@@ -246,7 +252,7 @@ public class RecoveryWorker {
      * Handler 예외를 분류해 task의 다음 상태를 결정한다.
      *
      * <p>RETRYABLE은 일반 미해결 결과와 같은 retry 정책을 사용하고, MANUAL_REVIEW는 즉시
-     * 운영자 확인 상태로 보낸다. UNKNOWN은 Worker가 의미를 추측하지 않고 원래 예외를 다시 던진다.
+     * 운영자 확인 상태로 보낸다. UNKNOWN은 History에 실패 사실만 남기고 원래 예외를 다시 던진다.
      * 이 메서드는 Handler 예외에만 사용하며 repository 예외에는 적용하지 않는다.
      */
     private RecoveryWorkerResult handleRecoveryFailure(
@@ -273,6 +279,7 @@ public class RecoveryWorker {
                 );
 
             case UNKNOWN:
+                // 원인을 업무 상태로 해석할 수 없으므로 Task는 RUNNING과 기존 소유권을 유지한다.
                 transactionService.unknownFailure(
                         history.id(),
                         exception.getClass().getSimpleName(),
@@ -285,7 +292,8 @@ public class RecoveryWorker {
         }
 
     }
-    /** 전달받은 시각에 소유권을 확인하고 MANUAL_REVIEW 전이를 시도한다. */
+
+    /** Task와 History를 함께 MANUAL_REVIEW로 끝내며 소유권을 잃으면 OWNERSHIP_LOST를 반환한다. */
     private RecoveryWorkerResultType applyManualReview(
             RecoveryTask task,
             RecoveryHistory history,
@@ -304,6 +312,9 @@ public class RecoveryWorker {
 
     /**
      * 남은 재시도 횟수가 있으면 RETRY_WAIT로 보내고, 모두 사용했으면 MANUAL_REVIEW로 보낸다.
+     *
+     * <p>정상적인 미해결 결과는 재시도 소진 시 RETRY_EXHAUSTED를 남긴다. Handler 예외로 들어온
+     * errorCode가 있으면 실제 실패 원인을 잃지 않도록 재시도 소진 뒤에도 그 코드를 유지한다.
      */
     private RecoveryWorkerResultType applyRetryOrManualReview(
             RecoveryTask task,
@@ -327,6 +338,7 @@ public class RecoveryWorker {
 
         }
 
+        // 예외 원인이 없던 정상 미해결 결과만 RETRY_EXHAUSTED로 기록한다.
         return applyManualReview(
                 task,
                 history,
@@ -336,6 +348,7 @@ public class RecoveryWorker {
         );
     }
 
+    /** 재시도 가능한 VAN 예외를 History에 저장할 안정적인 오류 코드로 바꾼다. */
     private String retryableErrorCode(RuntimeException exception) {
         if (exception instanceof VanGatewayTimeoutException) {
             return "VAN_GATEWAY_TIMEOUT";
@@ -348,10 +361,12 @@ public class RecoveryWorker {
         throw new IllegalStateException("Unexpected retryable exception: " + exception.getClass().getName());
     }
 
+    /** 데이터 불변식 위반 예외가 가진 RECOVERY_* 코드를 운영자 확인 사유로 사용한다. */
     private String manualReviewErrorCode(RuntimeException exception) {
         if (exception instanceof RecoveryInvariantViolationException) {
             String errorCode = exception.getMessage();
 
+            // 운영자가 원인을 구분할 코드가 없다면 잘못 생성된 예외이므로 조용히 처리하지 않는다.
             if (errorCode == null || errorCode.isBlank()) {
                 throw new IllegalStateException("Recovery invariant violation requires error code", exception);
             }

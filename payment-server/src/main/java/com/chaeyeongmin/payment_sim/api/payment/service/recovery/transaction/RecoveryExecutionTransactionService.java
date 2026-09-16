@@ -13,10 +13,11 @@ import java.time.LocalDateTime;
 import java.util.Optional;
 
 /**
- * Recovery Task claim과 실행 시작 이력 생성을 하나의 짧은 DB transaction으로 묶는다.
+ * 한 번의 Recovery 실행에서 Task 상태와 실행 이력이 서로 어긋나지 않도록 transaction을 관리한다.
  *
- * <p>History 저장이 실패하면 claim도 함께 rollback되어 task가 RUNNING으로 남지 않는다.
- * 외부 VAN 호출과 Handler 실행은 이 transaction에 포함하지 않는다.
+ * <p>실행 전에는 Task claim과 History 시작을 함께 저장하고, 실행 후에는 Task 상태 변경과
+ * History 종료를 함께 저장한다. 어느 한쪽이 실패하면 둘 다 rollback된다.
+ * 외부 VAN 호출과 Handler 실행은 이 transaction 밖에서 수행해 DB transaction을 오래 잡지 않는다.
  */
 @Service
 @RequiredArgsConstructor
@@ -51,7 +52,12 @@ public class RecoveryExecutionTransactionService {
         return Optional.of(new ClaimedRecoveryExecution(task, history));
     }
 
-    /** Task와 실행 이력을 같은 transaction에서 RESOLVED로 끝낸다. */
+    /**
+     * 복구가 완료된 Task와 이번 실행 이력을 함께 RESOLVED로 끝낸다.
+     *
+     * <p>claimToken이나 lease가 더 이상 유효하지 않으면 Task는 건드리지 않고,
+     * 이번 History만 OWNERSHIP_LOST로 끝내 stale Worker의 결과였음을 남긴다.
+     */
     @Transactional
     public RecoveryWorkerResultType resolve(
             Long taskId,
@@ -62,6 +68,7 @@ public class RecoveryExecutionTransactionService {
         int updated = taskRepository.markResolved(taskId, claimToken, now);
 
         if (updated == 0) {
+            // Handler 결과가 맞더라도 Task 소유권을 잃은 Worker는 상태를 확정할 수 없다.
             finishHistory(historyId, RecoveryHistoryResult.OWNERSHIP_LOST, null, now);
 
             return RecoveryWorkerResultType.OWNERSHIP_LOST;
@@ -72,7 +79,12 @@ public class RecoveryExecutionTransactionService {
         return RecoveryWorkerResultType.RESOLVED;
     }
 
-    /** Task를 재시도 대기로 보내고 같은 transaction에서 실행 이력을 끝낸다. */
+    /**
+     * 아직 해결되지 않은 Task를 다음 실행 시각까지 RETRY_WAIT로 보내고 History도 함께 끝낸다.
+     *
+     * <p>Task 상태 변경 과정에서 retryCount 증가와 nextRetryAt 저장이 함께 이뤄진다.
+     * 소유권을 잃었다면 Task는 그대로 두고 History만 OWNERSHIP_LOST로 기록한다.
+     */
     @Transactional
     public RecoveryWorkerResultType retryWait(
             Long taskId,
@@ -95,7 +107,12 @@ public class RecoveryExecutionTransactionService {
         return RecoveryWorkerResultType.RETRY_WAIT;
     }
 
-    /** Task를 운영자 확인 대상으로 보내고 같은 transaction에서 실행 이력을 끝낸다. */
+    /**
+     * 자동 복구를 더 진행할 수 없는 Task를 MANUAL_REVIEW로 보내고 History도 함께 끝낸다.
+     *
+     * <p>errorCode에는 재시도 소진, 거래 충돌, 응답 규칙 위반처럼 운영자가 확인할 이유를 남긴다.
+     * 소유권을 잃었다면 Task 상태를 강제로 바꾸지 않는다.
+     */
     @Transactional
     public RecoveryWorkerResultType manualReview(
             Long taskId,
@@ -117,7 +134,11 @@ public class RecoveryExecutionTransactionService {
         return RecoveryWorkerResultType.MANUAL_REVIEW;
     }
 
-    /** 알 수 없는 Handler 실패의 이력만 끝내고 RUNNING Task는 그대로 둔다. */
+    /**
+     * 예상하지 못한 Handler 실패를 History에 남기고 RUNNING Task와 소유권은 그대로 둔다.
+     *
+     * <p>UNKNOWN 오류는 업무 상태를 추측해 바꾸지 않고 상위 시스템에 예외를 알리기 위한 경로다.
+     */
     @Transactional
     public void unknownFailure(
             Long historyId,
@@ -127,6 +148,7 @@ public class RecoveryExecutionTransactionService {
         finishHistory(historyId, RecoveryHistoryResult.UNKNOWN_FAILURE, errorCode, now);
     }
 
+    /** History가 정확히 한 번만 종료됐는지 확인하며 최종 결과를 기록한다. */
     private void finishHistory(
             Long historyId,
             RecoveryHistoryResult result,
@@ -135,6 +157,7 @@ public class RecoveryExecutionTransactionService {
     ) {
         int updated = historyRepository.finish(historyId, result, errorCode, now);
 
+        // 0건은 이미 종료됐거나 대상이 없는 경우다. 1건이 아니면 Task와 함께 rollback한다.
         if (updated != 1) {
             throw new IllegalStateException("Recovery history finish failed: " + historyId);
         }

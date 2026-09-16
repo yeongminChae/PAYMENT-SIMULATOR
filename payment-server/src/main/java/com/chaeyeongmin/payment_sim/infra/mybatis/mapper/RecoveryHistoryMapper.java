@@ -7,7 +7,7 @@ import org.apache.ibatis.annotations.Param;
 
 import java.time.LocalDateTime;
 
-/** PAYMENT_RECOVERY_HISTORY의 실행 시작 기록을 조회하고 저장하는 MyBatis mapper다. */
+/** PAYMENT_RECOVERY_HISTORY의 실행 시작과 종료 결과를 저장하는 MyBatis mapper다. */
 @Mapper
 public interface RecoveryHistoryMapper {
 
@@ -21,7 +21,11 @@ public interface RecoveryHistoryMapper {
             @Param("startedAt") LocalDateTime startedAt
     );
 
-    /** 아직 끝나지 않은 실행 이력 한 건에 결과와 종료 시각을 기록한다. */
+    /**
+     * 아직 끝나지 않은 실행 이력 한 건에 결과와 종료 시각을 기록한다.
+     *
+     * @return 정상 종료하면 1, 이미 끝났거나 대상이 없으면 0
+     */
     int finish(
             @Param("historyId") Long historyId,
             @Param("result") RecoveryHistoryResult result,
