@@ -1,5 +1,6 @@
 package com.chaeyeongmin.payment_sim.infra.mybatis.mapper;
 
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.transaction.RecoveryHistoryResult;
 import com.chaeyeongmin.payment_sim.domain.model.RecoveryHistory;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -18,5 +19,13 @@ public interface RecoveryHistoryMapper {
             @Param("recoveryTaskId") Long recoveryTaskId,
             @Param("tryNo") int tryNo,
             @Param("startedAt") LocalDateTime startedAt
+    );
+
+    /** 아직 끝나지 않은 실행 이력 한 건에 결과와 종료 시각을 기록한다. */
+    int finish(
+            @Param("historyId") Long historyId,
+            @Param("result") RecoveryHistoryResult result,
+            @Param("errorCode") String errorCode,
+            @Param("finishedAt") LocalDateTime finishedAt
     );
 }

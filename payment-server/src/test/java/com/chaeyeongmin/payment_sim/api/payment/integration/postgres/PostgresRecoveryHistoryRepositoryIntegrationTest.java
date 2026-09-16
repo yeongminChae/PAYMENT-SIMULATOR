@@ -1,5 +1,6 @@
 package com.chaeyeongmin.payment_sim.api.payment.integration.postgres;
 
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.transaction.RecoveryHistoryResult;
 import com.chaeyeongmin.payment_sim.domain.model.RecoveryHistory;
 import com.chaeyeongmin.payment_sim.infra.repository.RecoveryHistoryRepository;
 import org.junit.jupiter.api.AfterEach;
@@ -104,6 +105,34 @@ class PostgresRecoveryHistoryRepositoryIntegrationTest {
         assertThat(row.get("error_code")).isNull();
         assertThat(asLocalDateTime(row.get("started_at"))).isEqualTo(STARTED_AT);
         assertThat(row.get("finished_at")).isNull();
+    }
+
+    @Test
+    void finish는_처음한번만성공하고_기존결과를덮어쓰지않는다() {
+        Long taskId = insertPendingTask("DOUBLE-FINISH");
+        RecoveryHistory history = repository.insertStarted(taskId, 1, STARTED_AT);
+        LocalDateTime firstFinishedAt = STARTED_AT.plusMinutes(1);
+
+        assertThat(repository.finish(
+                history.id(),
+                RecoveryHistoryResult.RETRY_WAIT,
+                "VAN_GATEWAY_TIMEOUT",
+                firstFinishedAt
+        )).isEqualTo(1);
+        assertThat(repository.finish(
+                history.id(),
+                RecoveryHistoryResult.MANUAL_REVIEW,
+                "SHOULD_NOT_OVERWRITE",
+                firstFinishedAt.plusMinutes(1)
+        )).isZero();
+
+        Map<String, Object> row = jdbcTemplate.queryForMap(
+                "SELECT RESULT, ERROR_CODE, FINISHED_AT FROM PAYMENT_RECOVERY_HISTORY WHERE ID = ?",
+                history.id()
+        );
+        assertThat(row.get("result")).isEqualTo("RETRY_WAIT");
+        assertThat(row.get("error_code")).isEqualTo("VAN_GATEWAY_TIMEOUT");
+        assertThat(asLocalDateTime(row.get("finished_at"))).isEqualTo(firstFinishedAt);
     }
 
     private Long insertPendingTask(String suffix) {

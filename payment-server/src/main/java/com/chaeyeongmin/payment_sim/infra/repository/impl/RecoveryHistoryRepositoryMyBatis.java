@@ -1,5 +1,6 @@
 package com.chaeyeongmin.payment_sim.infra.repository.impl;
 
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.transaction.RecoveryHistoryResult;
 import com.chaeyeongmin.payment_sim.domain.model.RecoveryHistory;
 import com.chaeyeongmin.payment_sim.infra.mybatis.mapper.RecoveryHistoryMapper;
 import com.chaeyeongmin.payment_sim.infra.repository.RecoveryHistoryRepository;
@@ -24,4 +25,10 @@ public class RecoveryHistoryRepositoryMyBatis implements RecoveryHistoryReposito
     public RecoveryHistory insertStarted(Long recoveryTaskId, int tryNo, LocalDateTime startedAt) {
         return mapper.insertStarted(recoveryTaskId, tryNo, startedAt);
     }
+
+    @Override
+    public int finish(Long historyId, RecoveryHistoryResult result, String errorCode, LocalDateTime finishedAt) {
+        return mapper.finish(historyId, result, errorCode, finishedAt);
+    }
+
 }

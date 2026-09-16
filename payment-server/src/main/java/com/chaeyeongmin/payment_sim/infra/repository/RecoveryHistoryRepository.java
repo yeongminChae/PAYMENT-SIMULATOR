@@ -1,5 +1,6 @@
 package com.chaeyeongmin.payment_sim.infra.repository;
 
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.transaction.RecoveryHistoryResult;
 import com.chaeyeongmin.payment_sim.domain.model.RecoveryHistory;
 
 import java.time.LocalDateTime;
@@ -16,4 +17,8 @@ public interface RecoveryHistoryRepository {
      * <p>아직 실행 결과가 나오기 전이므로 result, errorCode, finishedAt은 null로 저장한다.
      */
     RecoveryHistory insertStarted(Long recoveryTaskId, int tryNo, LocalDateTime startedAt);
+
+    /** 아직 종료되지 않은 실행 이력에 최종 결과를 기록한다. */
+    int finish(Long historyId, RecoveryHistoryResult result, String errorCode, LocalDateTime finishedAt);
+
 }

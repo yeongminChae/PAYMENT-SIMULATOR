@@ -2,6 +2,7 @@ package com.chaeyeongmin.payment_sim.api.payment.integration.postgres;
 
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.transaction.ClaimedRecoveryExecution;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.transaction.RecoveryExecutionTransactionService;
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.worker.RecoveryWorkerResultType;
 import com.chaeyeongmin.payment_sim.domain.policy.RecoveryStatus;
 import com.chaeyeongmin.payment_sim.infra.repository.RecoveryTaskRepository;
 import org.junit.jupiter.api.AfterEach;
@@ -61,12 +62,14 @@ class PostgresRecoveryExecutionTransactionServiceIntegrationTest {
     @BeforeEach
     void setUp() {
         dropFailingHistoryTrigger();
+        dropFailingHistoryUpdateTrigger();
         cleanupTestData();
     }
 
     @AfterEach
     void tearDown() {
         dropFailingHistoryTrigger();
+        dropFailingHistoryUpdateTrigger();
         cleanupTestData();
     }
 
@@ -139,6 +142,106 @@ class PostgresRecoveryExecutionTransactionServiceIntegrationTest {
         assertThat(historyTryNos(taskId)).isEmpty();
     }
 
+    @Test
+    void resolve의_historyFinish가실패하면_task전이도rollback된다() {
+        Long taskId = insertPendingTask("RESOLVE-ROLLBACK");
+        ClaimedRecoveryExecution execution = service.claimAndStart(
+                "worker-resolve",
+                FIRST_STARTED_AT,
+                FIRST_LEASE_EXPIRES_AT
+        ).orElseThrow();
+        createFailingHistoryUpdateTrigger();
+
+        assertThatThrownBy(() -> service.resolve(
+                taskId,
+                execution.history().id(),
+                "worker-resolve",
+                FIRST_STARTED_AT.plusMinutes(1)
+        )).rootCause().hasMessageContaining("forced recovery history update failure");
+
+        Map<String, Object> taskRow = taskDetailRow(taskId);
+        assertThat(taskRow.get("recovery_status")).isEqualTo("RUNNING");
+        assertThat(taskRow.get("claim_token")).isEqualTo("worker-resolve");
+        assertThat(asLocalDateTime(taskRow.get("lease_expires_at"))).isEqualTo(FIRST_LEASE_EXPIRES_AT);
+        assertHistoryStillStarted(execution.history().id());
+    }
+
+    @Test
+    void retryWait의_historyFinish가실패하면_retryCount와nextRetryAt도rollback된다() {
+        Long taskId = insertPendingTask("RETRY-ROLLBACK");
+        ClaimedRecoveryExecution execution = service.claimAndStart(
+                "worker-retry",
+                FIRST_STARTED_AT,
+                FIRST_LEASE_EXPIRES_AT
+        ).orElseThrow();
+        createFailingHistoryUpdateTrigger();
+
+        assertThatThrownBy(() -> service.retryWait(
+                taskId,
+                execution.history().id(),
+                "worker-retry",
+                FIRST_STARTED_AT.plusMinutes(1),
+                FIRST_STARTED_AT.plusMinutes(2),
+                "VAN_GATEWAY_TIMEOUT"
+        )).rootCause().hasMessageContaining("forced recovery history update failure");
+
+        Map<String, Object> taskRow = taskDetailRow(taskId);
+        assertThat(taskRow.get("recovery_status")).isEqualTo("RUNNING");
+        assertThat(taskRow.get("retry_count")).isEqualTo(0);
+        assertThat(taskRow.get("next_retry_at")).isNull();
+        assertThat(taskRow.get("claim_token")).isEqualTo("worker-retry");
+        assertHistoryStillStarted(execution.history().id());
+    }
+
+    @Test
+    void staleClaimToken이면_task는그대로두고_history를_ownershipLost로끝낸다() {
+        Long taskId = insertPendingTask("OWNERSHIP-LOST");
+        ClaimedRecoveryExecution execution = service.claimAndStart(
+                "current-owner",
+                FIRST_STARTED_AT,
+                FIRST_LEASE_EXPIRES_AT
+        ).orElseThrow();
+        LocalDateTime finishedAt = FIRST_STARTED_AT.plusMinutes(1);
+
+        RecoveryWorkerResultType result = service.resolve(
+                taskId,
+                execution.history().id(),
+                "stale-owner",
+                finishedAt
+        );
+
+        assertThat(result).isEqualTo(RecoveryWorkerResultType.OWNERSHIP_LOST);
+        Map<String, Object> taskRow = taskDetailRow(taskId);
+        assertThat(taskRow.get("recovery_status")).isEqualTo("RUNNING");
+        assertThat(taskRow.get("claim_token")).isEqualTo("current-owner");
+        Map<String, Object> historyRow = historyRow(execution.history().id());
+        assertThat(historyRow.get("result")).isEqualTo("OWNERSHIP_LOST");
+        assertThat(historyRow.get("error_code")).isNull();
+        assertThat(asLocalDateTime(historyRow.get("finished_at"))).isEqualTo(finishedAt);
+    }
+
+    @Test
+    void unknownFailure는_running소유권을유지하고_history만종료한다() {
+        Long taskId = insertPendingTask("UNKNOWN-FAILURE");
+        ClaimedRecoveryExecution execution = service.claimAndStart(
+                "worker-unknown",
+                FIRST_STARTED_AT,
+                FIRST_LEASE_EXPIRES_AT
+        ).orElseThrow();
+        LocalDateTime finishedAt = FIRST_STARTED_AT.plusMinutes(1);
+
+        service.unknownFailure(execution.history().id(), "NullPointerException", finishedAt);
+
+        Map<String, Object> taskRow = taskDetailRow(taskId);
+        assertThat(taskRow.get("recovery_status")).isEqualTo("RUNNING");
+        assertThat(taskRow.get("claim_token")).isEqualTo("worker-unknown");
+        assertThat(asLocalDateTime(taskRow.get("lease_expires_at"))).isEqualTo(FIRST_LEASE_EXPIRES_AT);
+        Map<String, Object> historyRow = historyRow(execution.history().id());
+        assertThat(historyRow.get("result")).isEqualTo("UNKNOWN_FAILURE");
+        assertThat(historyRow.get("error_code")).isEqualTo("NullPointerException");
+        assertThat(asLocalDateTime(historyRow.get("finished_at"))).isEqualTo(finishedAt);
+    }
+
     private Long insertPendingTask(String suffix) {
         String targetTrxNo = TEST_PREFIX + suffix;
         return jdbcTemplate.queryForObject(
@@ -169,6 +272,31 @@ class PostgresRecoveryExecutionTransactionServiceIntegrationTest {
                 """,
                 taskId
         );
+    }
+
+    private Map<String, Object> taskDetailRow(Long taskId) {
+        return jdbcTemplate.queryForMap(
+                """
+                SELECT RECOVERY_STATUS, RETRY_COUNT, NEXT_RETRY_AT, CLAIM_TOKEN, LEASE_EXPIRES_AT
+                FROM PAYMENT_RECOVERY_TASK
+                WHERE ID = ?
+                """,
+                taskId
+        );
+    }
+
+    private Map<String, Object> historyRow(Long historyId) {
+        return jdbcTemplate.queryForMap(
+                "SELECT RESULT, ERROR_CODE, FINISHED_AT FROM PAYMENT_RECOVERY_HISTORY WHERE ID = ?",
+                historyId
+        );
+    }
+
+    private void assertHistoryStillStarted(Long historyId) {
+        Map<String, Object> historyRow = historyRow(historyId);
+        assertThat(historyRow.get("result")).isNull();
+        assertThat(historyRow.get("error_code")).isNull();
+        assertThat(historyRow.get("finished_at")).isNull();
     }
 
     private List<Integer> historyTryNos(Long taskId) {
@@ -212,6 +340,36 @@ class PostgresRecoveryExecutionTransactionServiceIntegrationTest {
                 "DROP TRIGGER IF EXISTS fail_recovery_history_insert_trigger ON PAYMENT_RECOVERY_HISTORY"
         );
         jdbcTemplate.execute("DROP FUNCTION IF EXISTS fail_recovery_history_insert() CASCADE");
+    }
+
+    private void createFailingHistoryUpdateTrigger() {
+        jdbcTemplate.execute(
+                """
+                CREATE OR REPLACE FUNCTION fail_recovery_history_update()
+                RETURNS trigger
+                LANGUAGE plpgsql
+                AS $$
+                BEGIN
+                    RAISE EXCEPTION 'forced recovery history update failure';
+                END;
+                $$
+                """
+        );
+        jdbcTemplate.execute(
+                """
+                CREATE TRIGGER fail_recovery_history_update_trigger
+                BEFORE UPDATE ON PAYMENT_RECOVERY_HISTORY
+                FOR EACH ROW
+                EXECUTE FUNCTION fail_recovery_history_update()
+                """
+        );
+    }
+
+    private void dropFailingHistoryUpdateTrigger() {
+        jdbcTemplate.execute(
+                "DROP TRIGGER IF EXISTS fail_recovery_history_update_trigger ON PAYMENT_RECOVERY_HISTORY"
+        );
+        jdbcTemplate.execute("DROP FUNCTION IF EXISTS fail_recovery_history_update() CASCADE");
     }
 
     private LocalDateTime asLocalDateTime(Object value) {

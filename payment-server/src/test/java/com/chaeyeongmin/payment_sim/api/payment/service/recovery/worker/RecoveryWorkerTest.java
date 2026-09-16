@@ -1,22 +1,26 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.recovery.worker;
 
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.exception.RecoveryInvariantViolationException;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.failure.RecoveryFailureClassifier;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.failure.RecoveryFailureType;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler.RecoveryHandler;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler.RecoveryHandlerResult;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler.RecoveryHandlerResultType;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler.RecoveryRetryPolicy;
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.transaction.ClaimedRecoveryExecution;
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.transaction.RecoveryExecutionTransactionService;
+import com.chaeyeongmin.payment_sim.domain.model.RecoveryHistory;
 import com.chaeyeongmin.payment_sim.domain.model.RecoveryTask;
 import com.chaeyeongmin.payment_sim.domain.policy.RecoveryStatus;
 import com.chaeyeongmin.payment_sim.domain.policy.RecoveryTargetType;
-import com.chaeyeongmin.payment_sim.infra.repository.RecoveryTaskRepository;
+import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayRequestNotSentException;
+import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutException;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.mockito.ArgumentCaptor;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -41,47 +45,45 @@ import static org.mockito.Mockito.when;
 class RecoveryWorkerTest {
 
     private static final long TASK_ID = 1L;
+    private static final long HISTORY_ID = 11L;
     private static final Duration LEASE_DURATION = Duration.ofSeconds(30);
     private static final ZoneId ZONE_ID = ZoneId.of("Asia/Seoul");
-    private static final LocalDateTime CLAIMED_AT = LocalDateTime.of(2026, 9, 11, 10, 0, 0);
-    private static final LocalDateTime COMPLETED_AT = LocalDateTime.of(2026, 9, 11, 10, 0, 31);
+    private static final LocalDateTime CLAIMED_AT = LocalDateTime.of(2026, 9, 11, 10, 0);
+    private static final LocalDateTime COMPLETED_AT = CLAIMED_AT.plusSeconds(31);
     private static final Instant CLAIMED_INSTANT = CLAIMED_AT.atZone(ZONE_ID).toInstant();
     private static final Instant COMPLETED_INSTANT = COMPLETED_AT.atZone(ZONE_ID).toInstant();
 
-    private RecoveryTaskRepository recoveryTaskRepository;
+    private RecoveryExecutionTransactionService transactionService;
     private RecoveryHandler approvalHandler;
     private RecoveryHandler cancelHandler;
     private Clock clock;
+    private RecoveryRetryPolicy retryPolicy;
+    private RecoveryFailureClassifier failureClassifier;
     private RecoveryWorker worker;
-    private RecoveryRetryPolicy recoveryRetryPolicy;
-    private RecoveryFailureClassifier recoveryFailureClassifier;
 
     @BeforeEach
     void setUp() {
-        recoveryTaskRepository = mock(RecoveryTaskRepository.class);
+        transactionService = mock(RecoveryExecutionTransactionService.class);
         approvalHandler = handler(RecoveryTargetType.APPROVAL);
         cancelHandler = handler(RecoveryTargetType.CANCEL);
         clock = mock(Clock.class);
-        recoveryRetryPolicy = mock(RecoveryRetryPolicy.class);
-        recoveryFailureClassifier = mock(RecoveryFailureClassifier.class);
-
+        retryPolicy = mock(RecoveryRetryPolicy.class);
+        failureClassifier = mock(RecoveryFailureClassifier.class);
         when(clock.getZone()).thenReturn(ZONE_ID);
         when(clock.instant()).thenReturn(CLAIMED_INSTANT, COMPLETED_INSTANT);
-
         worker = new RecoveryWorker(
-                recoveryTaskRepository,
+                transactionService,
                 List.of(approvalHandler, cancelHandler),
                 LEASE_DURATION,
                 clock,
-                recoveryRetryPolicy,
-                recoveryFailureClassifier
+                retryPolicy,
+                failureClassifier
         );
     }
 
     @Test
-    @DisplayName("claim할 task가 없으면 NO_TASK이고 Handler를 호출하지 않는다")
-    void executeOne_noTask_shouldReturnNoTask_withoutHandlerCall() {
-        when(recoveryTaskRepository.claimNext(anyString(), eq(CLAIMED_AT), eq(CLAIMED_AT.plus(LEASE_DURATION))))
+    void claim할Task가없으면_noTask이고_handler를호출하지않는다() {
+        when(transactionService.claimAndStart(anyString(), eq(CLAIMED_AT), eq(CLAIMED_AT.plus(LEASE_DURATION))))
                 .thenReturn(Optional.empty());
 
         RecoveryWorkerResult result = worker.executeOne();
@@ -90,581 +92,263 @@ class RecoveryWorkerTest {
         assertThat(result.taskId()).isNull();
         assertThat(result.handlerResult()).isNull();
         verify(approvalHandler, never()).handle(any());
-        verify(cancelHandler, never()).handle(any());
-        verify(recoveryTaskRepository, never()).markResolved(any(), anyString(), any());
-        verify(recoveryTaskRepository, never()).markRetryWait(any(), anyString(), any(), any());
-        verify(recoveryTaskRepository, never()).markManualReview(any(), anyString(), any());
     }
 
     @Test
-    @DisplayName("APPROVAL task는 Approval Handler로 routing한다")
-    void executeOne_approvalTask_shouldRouteToApprovalHandler() {
-        RecoveryTask task = task(RecoveryTargetType.APPROVAL);
-        RecoveryHandlerResult handlerResult = stillUnresolvedResult();
-        givenClaimedTask(task);
+    void resolved는_transactionService로_task와history를종료하고_handlerResult를보존한다() {
+        RecoveryTask task = task(RecoveryTargetType.APPROVAL, 0);
+        RecoveryHandlerResult handlerResult = result(RecoveryHandlerResultType.RESOLVED);
+        givenClaimed(task);
         when(approvalHandler.handle(task)).thenReturn(handlerResult);
-        when(recoveryRetryPolicy.canRetry(task.retryCount())).thenReturn(true);
-        when(recoveryRetryPolicy.nextRetryAt(task.retryCount(), COMPLETED_AT))
-                .thenReturn(COMPLETED_AT.plusMinutes(1));
-        when(recoveryTaskRepository.markRetryWait(
-                eq(TASK_ID), anyString(), eq(COMPLETED_AT), eq(COMPLETED_AT.plusMinutes(1))))
-                .thenReturn(1);
-
-        RecoveryWorkerResult result = worker.executeOne();
-
-        assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.RETRY_WAIT);
-        verify(approvalHandler).handle(task);
-        verify(cancelHandler, never()).handle(any());
-    }
-
-    @Test
-    @DisplayName("CANCEL task는 Cancel Handler로 routing한다")
-    void executeOne_cancelTask_shouldRouteToCancelHandler() {
-        RecoveryTask task = task(RecoveryTargetType.CANCEL);
-        RecoveryHandlerResult handlerResult = stillUnresolvedResult();
-        givenClaimedTask(task);
-        when(cancelHandler.handle(task)).thenReturn(handlerResult);
-        when(recoveryRetryPolicy.canRetry(task.retryCount())).thenReturn(true);
-        when(recoveryRetryPolicy.nextRetryAt(task.retryCount(), COMPLETED_AT))
-                .thenReturn(COMPLETED_AT.plusMinutes(1));
-        when(recoveryTaskRepository.markRetryWait(
-                eq(TASK_ID), anyString(), eq(COMPLETED_AT), eq(COMPLETED_AT.plusMinutes(1))))
-                .thenReturn(1);
-
-        RecoveryWorkerResult result = worker.executeOne();
-
-        assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.RETRY_WAIT);
-        verify(cancelHandler).handle(task);
-        verify(approvalHandler, never()).handle(any());
-    }
-
-    @Test
-    @DisplayName("Handler가 RESOLVED이고 markResolved가 1이면 Worker도 RESOLVED다")
-    void executeOne_resolvedAndUpdated_shouldReturnResolved() {
-        RecoveryTask task = task(RecoveryTargetType.APPROVAL);
-        RecoveryHandlerResult handlerResult = resolvedResult();
-        givenClaimedTask(task);
-        when(approvalHandler.handle(task)).thenReturn(handlerResult);
-        when(recoveryTaskRepository.markResolved(eq(TASK_ID), anyString(), eq(COMPLETED_AT))).thenReturn(1);
+        when(transactionService.resolve(eq(TASK_ID), eq(HISTORY_ID), anyString(), eq(COMPLETED_AT)))
+                .thenReturn(RecoveryWorkerResultType.RESOLVED);
 
         RecoveryWorkerResult result = worker.executeOne();
 
         assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.RESOLVED);
-        assertThat(result.taskId()).isEqualTo(TASK_ID);
         assertThat(result.handlerResult()).isSameAs(handlerResult);
+        verify(transactionService).resolve(eq(TASK_ID), eq(HISTORY_ID), anyString(), eq(COMPLETED_AT));
     }
 
     @Test
-    @DisplayName("Handler가 RESOLVED여도 markResolved가 0이면 OWNERSHIP_LOST다")
-    void executeOne_resolvedButNotUpdated_shouldReturnOwnershipLost() {
-        RecoveryTask task = task(RecoveryTargetType.APPROVAL);
-        RecoveryHandlerResult handlerResult = resolvedResult();
-        givenClaimedTask(task);
-        when(approvalHandler.handle(task)).thenReturn(handlerResult);
-        when(recoveryTaskRepository.markResolved(eq(TASK_ID), anyString(), eq(COMPLETED_AT))).thenReturn(0);
-
-        RecoveryWorkerResult result = worker.executeOne();
-
-        assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.OWNERSHIP_LOST);
-        assertThat(result.taskId()).isEqualTo(TASK_ID);
-        assertThat(result.handlerResult()).isSameAs(handlerResult);
-    }
-
-    @Test
-    @DisplayName("retryCount 0의 STILL_UNRESOLVED는 정책 시각으로 RETRY_WAIT 전이한다")
-    void executeOne_retryCountZero_shouldMarkRetryWaitWithCompletionTimeAndPolicyResult() {
+    void resolved전이결과가_ownershipLost이면그대로반환한다() {
         RecoveryTask task = task(RecoveryTargetType.APPROVAL, 0);
-        RecoveryHandlerResult handlerResult = stillUnresolvedResult();
-        LocalDateTime nextRetryAt = COMPLETED_AT.plusMinutes(1);
-        givenClaimedTask(task);
+        RecoveryHandlerResult handlerResult = result(RecoveryHandlerResultType.RESOLVED);
+        givenClaimed(task);
         when(approvalHandler.handle(task)).thenReturn(handlerResult);
-        when(recoveryRetryPolicy.canRetry(0)).thenReturn(true);
-        when(recoveryRetryPolicy.nextRetryAt(0, COMPLETED_AT)).thenReturn(nextRetryAt);
-        when(recoveryTaskRepository.markRetryWait(
-                eq(TASK_ID), anyString(), eq(COMPLETED_AT), eq(nextRetryAt))).thenReturn(1);
-
-        RecoveryWorkerResult result = worker.executeOne();
-
-        assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.RETRY_WAIT);
-        assertThat(result.taskId()).isEqualTo(TASK_ID);
-        assertThat(result.handlerResult()).isSameAs(handlerResult);
-        ArgumentCaptor<String> claimTokenCaptor = ArgumentCaptor.forClass(String.class);
-        verify(recoveryTaskRepository).claimNext(
-                claimTokenCaptor.capture(),
-                eq(CLAIMED_AT),
-                eq(CLAIMED_AT.plus(LEASE_DURATION))
-        );
-        verify(recoveryRetryPolicy).canRetry(0);
-        verify(recoveryRetryPolicy).nextRetryAt(0, COMPLETED_AT);
-        verify(recoveryTaskRepository).markRetryWait(
-                TASK_ID,
-                claimTokenCaptor.getValue(),
-                COMPLETED_AT,
-                nextRetryAt
-        );
-        verify(recoveryTaskRepository, never()).markManualReview(any(), anyString(), any());
-        verify(recoveryTaskRepository, never()).markResolved(any(), anyString(), any());
-    }
-
-    @Test
-    @DisplayName("retryCount 1의 STILL_UNRESOLVED는 완료 시각 기준 5분 뒤 RETRY_WAIT 전이한다")
-    void executeOne_retryCountOne_shouldUseFiveMinuteRetryTime() {
-        assertRetryWaitTransition(1, COMPLETED_AT.plusMinutes(5));
-    }
-
-    @Test
-    @DisplayName("retryCount 2의 STILL_UNRESOLVED는 완료 시각 기준 30분 뒤 RETRY_WAIT 전이한다")
-    void executeOne_retryCountTwo_shouldUseThirtyMinuteRetryTime() {
-        assertRetryWaitTransition(2, COMPLETED_AT.plusMinutes(30));
-    }
-
-    @Test
-    @DisplayName("RETRY_WAIT 상태 전이에 실패하면 OWNERSHIP_LOST다")
-    void executeOne_retryWaitUpdateZero_shouldReturnOwnershipLost() {
-        RecoveryTask task = task(RecoveryTargetType.APPROVAL, 0);
-        RecoveryHandlerResult handlerResult = stillUnresolvedResult();
-        LocalDateTime nextRetryAt = COMPLETED_AT.plusMinutes(1);
-        givenClaimedTask(task);
-        when(approvalHandler.handle(task)).thenReturn(handlerResult);
-        when(recoveryRetryPolicy.canRetry(0)).thenReturn(true);
-        when(recoveryRetryPolicy.nextRetryAt(0, COMPLETED_AT)).thenReturn(nextRetryAt);
-        when(recoveryTaskRepository.markRetryWait(
-                eq(TASK_ID), anyString(), eq(COMPLETED_AT), eq(nextRetryAt))).thenReturn(0);
-
-        RecoveryWorkerResult result = worker.executeOne();
-
-        assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.OWNERSHIP_LOST);
-        assertThat(result.taskId()).isEqualTo(TASK_ID);
-        assertThat(result.handlerResult()).isSameAs(handlerResult);
-        verify(recoveryTaskRepository, never()).markManualReview(any(), anyString(), any());
-        verify(recoveryTaskRepository, never()).markResolved(any(), anyString(), any());
-    }
-
-    @Test
-    @DisplayName("retry exhausted STILL_UNRESOLVED는 retry 계산 없이 MANUAL_REVIEW 전이한다")
-    void executeOne_retryExhausted_shouldMarkManualReview() {
-        RecoveryTask task = task(RecoveryTargetType.APPROVAL, 3);
-        RecoveryHandlerResult handlerResult = stillUnresolvedResult();
-        givenClaimedTask(task);
-        when(approvalHandler.handle(task)).thenReturn(handlerResult);
-        when(recoveryRetryPolicy.canRetry(3)).thenReturn(false);
-        when(recoveryTaskRepository.markManualReview(eq(TASK_ID), anyString(), eq(COMPLETED_AT)))
-                .thenReturn(1);
-
-        RecoveryWorkerResult result = worker.executeOne();
-
-        assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.MANUAL_REVIEW);
-        assertThat(result.handlerResult()).isSameAs(handlerResult);
-        verify(recoveryRetryPolicy).canRetry(3);
-        verify(recoveryRetryPolicy, never()).nextRetryAt(anyInt(), any());
-        verify(recoveryTaskRepository, never()).markRetryWait(any(), anyString(), any(), any());
-        verify(recoveryTaskRepository, never()).markResolved(any(), anyString(), any());
-        verifyManualReviewUsesClaimTokenAndCompletionTime();
-    }
-
-    @Test
-    @DisplayName("retry exhausted의 MANUAL_REVIEW 전이에 실패하면 OWNERSHIP_LOST다")
-    void executeOne_retryExhaustedUpdateZero_shouldReturnOwnershipLost() {
-        RecoveryTask task = task(RecoveryTargetType.APPROVAL, 3);
-        RecoveryHandlerResult handlerResult = stillUnresolvedResult();
-        givenClaimedTask(task);
-        when(approvalHandler.handle(task)).thenReturn(handlerResult);
-        when(recoveryRetryPolicy.canRetry(3)).thenReturn(false);
-        when(recoveryTaskRepository.markManualReview(eq(TASK_ID), anyString(), eq(COMPLETED_AT)))
-                .thenReturn(0);
+        when(transactionService.resolve(eq(TASK_ID), eq(HISTORY_ID), anyString(), eq(COMPLETED_AT)))
+                .thenReturn(RecoveryWorkerResultType.OWNERSHIP_LOST);
 
         RecoveryWorkerResult result = worker.executeOne();
 
         assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.OWNERSHIP_LOST);
         assertThat(result.handlerResult()).isSameAs(handlerResult);
-        verify(recoveryRetryPolicy, never()).nextRetryAt(anyInt(), any());
-        verify(recoveryTaskRepository, never()).markRetryWait(any(), anyString(), any(), any());
-        verify(recoveryTaskRepository, never()).markResolved(any(), anyString(), any());
-    }
-
-    @Test
-    @DisplayName("TERMINAL_CONFLICT는 retry 정책 없이 MANUAL_REVIEW 전이하고 원인을 보존한다")
-    void executeOne_terminalConflict_shouldMarkManualReviewAndPreserveHandlerResult() {
-        RecoveryHandlerResult handlerResult =
-                new RecoveryHandlerResult(RecoveryHandlerResultType.TERMINAL_CONFLICT, "APPROVED", "DECLINED");
-        givenApprovalHandlerResult(handlerResult);
-        when(recoveryTaskRepository.markManualReview(eq(TASK_ID), anyString(), eq(COMPLETED_AT)))
-                .thenReturn(1);
-
-        RecoveryWorkerResult result = worker.executeOne();
-
-        assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.MANUAL_REVIEW);
-        assertThat(result.handlerResult()).isSameAs(handlerResult);
-        verifyNoRetryOrResolvedTransition();
-        verifyManualReviewUsesClaimTokenAndCompletionTime();
-    }
-
-    @Test
-    @DisplayName("TERMINAL_CONFLICT의 MANUAL_REVIEW 전이에 실패하면 OWNERSHIP_LOST다")
-    void executeOne_terminalConflictUpdateZero_shouldReturnOwnershipLost() {
-        RecoveryHandlerResult handlerResult =
-                new RecoveryHandlerResult(RecoveryHandlerResultType.TERMINAL_CONFLICT, "APPROVED", "DECLINED");
-        givenApprovalHandlerResult(handlerResult);
-        when(recoveryTaskRepository.markManualReview(eq(TASK_ID), anyString(), eq(COMPLETED_AT)))
-                .thenReturn(0);
-
-        RecoveryWorkerResult result = worker.executeOne();
-
-        assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.OWNERSHIP_LOST);
-        assertThat(result.handlerResult()).isSameAs(handlerResult);
-        verifyNoRetryOrResolvedTransition();
-    }
-
-    @Test
-    @DisplayName("TARGET_NOT_FOUND는 retry 정책 없이 MANUAL_REVIEW 전이하고 원인을 보존한다")
-    void executeOne_targetNotFound_shouldMarkManualReviewAndPreserveHandlerResult() {
-        RecoveryHandlerResult handlerResult =
-                new RecoveryHandlerResult(RecoveryHandlerResultType.TARGET_NOT_FOUND, null, null);
-        givenApprovalHandlerResult(handlerResult);
-        when(recoveryTaskRepository.markManualReview(eq(TASK_ID), anyString(), eq(COMPLETED_AT)))
-                .thenReturn(1);
-
-        RecoveryWorkerResult result = worker.executeOne();
-
-        assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.MANUAL_REVIEW);
-        assertThat(result.handlerResult()).isSameAs(handlerResult);
-        verifyNoRetryOrResolvedTransition();
-        verifyManualReviewUsesClaimTokenAndCompletionTime();
-    }
-
-    @Test
-    @DisplayName("TARGET_NOT_FOUND의 MANUAL_REVIEW 전이에 실패하면 OWNERSHIP_LOST다")
-    void executeOne_targetNotFoundUpdateZero_shouldReturnOwnershipLost() {
-        RecoveryHandlerResult handlerResult =
-                new RecoveryHandlerResult(RecoveryHandlerResultType.TARGET_NOT_FOUND, null, null);
-        givenApprovalHandlerResult(handlerResult);
-        when(recoveryTaskRepository.markManualReview(eq(TASK_ID), anyString(), eq(COMPLETED_AT)))
-                .thenReturn(0);
-
-        RecoveryWorkerResult result = worker.executeOne();
-
-        assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.OWNERSHIP_LOST);
-        assertThat(result.handlerResult()).isSameAs(handlerResult);
-        verifyNoRetryOrResolvedTransition();
     }
 
     @ParameterizedTest
     @ValueSource(ints = {0, 1, 2})
-    @DisplayName("RETRYABLE Handler 예외는 retryCount 0/1/2에서 RETRY_WAIT 전이한다")
-    void executeOne_retryableHandlerException_shouldMarkRetryWait(int retryCount) {
+    void stillUnresolved이고재시도가능하면_errorCode없이_retryWait한다(int retryCount) {
         RecoveryTask task = task(RecoveryTargetType.APPROVAL, retryCount);
-        RuntimeException exception = new RuntimeException("retryable");
+        RecoveryHandlerResult handlerResult = result(RecoveryHandlerResultType.STILL_UNRESOLVED);
         LocalDateTime nextRetryAt = COMPLETED_AT.plusMinutes(retryCount + 1L);
-        givenClaimedTask(task);
-        when(approvalHandler.handle(task)).thenThrow(exception);
-        when(recoveryFailureClassifier.classify(exception)).thenReturn(RecoveryFailureType.RETRYABLE);
-        when(recoveryRetryPolicy.canRetry(retryCount)).thenReturn(true);
-        when(recoveryRetryPolicy.nextRetryAt(retryCount, COMPLETED_AT)).thenReturn(nextRetryAt);
-        when(recoveryTaskRepository.markRetryWait(
-                eq(TASK_ID), anyString(), eq(COMPLETED_AT), eq(nextRetryAt))).thenReturn(1);
+        givenClaimed(task);
+        when(approvalHandler.handle(task)).thenReturn(handlerResult);
+        when(retryPolicy.canRetry(retryCount)).thenReturn(true);
+        when(retryPolicy.nextRetryAt(retryCount, COMPLETED_AT)).thenReturn(nextRetryAt);
+        when(transactionService.retryWait(
+                eq(TASK_ID), eq(HISTORY_ID), anyString(), eq(COMPLETED_AT), eq(nextRetryAt), eq(null)))
+                .thenReturn(RecoveryWorkerResultType.RETRY_WAIT);
 
         RecoveryWorkerResult result = worker.executeOne();
 
         assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.RETRY_WAIT);
-        assertThat(result.taskId()).isEqualTo(TASK_ID);
-        assertThat(result.handlerResult()).isNull();
-        verify(recoveryTaskRepository, never()).markManualReview(any(), anyString(), any());
-        verify(recoveryTaskRepository, never()).markResolved(any(), anyString(), any());
+        assertThat(result.handlerResult()).isSameAs(handlerResult);
     }
 
     @Test
-    @DisplayName("RETRYABLE Handler 예외는 retryCount 3에서 MANUAL_REVIEW 전이한다")
-    void executeOne_retryableHandlerExceptionAtRetryLimit_shouldMarkManualReview() {
+    void stillUnresolved이고재시도소진이면_retryExhausted로_manualReview한다() {
         RecoveryTask task = task(RecoveryTargetType.APPROVAL, 3);
-        RuntimeException exception = new RuntimeException("retryable");
-        givenClaimedTask(task);
+        givenClaimed(task);
+        when(approvalHandler.handle(task)).thenReturn(result(RecoveryHandlerResultType.STILL_UNRESOLVED));
+        when(retryPolicy.canRetry(3)).thenReturn(false);
+        when(transactionService.manualReview(
+                eq(TASK_ID), eq(HISTORY_ID), anyString(), eq(COMPLETED_AT), eq("RETRY_EXHAUSTED")))
+                .thenReturn(RecoveryWorkerResultType.MANUAL_REVIEW);
+
+        RecoveryWorkerResult result = worker.executeOne();
+
+        assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.MANUAL_REVIEW);
+        verify(retryPolicy, never()).nextRetryAt(anyInt(), any());
+    }
+
+    @ParameterizedTest
+    @MethodSource("manualReviewResults")
+    void terminal결과는_안정적인errorCode로_manualReview한다(
+            RecoveryHandlerResultType resultType,
+            String errorCode
+    ) {
+        RecoveryTask task = task(RecoveryTargetType.APPROVAL, 0);
+        RecoveryHandlerResult handlerResult = result(resultType);
+        givenClaimed(task);
+        when(approvalHandler.handle(task)).thenReturn(handlerResult);
+        when(transactionService.manualReview(
+                eq(TASK_ID), eq(HISTORY_ID), anyString(), eq(COMPLETED_AT), eq(errorCode)))
+                .thenReturn(RecoveryWorkerResultType.MANUAL_REVIEW);
+
+        RecoveryWorkerResult result = worker.executeOne();
+
+        assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.MANUAL_REVIEW);
+        assertThat(result.handlerResult()).isSameAs(handlerResult);
+        verify(retryPolicy, never()).canRetry(anyInt());
+    }
+
+    @ParameterizedTest
+    @MethodSource("retryableExceptions")
+    void retryable예외는_종류별errorCode로_retryWait한다(RuntimeException exception, String errorCode) {
+        RecoveryTask task = task(RecoveryTargetType.APPROVAL, 0);
+        LocalDateTime nextRetryAt = COMPLETED_AT.plusMinutes(1);
+        givenClaimed(task);
         when(approvalHandler.handle(task)).thenThrow(exception);
-        when(recoveryFailureClassifier.classify(exception)).thenReturn(RecoveryFailureType.RETRYABLE);
-        when(recoveryRetryPolicy.canRetry(3)).thenReturn(false);
-        when(recoveryTaskRepository.markManualReview(eq(TASK_ID), anyString(), eq(COMPLETED_AT))).thenReturn(1);
+        when(failureClassifier.classify(exception)).thenReturn(RecoveryFailureType.RETRYABLE);
+        when(retryPolicy.canRetry(0)).thenReturn(true);
+        when(retryPolicy.nextRetryAt(0, COMPLETED_AT)).thenReturn(nextRetryAt);
+        when(transactionService.retryWait(
+                eq(TASK_ID), eq(HISTORY_ID), anyString(), eq(COMPLETED_AT), eq(nextRetryAt), eq(errorCode)))
+                .thenReturn(RecoveryWorkerResultType.RETRY_WAIT);
+
+        RecoveryWorkerResult result = worker.executeOne();
+
+        assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.RETRY_WAIT);
+        assertThat(result.handlerResult()).isNull();
+    }
+
+    @Test
+    void retryable예외가재시도소진이면_예외errorCode를유지한다() {
+        RecoveryTask task = task(RecoveryTargetType.APPROVAL, 3);
+        RuntimeException exception = new VanGatewayTimeoutException(new RuntimeException());
+        givenClaimed(task);
+        when(approvalHandler.handle(task)).thenThrow(exception);
+        when(failureClassifier.classify(exception)).thenReturn(RecoveryFailureType.RETRYABLE);
+        when(retryPolicy.canRetry(3)).thenReturn(false);
+        when(transactionService.manualReview(
+                eq(TASK_ID), eq(HISTORY_ID), anyString(), eq(COMPLETED_AT), eq("VAN_GATEWAY_TIMEOUT")))
+                .thenReturn(RecoveryWorkerResultType.MANUAL_REVIEW);
 
         RecoveryWorkerResult result = worker.executeOne();
 
         assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.MANUAL_REVIEW);
         assertThat(result.handlerResult()).isNull();
-        verify(recoveryTaskRepository, never()).markRetryWait(any(), anyString(), any(), any());
-        verify(recoveryTaskRepository, never()).markResolved(any(), anyString(), any());
     }
 
     @Test
-    @DisplayName("RETRYABLE 예외의 RETRY_WAIT update가 0이면 OWNERSHIP_LOST다")
-    void executeOne_retryableHandlerExceptionRetryUpdateZero_shouldReturnOwnershipLost() {
+    void invariant예외는_message를errorCode로_manualReview한다() {
         RecoveryTask task = task(RecoveryTargetType.APPROVAL, 0);
-        RuntimeException exception = new RuntimeException("retryable");
-        LocalDateTime nextRetryAt = COMPLETED_AT.plusMinutes(1);
-        givenClaimedTask(task);
+        RuntimeException exception =
+                new RecoveryInvariantViolationException("RECOVERY_APPROVAL_INQUIRY_RESPONSE_INVALID");
+        givenClaimed(task);
         when(approvalHandler.handle(task)).thenThrow(exception);
-        when(recoveryFailureClassifier.classify(exception)).thenReturn(RecoveryFailureType.RETRYABLE);
-        when(recoveryRetryPolicy.canRetry(0)).thenReturn(true);
-        when(recoveryRetryPolicy.nextRetryAt(0, COMPLETED_AT)).thenReturn(nextRetryAt);
-        when(recoveryTaskRepository.markRetryWait(
-                eq(TASK_ID), anyString(), eq(COMPLETED_AT), eq(nextRetryAt))).thenReturn(0);
-
-        RecoveryWorkerResult result = worker.executeOne();
-
-        assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.OWNERSHIP_LOST);
-        assertThat(result.handlerResult()).isNull();
-    }
-
-    @Test
-    @DisplayName("RETRYABLE 예외의 retry exhausted update가 0이면 OWNERSHIP_LOST다")
-    void executeOne_retryableHandlerExceptionManualReviewUpdateZero_shouldReturnOwnershipLost() {
-        RecoveryTask task = task(RecoveryTargetType.APPROVAL, 3);
-        RuntimeException exception = new RuntimeException("retryable");
-        givenClaimedTask(task);
-        when(approvalHandler.handle(task)).thenThrow(exception);
-        when(recoveryFailureClassifier.classify(exception)).thenReturn(RecoveryFailureType.RETRYABLE);
-        when(recoveryRetryPolicy.canRetry(3)).thenReturn(false);
-        when(recoveryTaskRepository.markManualReview(eq(TASK_ID), anyString(), eq(COMPLETED_AT))).thenReturn(0);
-
-        RecoveryWorkerResult result = worker.executeOne();
-
-        assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.OWNERSHIP_LOST);
-        assertThat(result.handlerResult()).isNull();
-    }
-
-    @Test
-    @DisplayName("MANUAL_REVIEW Handler 예외는 MANUAL_REVIEW 전이한다")
-    void executeOne_manualReviewHandlerException_shouldMarkManualReview() {
-        RecoveryTask task = task(RecoveryTargetType.APPROVAL);
-        RuntimeException exception = new RuntimeException("manual review");
-        givenClaimedTask(task);
-        when(approvalHandler.handle(task)).thenThrow(exception);
-        when(recoveryFailureClassifier.classify(exception)).thenReturn(RecoveryFailureType.MANUAL_REVIEW);
-        when(recoveryTaskRepository.markManualReview(eq(TASK_ID), anyString(), eq(COMPLETED_AT))).thenReturn(1);
+        when(failureClassifier.classify(exception)).thenReturn(RecoveryFailureType.MANUAL_REVIEW);
+        when(transactionService.manualReview(
+                eq(TASK_ID), eq(HISTORY_ID), anyString(), eq(COMPLETED_AT),
+                eq("RECOVERY_APPROVAL_INQUIRY_RESPONSE_INVALID")))
+                .thenReturn(RecoveryWorkerResultType.MANUAL_REVIEW);
 
         RecoveryWorkerResult result = worker.executeOne();
 
         assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.MANUAL_REVIEW);
         assertThat(result.handlerResult()).isNull();
-        verifyNoRetryOrResolvedTransition();
     }
 
     @Test
-    @DisplayName("MANUAL_REVIEW 예외의 update가 0이면 OWNERSHIP_LOST다")
-    void executeOne_manualReviewHandlerExceptionUpdateZero_shouldReturnOwnershipLost() {
-        RecoveryTask task = task(RecoveryTargetType.APPROVAL);
-        RuntimeException exception = new RuntimeException("manual review");
-        givenClaimedTask(task);
+    void unknown예외는_history를종료한뒤_원본instance를재전파한다() {
+        RecoveryTask task = task(RecoveryTargetType.APPROVAL, 0);
+        NullPointerException exception = new NullPointerException("unknown");
+        givenClaimed(task);
         when(approvalHandler.handle(task)).thenThrow(exception);
-        when(recoveryFailureClassifier.classify(exception)).thenReturn(RecoveryFailureType.MANUAL_REVIEW);
-        when(recoveryTaskRepository.markManualReview(eq(TASK_ID), anyString(), eq(COMPLETED_AT))).thenReturn(0);
-
-        RecoveryWorkerResult result = worker.executeOne();
-
-        assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.OWNERSHIP_LOST);
-        assertThat(result.handlerResult()).isNull();
-        verifyNoRetryOrResolvedTransition();
-    }
-
-    @Test
-    @DisplayName("UNKNOWN Handler 예외는 원본 그대로 전파하고 transition하지 않는다")
-    void executeOne_unknownHandlerException_shouldRethrowOriginalWithoutTransition() {
-        RecoveryTask task = task(RecoveryTargetType.APPROVAL);
-        RuntimeException exception = new RuntimeException("unknown");
-        givenClaimedTask(task);
-        when(approvalHandler.handle(task)).thenThrow(exception);
-        when(recoveryFailureClassifier.classify(exception)).thenReturn(RecoveryFailureType.UNKNOWN);
+        when(failureClassifier.classify(exception)).thenReturn(RecoveryFailureType.UNKNOWN);
 
         assertThatThrownBy(worker::executeOne).isSameAs(exception);
 
-        verify(recoveryTaskRepository, never()).markRetryWait(any(), anyString(), any(), any());
-        verify(recoveryTaskRepository, never()).markManualReview(any(), anyString(), any());
-        verify(recoveryTaskRepository, never()).markResolved(any(), anyString(), any());
+        verify(transactionService).unknownFailure(HISTORY_ID, "NullPointerException", COMPLETED_AT);
+        verify(transactionService, never()).resolve(any(), any(), anyString(), any());
+        verify(transactionService, never()).retryWait(any(), any(), anyString(), any(), any(), any());
+        verify(transactionService, never()).manualReview(any(), any(), anyString(), any(), any());
     }
 
     @Test
-    @DisplayName("markResolved RuntimeException은 분류하지 않고 그대로 전파한다")
-    void executeOne_markResolvedException_shouldPropagateWithoutClassification() {
-        RecoveryTask task = task(RecoveryTargetType.APPROVAL);
-        RuntimeException exception = new RuntimeException("mark resolved failed");
-        givenClaimedTask(task);
-        when(approvalHandler.handle(task)).thenReturn(resolvedResult());
-        when(recoveryTaskRepository.markResolved(eq(TASK_ID), anyString(), eq(COMPLETED_AT)))
+    void unknownFailure저장이실패하면_DB예외가우선한다() {
+        RecoveryTask task = task(RecoveryTargetType.APPROVAL, 0);
+        RuntimeException handlerException = new RuntimeException("handler failed");
+        RuntimeException databaseException = new RuntimeException("history finish failed");
+        givenClaimed(task);
+        when(approvalHandler.handle(task)).thenThrow(handlerException);
+        when(failureClassifier.classify(handlerException)).thenReturn(RecoveryFailureType.UNKNOWN);
+        org.mockito.Mockito.doThrow(databaseException)
+                .when(transactionService).unknownFailure(HISTORY_ID, "RuntimeException", COMPLETED_AT);
+
+        assertThatThrownBy(worker::executeOne).isSameAs(databaseException);
+    }
+
+    @Test
+    void claimAndStart예외는_classifier로분류하지않는다() {
+        RuntimeException exception = new RuntimeException("claim failed");
+        when(transactionService.claimAndStart(anyString(), eq(CLAIMED_AT), eq(CLAIMED_AT.plus(LEASE_DURATION))))
                 .thenThrow(exception);
 
         assertThatThrownBy(worker::executeOne).isSameAs(exception);
+        verify(failureClassifier, never()).classify(any());
+    }
 
-        verify(recoveryFailureClassifier, never()).classify(any());
+    @ParameterizedTest
+    @MethodSource("transitionFailures")
+    void transitionService예외는_classifier로분류하지않는다(RecoveryHandlerResultType resultType) {
+        RecoveryTask task = task(RecoveryTargetType.APPROVAL,
+                resultType == RecoveryHandlerResultType.STILL_UNRESOLVED ? 3 : 0);
+        RuntimeException exception = new RuntimeException("transition failed");
+        givenClaimed(task);
+        when(approvalHandler.handle(task)).thenReturn(result(resultType));
+
+        if (resultType == RecoveryHandlerResultType.RESOLVED) {
+            when(transactionService.resolve(eq(TASK_ID), eq(HISTORY_ID), anyString(), eq(COMPLETED_AT)))
+                    .thenThrow(exception);
+        } else {
+            when(retryPolicy.canRetry(3)).thenReturn(false);
+            when(transactionService.manualReview(
+                    eq(TASK_ID), eq(HISTORY_ID), anyString(), eq(COMPLETED_AT), anyString()))
+                    .thenThrow(exception);
+        }
+
+        assertThatThrownBy(worker::executeOne).isSameAs(exception);
+        verify(failureClassifier, never()).classify(any());
     }
 
     @Test
-    @DisplayName("markRetryWait RuntimeException은 분류하지 않고 그대로 전파한다")
-    void executeOne_markRetryWaitException_shouldPropagateWithoutClassification() {
+    void retryWaitService예외는_classifier로분류하지않는다() {
         RecoveryTask task = task(RecoveryTargetType.APPROVAL, 0);
         LocalDateTime nextRetryAt = COMPLETED_AT.plusMinutes(1);
-        RuntimeException exception = new RuntimeException("mark retry wait failed");
-        givenClaimedTask(task);
-        when(approvalHandler.handle(task)).thenReturn(stillUnresolvedResult());
-        when(recoveryRetryPolicy.canRetry(0)).thenReturn(true);
-        when(recoveryRetryPolicy.nextRetryAt(0, COMPLETED_AT)).thenReturn(nextRetryAt);
-        when(recoveryTaskRepository.markRetryWait(
-                eq(TASK_ID), anyString(), eq(COMPLETED_AT), eq(nextRetryAt))).thenThrow(exception);
-
-        assertThatThrownBy(worker::executeOne).isSameAs(exception);
-
-        verify(recoveryFailureClassifier, never()).classify(any());
-    }
-
-    @Test
-    @DisplayName("markManualReview RuntimeException은 분류하지 않고 그대로 전파한다")
-    void executeOne_markManualReviewException_shouldPropagateWithoutClassification() {
-        RecoveryTask task = task(RecoveryTargetType.APPROVAL, 3);
-        RuntimeException exception = new RuntimeException("mark manual review failed");
-        givenClaimedTask(task);
-        when(approvalHandler.handle(task)).thenReturn(stillUnresolvedResult());
-        when(recoveryRetryPolicy.canRetry(3)).thenReturn(false);
-        when(recoveryTaskRepository.markManualReview(eq(TASK_ID), anyString(), eq(COMPLETED_AT)))
+        RuntimeException exception = new RuntimeException("retry transition failed");
+        givenClaimed(task);
+        when(approvalHandler.handle(task)).thenReturn(result(RecoveryHandlerResultType.STILL_UNRESOLVED));
+        when(retryPolicy.canRetry(0)).thenReturn(true);
+        when(retryPolicy.nextRetryAt(0, COMPLETED_AT)).thenReturn(nextRetryAt);
+        when(transactionService.retryWait(
+                eq(TASK_ID), eq(HISTORY_ID), anyString(), eq(COMPLETED_AT), eq(nextRetryAt), eq(null)))
                 .thenThrow(exception);
 
         assertThatThrownBy(worker::executeOne).isSameAs(exception);
-
-        verify(recoveryFailureClassifier, never()).classify(any());
+        verify(failureClassifier, never()).classify(any());
     }
 
     @Test
-    @DisplayName("등록되지 않은 targetType의 task는 명시적으로 실패한다")
-    void executeOne_unregisteredTargetType_shouldFail() {
-        RecoveryTask task = task(RecoveryTargetType.REVERSAL);
-        givenClaimedTask(task);
-
-        assertThatThrownBy(worker::executeOne)
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("No RecoveryHandler for target type: REVERSAL");
-
-        verify(approvalHandler, never()).handle(any());
-        verify(cancelHandler, never()).handle(any());
-        verify(recoveryTaskRepository, never()).markResolved(any(), anyString(), any());
-    }
-
-    @Test
-    @DisplayName("같은 targetType의 Handler가 두 개면 생성자에서 실패한다")
-    void constructor_duplicateHandler_shouldFail() {
-        RecoveryHandler duplicateApprovalHandler = handler(RecoveryTargetType.APPROVAL);
-
+    void 같은targetType_handler가둘이면생성에실패한다() {
         assertThatThrownBy(() -> new RecoveryWorker(
-                recoveryTaskRepository,
-                List.of(approvalHandler, duplicateApprovalHandler),
+                transactionService,
+                List.of(approvalHandler, handler(RecoveryTargetType.APPROVAL)),
                 LEASE_DURATION,
                 clock,
-                recoveryRetryPolicy,
-                recoveryFailureClassifier
-        ))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("Duplicate RecoveryHandler for target type: APPROVAL");
+                retryPolicy,
+                failureClassifier
+        )).isInstanceOf(IllegalStateException.class);
     }
 
-    @ParameterizedTest(name = "leaseDuration={0}")
+    @ParameterizedTest
     @MethodSource("invalidLeaseDurations")
-    @DisplayName("leaseDuration이 0 이하면 생성자에서 실패한다")
-    void constructor_nonPositiveLeaseDuration_shouldFail(Duration invalidLeaseDuration) {
+    void leaseDuration이0이하면생성에실패한다(Duration duration) {
         assertThatThrownBy(() -> new RecoveryWorker(
-                recoveryTaskRepository,
-                List.of(approvalHandler, cancelHandler),
-                invalidLeaseDuration,
+                transactionService,
+                List.of(approvalHandler),
+                duration,
                 clock,
-                recoveryRetryPolicy,
-                recoveryFailureClassifier
-        ))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Recovery worker lease duration must be positive");
+                retryPolicy,
+                failureClassifier
+        )).isInstanceOf(IllegalArgumentException.class);
     }
 
-    @Test
-    @DisplayName("claim 시각과 markResolved 시각을 Clock에서 각각 읽는다")
-    void executeOne_resolved_shouldReadClaimAndCompletionTimeSeparately() {
-        RecoveryTask task = task(RecoveryTargetType.APPROVAL);
-        givenClaimedTask(task);
-        when(approvalHandler.handle(task)).thenReturn(resolvedResult());
-        when(recoveryTaskRepository.markResolved(eq(TASK_ID), anyString(), eq(COMPLETED_AT))).thenReturn(1);
-
-        worker.executeOne();
-
-        ArgumentCaptor<String> claimTokenCaptor = ArgumentCaptor.forClass(String.class);
-        verify(recoveryTaskRepository).claimNext(
-                claimTokenCaptor.capture(),
-                eq(CLAIMED_AT),
-                eq(CLAIMED_AT.plus(LEASE_DURATION))
-        );
-        verify(recoveryTaskRepository).markResolved(
-                TASK_ID,
-                claimTokenCaptor.getValue(),
-                COMPLETED_AT
-        );
-        verify(clock, org.mockito.Mockito.times(2)).instant();
-    }
-
-    private void assertRetryWaitTransition(int retryCount, LocalDateTime nextRetryAt) {
-        RecoveryTask task = task(RecoveryTargetType.APPROVAL, retryCount);
-        RecoveryHandlerResult handlerResult = stillUnresolvedResult();
-        givenClaimedTask(task);
-        when(approvalHandler.handle(task)).thenReturn(handlerResult);
-        when(recoveryRetryPolicy.canRetry(retryCount)).thenReturn(true);
-        when(recoveryRetryPolicy.nextRetryAt(retryCount, COMPLETED_AT)).thenReturn(nextRetryAt);
-        when(recoveryTaskRepository.markRetryWait(
-                eq(TASK_ID), anyString(), eq(COMPLETED_AT), eq(nextRetryAt))).thenReturn(1);
-
-        RecoveryWorkerResult result = worker.executeOne();
-
-        assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.RETRY_WAIT);
-        assertThat(result.taskId()).isEqualTo(TASK_ID);
-        assertThat(result.handlerResult()).isSameAs(handlerResult);
-        ArgumentCaptor<String> claimTokenCaptor = ArgumentCaptor.forClass(String.class);
-        verify(recoveryTaskRepository).claimNext(
-                claimTokenCaptor.capture(),
-                eq(CLAIMED_AT),
-                eq(CLAIMED_AT.plus(LEASE_DURATION))
-        );
-        verify(recoveryRetryPolicy).canRetry(retryCount);
-        verify(recoveryRetryPolicy).nextRetryAt(retryCount, COMPLETED_AT);
-        verify(recoveryTaskRepository).markRetryWait(
-                TASK_ID,
-                claimTokenCaptor.getValue(),
-                COMPLETED_AT,
-                nextRetryAt
-        );
-        verify(recoveryTaskRepository, never()).markManualReview(any(), anyString(), any());
-        verify(recoveryTaskRepository, never()).markResolved(any(), anyString(), any());
-    }
-
-    private void givenApprovalHandlerResult(RecoveryHandlerResult handlerResult) {
-        RecoveryTask task = task(RecoveryTargetType.APPROVAL);
-        givenClaimedTask(task);
-        when(approvalHandler.handle(task)).thenReturn(handlerResult);
-    }
-
-    private void verifyNoRetryOrResolvedTransition() {
-        verify(recoveryRetryPolicy, never()).canRetry(anyInt());
-        verify(recoveryRetryPolicy, never()).nextRetryAt(anyInt(), any());
-        verify(recoveryTaskRepository, never()).markRetryWait(any(), anyString(), any(), any());
-        verify(recoveryTaskRepository, never()).markResolved(any(), anyString(), any());
-    }
-
-    private void verifyManualReviewUsesClaimTokenAndCompletionTime() {
-        ArgumentCaptor<String> claimTokenCaptor = ArgumentCaptor.forClass(String.class);
-        verify(recoveryTaskRepository).claimNext(
-                claimTokenCaptor.capture(),
-                eq(CLAIMED_AT),
-                eq(CLAIMED_AT.plus(LEASE_DURATION))
-        );
-        verify(recoveryTaskRepository).markManualReview(
-                TASK_ID,
-                claimTokenCaptor.getValue(),
-                COMPLETED_AT
-        );
-    }
-
-    private void givenClaimedTask(RecoveryTask task) {
-        when(recoveryTaskRepository.claimNext(
-                anyString(),
-                eq(CLAIMED_AT),
-                eq(CLAIMED_AT.plus(LEASE_DURATION))
-        )).thenReturn(Optional.of(task));
+    private void givenClaimed(RecoveryTask task) {
+        RecoveryHistory history = new RecoveryHistory(HISTORY_ID, TASK_ID, 1, null, null, CLAIMED_AT, null);
+        when(transactionService.claimAndStart(
+                anyString(), eq(CLAIMED_AT), eq(CLAIMED_AT.plus(LEASE_DURATION))))
+                .thenReturn(Optional.of(new ClaimedRecoveryExecution(task, history)));
     }
 
     private static RecoveryHandler handler(RecoveryTargetType targetType) {
@@ -673,16 +357,8 @@ class RecoveryWorkerTest {
         return handler;
     }
 
-    private static RecoveryHandlerResult resolvedResult() {
-        return new RecoveryHandlerResult(RecoveryHandlerResultType.RESOLVED, "APPROVED", "APPROVED");
-    }
-
-    private static RecoveryHandlerResult stillUnresolvedResult() {
-        return new RecoveryHandlerResult(RecoveryHandlerResultType.STILL_UNRESOLVED, "UNKNOWN", "PROCESSING");
-    }
-
-    private static RecoveryTask task(RecoveryTargetType targetType) {
-        return task(targetType, 0);
+    private static RecoveryHandlerResult result(RecoveryHandlerResultType type) {
+        return new RecoveryHandlerResult(type, "UNKNOWN", "PROCESSING");
     }
 
     private static RecoveryTask task(RecoveryTargetType targetType, int retryCount) {
@@ -700,6 +376,30 @@ class RecoveryWorkerTest {
                 CLAIMED_AT.plus(LEASE_DURATION),
                 CLAIMED_AT.minusMinutes(1),
                 CLAIMED_AT
+        );
+    }
+
+    private static Stream<Arguments> manualReviewResults() {
+        return Stream.of(
+                Arguments.of(RecoveryHandlerResultType.TERMINAL_CONFLICT, "TERMINAL_CONFLICT"),
+                Arguments.of(RecoveryHandlerResultType.TARGET_NOT_FOUND, "TARGET_NOT_FOUND")
+        );
+    }
+
+    private static Stream<Arguments> retryableExceptions() {
+        return Stream.of(
+                Arguments.of(new VanGatewayTimeoutException(new RuntimeException()), "VAN_GATEWAY_TIMEOUT"),
+                Arguments.of(
+                        new VanGatewayRequestNotSentException(new RuntimeException()),
+                        "VAN_GATEWAY_REQUEST_NOT_SENT"
+                )
+        );
+    }
+
+    private static Stream<RecoveryHandlerResultType> transitionFailures() {
+        return Stream.of(
+                RecoveryHandlerResultType.RESOLVED,
+                RecoveryHandlerResultType.STILL_UNRESOLVED
         );
     }
 

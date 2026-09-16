@@ -41,4 +41,14 @@
             STARTED_AT,
             FINISHED_AT
     </select>
+
+    <!-- 먼저 종료된 실행 이력은 다시 덮어쓰지 않는다. -->
+    <update id="finish">
+        UPDATE PAYMENT_RECOVERY_HISTORY
+        SET RESULT = #{result},
+            ERROR_CODE = #{errorCode},
+            FINISHED_AT = #{finishedAt}
+        WHERE ID = #{historyId}
+          AND FINISHED_AT IS NULL
+    </update>
 </mapper>

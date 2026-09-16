@@ -1,14 +1,19 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.recovery.worker;
 
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.exception.RecoveryInvariantViolationException;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.failure.RecoveryFailureClassifier;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.failure.RecoveryFailureType;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler.RecoveryHandler;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler.RecoveryHandlerResult;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler.RecoveryRetryPolicy;
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.transaction.ClaimedRecoveryExecution;
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.transaction.RecoveryExecutionTransactionService;
 import com.chaeyeongmin.payment_sim.common.util.IdGenerator;
+import com.chaeyeongmin.payment_sim.domain.model.RecoveryHistory;
 import com.chaeyeongmin.payment_sim.domain.model.RecoveryTask;
 import com.chaeyeongmin.payment_sim.domain.policy.RecoveryTargetType;
-import com.chaeyeongmin.payment_sim.infra.repository.RecoveryTaskRepository;
+import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayRequestNotSentException;
+import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -32,8 +37,7 @@ import java.util.Optional;
 @Component
 public class RecoveryWorker {
 
-    /** Recovery Task의 claim 및 완료 상태 변경을 담당하는 저장소다. */
-    private final RecoveryTaskRepository recoveryTaskRepository;
+    private final RecoveryExecutionTransactionService transactionService;
 
     /** targetType을 키로 사용해 claim한 task를 담당 Handler에 연결한다. */
     private final Map<RecoveryTargetType, RecoveryHandler> handlers;
@@ -56,7 +60,7 @@ public class RecoveryWorker {
      * <p>Handler 목록은 생성 시점에 targetType 기반 Map으로 변환한다. 따라서 실행할 때마다 목록을
      * 탐색하지 않으며, 동일 targetType의 Handler가 중복 등록된 구성 오류도 시작 단계에서 발견한다.
      *
-     * @param recoveryTaskRepository task claim 및 완료 상태 변경 저장소
+     * @param transactionService claim/History 시작과 Task/History 종료 transaction 경계
      * @param handlers Spring에 등록된 거래 종류별 RecoveryHandler 목록
      * @param leaseDuration 한 Worker가 claim한 task를 소유할 수 있는 시간
      * @param clock claim 시각과 완료 시각을 제공하는 시간 기준
@@ -66,7 +70,7 @@ public class RecoveryWorker {
      * @throws IllegalStateException 같은 targetType의 Handler가 중복 등록된 경우
      */
     public RecoveryWorker(
-            RecoveryTaskRepository recoveryTaskRepository,
+            RecoveryExecutionTransactionService transactionService,
             List<RecoveryHandler> handlers,
             @Value("${payment.recovery.worker.lease-duration:30s}")
             Duration leaseDuration,
@@ -78,7 +82,7 @@ public class RecoveryWorker {
             throw new IllegalArgumentException("Recovery worker lease duration must be positive");
         }
 
-        this.recoveryTaskRepository = recoveryTaskRepository;
+        this.transactionService = transactionService;
         this.handlers = indexHandlers(handlers);
         this.leaseDuration = leaseDuration;
         this.clock = clock;
@@ -104,27 +108,31 @@ public class RecoveryWorker {
         LocalDateTime claimedAt = LocalDateTime.now(clock);
 
         // 3. PENDING, 재시도 시각이 지난 RETRY_WAIT, lease가 만료된 RUNNING 중 최대 한 건을 claim한다.
-        Optional<RecoveryTask> recoveryTask = recoveryTaskRepository.claimNext(claimToken, claimedAt, claimedAt.plus(leaseDuration));
+        Optional<ClaimedRecoveryExecution> recoveryTask =
+                transactionService.claimAndStart(claimToken, claimedAt, claimedAt.plus(leaseDuration));
 
         // 4. 실행 가능한 task가 없으면 Handler를 호출하지 않고 NO_TASK로 종료한다.
         if (recoveryTask.isEmpty()) {
             return new RecoveryWorkerResult(RecoveryWorkerResultType.NO_TASK, null, null);
         }
 
-        // 5. claim에 성공했으므로 소유한 task를 꺼낸다.
-        RecoveryTask task = recoveryTask.get();
+        // 5. claim에 성공했으므로 소유한 task, history를 꺼낸다.
+        ClaimedRecoveryExecution claimed = recoveryTask.get();
+
+        RecoveryTask task = claimed.task();
+        RecoveryHistory history = claimed.history();
 
         // 6. 거래 종류별 세부 복구는 Worker가 직접 처리하지 않고 해당 Handler에 위임한다.
-        RecoveryHandler handler = getHandler(task);
         RecoveryHandlerResult handlerResult;
         try {
+            RecoveryHandler handler = getHandler(task);
             handlerResult = handler.handle(task);
         } catch (RuntimeException e) {
-            return handleRecoveryFailure(task, claimToken, e);
+            return handleRecoveryFailure(task, history, claimToken, e);
         }
 
         return new RecoveryWorkerResult(
-                applyRecoveryTransition(handlerResult, task, claimToken),
+                applyRecoveryTransition(handlerResult, task, history, claimToken),
                 task.id(),
                 handlerResult
         );
@@ -140,6 +148,7 @@ public class RecoveryWorker {
     private RecoveryWorkerResultType applyRecoveryTransition(
             RecoveryHandlerResult handlerResult,
             RecoveryTask task,
+            RecoveryHistory history,
             String claimToken
     ) {
         switch (handlerResult.resultType()) {
@@ -147,18 +156,39 @@ public class RecoveryWorker {
             // Handler가 복구 완료를 확인한 경우에만 Recovery Task 자체를 RESOLVED로 바꾼다.
             case RESOLVED: {
                 // Handler 처리 중 시간이 흘렀을 수 있으므로 완료 시점의 현재 시간을 다시 구한다.
-                return recoveryTaskRepository.markResolved(task.id(), claimToken, LocalDateTime.now(clock)) == 1
-                        // claim token과 lease가 아직 유효해 update되면 RESOLVED, 아니면 소유권 상실로 반환한다.
-                        ? RecoveryWorkerResultType.RESOLVED
-                        : RecoveryWorkerResultType.OWNERSHIP_LOST;
+                return transactionService.resolve(
+                        task.id(),
+                        history.id(),
+                        claimToken,
+                        LocalDateTime.now(clock)
+                );
             }
 
             case STILL_UNRESOLVED:
-                return applyRetryOrManualReview(task, claimToken);
+                return applyRetryOrManualReview(
+                        task,
+                        history,
+                        claimToken,
+                        null
+                );
 
             case TERMINAL_CONFLICT:
+                return applyManualReview(
+                        task,
+                        history,
+                        claimToken,
+                        LocalDateTime.now(clock),
+                        "TERMINAL_CONFLICT"
+                );
+
             case TARGET_NOT_FOUND:
-                return applyManualReview(task, claimToken);
+                return applyManualReview(
+                        task,
+                        history,
+                        claimToken,
+                        LocalDateTime.now(clock),
+                        "TARGET_NOT_FOUND"
+                );
 
             default: throw new IllegalStateException("Unexpected handler result: " + handlerResult.resultType());
         }
@@ -178,7 +208,9 @@ public class RecoveryWorker {
     private RecoveryHandler getHandler(RecoveryTask task) {
         // Recovery Task의 targetType을 처리하는 Handler를 찾는다.
         RecoveryHandler handler = handlers.get(task.targetType());
-        if (handler == null) throw new IllegalStateException("No RecoveryHandler for target type: " + task.targetType());
+        if (handler == null) {
+            throw new IllegalStateException("No RecoveryHandler for target type: " + task.targetType());
+        }
 
         return handler;
     }
@@ -219,6 +251,7 @@ public class RecoveryWorker {
      */
     private RecoveryWorkerResult handleRecoveryFailure(
             RecoveryTask task,
+            RecoveryHistory history,
             String claimToken,
             RuntimeException exception
     ) {
@@ -227,52 +260,106 @@ public class RecoveryWorker {
         switch (failureType) {
             case RETRYABLE:
                 return new RecoveryWorkerResult(
-                        applyRetryOrManualReview(task, claimToken),
+                        applyRetryOrManualReview(task, history, claimToken, retryableErrorCode(exception)),
                         task.id(),
                         null
                 );
 
             case MANUAL_REVIEW:
                 return new RecoveryWorkerResult(
-                        applyManualReview(task, claimToken),
+                        applyManualReview(task, history, claimToken, LocalDateTime.now(clock), manualReviewErrorCode(exception)),
                         task.id(),
                         null
                 );
 
-            case UNKNOWN: throw exception;
+            case UNKNOWN:
+                transactionService.unknownFailure(
+                        history.id(),
+                        exception.getClass().getSimpleName(),
+                        LocalDateTime.now(clock)
+                );
+
+                throw exception;
 
             default: throw new IllegalStateException("Unexpected recovery failure type: " + failureType);
         }
 
     }
-
-    /** 현재 시각을 기준으로 task를 운영자 확인 상태로 바꾼다. */
-    private RecoveryWorkerResultType applyManualReview(RecoveryTask task, String claimToken) {
-        return applyManualReview(task, claimToken, LocalDateTime.now(clock));
-    }
-
     /** 전달받은 시각에 소유권을 확인하고 MANUAL_REVIEW 전이를 시도한다. */
-    private RecoveryWorkerResultType applyManualReview(RecoveryTask task, String claimToken, LocalDateTime now) {
-        return recoveryTaskRepository.markManualReview(task.id(), claimToken, now) == 1
-                ? RecoveryWorkerResultType.MANUAL_REVIEW
-                : RecoveryWorkerResultType.OWNERSHIP_LOST;
+    private RecoveryWorkerResultType applyManualReview(
+            RecoveryTask task,
+            RecoveryHistory history,
+            String claimToken,
+            LocalDateTime now,
+            String errorCode
+    ) {
+        return transactionService.manualReview(
+                task.id(),
+                history.id(),
+                claimToken,
+                now,
+                errorCode
+        );
     }
 
     /**
      * 남은 재시도 횟수가 있으면 RETRY_WAIT로 보내고, 모두 사용했으면 MANUAL_REVIEW로 보낸다.
      */
-    private RecoveryWorkerResultType applyRetryOrManualReview(RecoveryTask task, String claimToken) {
+    private RecoveryWorkerResultType applyRetryOrManualReview(
+            RecoveryTask task,
+            RecoveryHistory history,
+            String claimToken,
+            String errorCode
+    ) {
         LocalDateTime now = LocalDateTime.now(clock);
 
         if (recoveryRetryPolicy.canRetry(task.retryCount())) {
             LocalDateTime nextRetryAt = recoveryRetryPolicy.nextRetryAt(task.retryCount(), now);
 
-            return recoveryTaskRepository.markRetryWait(task.id(), claimToken, now, nextRetryAt) == 1
-                    ? RecoveryWorkerResultType.RETRY_WAIT
-                    : RecoveryWorkerResultType.OWNERSHIP_LOST;
+            return transactionService.retryWait(
+                    task.id(),
+                    history.id(),
+                    claimToken,
+                    now,
+                    nextRetryAt,
+                    errorCode
+            );
+
         }
 
-        return applyManualReview(task, claimToken, now);
+        return applyManualReview(
+                task,
+                history,
+                claimToken,
+                now,
+                errorCode != null ? errorCode : "RETRY_EXHAUSTED"
+        );
+    }
+
+    private String retryableErrorCode(RuntimeException exception) {
+        if (exception instanceof VanGatewayTimeoutException) {
+            return "VAN_GATEWAY_TIMEOUT";
+        }
+
+        if (exception instanceof VanGatewayRequestNotSentException) {
+            return "VAN_GATEWAY_REQUEST_NOT_SENT";
+        }
+
+        throw new IllegalStateException("Unexpected retryable exception: " + exception.getClass().getName());
+    }
+
+    private String manualReviewErrorCode(RuntimeException exception) {
+        if (exception instanceof RecoveryInvariantViolationException) {
+            String errorCode = exception.getMessage();
+
+            if (errorCode == null || errorCode.isBlank()) {
+                throw new IllegalStateException("Recovery invariant violation requires error code", exception);
+            }
+
+            return errorCode;
+        }
+
+        throw new IllegalStateException("Unexpected manual review exception: " + exception.getClass().getName(), exception);
     }
 
 }
