@@ -32,6 +32,11 @@ payment:
       stale-pending-age: ${PAYMENT_RECOVERY_DISCOVERY_STALE_PENDING_AGE:1m}
     worker:
       lease-duration: ${PAYMENT_RECOVERY_WORKER_LEASE_DURATION:30s}
+    schedule:
+      # true일 때만 Recovery Job을 주기적으로 실행하는 Scheduler Bean을 만든다.
+      enabled: ${PAYMENT_RECOVERY_SCHEDULE_ENABLED:false}
+      # 이전 스케줄 호출이 끝난 뒤 다음 호출까지 기다릴 시간이다. 60000ms는 1분이다.
+      fixed-delay-ms: ${PAYMENT_RECOVERY_SCHEDULE_FIXED_DELAY_MS:60000}
   card:
     # fingerprint 재현성을 위해 실행 환경마다 고정된 비밀키를 주입하며, 저장소에는 실제 키를 남기지 않는다.
     secret-key: ${CARD_SECRET_KEY}
