@@ -5,7 +5,7 @@ import com.chaeyeongmin.payment_sim.api.payment.service.recovery.failure.Recover
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.failure.RecoveryFailureType;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler.RecoveryHandler;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler.RecoveryHandlerResult;
-import com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler.RecoveryRetryPolicy;
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.policy.RecoveryRetryPolicy;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.transaction.ClaimedRecoveryExecution;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.transaction.RecoveryExecutionTransactionService;
 import com.chaeyeongmin.payment_sim.common.util.IdGenerator;

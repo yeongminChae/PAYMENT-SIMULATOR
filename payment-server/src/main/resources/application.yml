@@ -18,8 +18,18 @@ spring:
       # schema.sql을 기존 DB에도 재실행하므로, 이미 추가된 컬럼의 duplicate 오류는 통과시킨다.
       continue-on-error: true
 
+  batch:
+    job:
+      # 서버가 시작될 때 Recovery Job이 자동 실행되지 않도록 한다.
+      enabled: false
+
 payment:
   recovery:
+    discovery:
+      # 각 상태가 이 시간보다 오래 유지된 거래만 복구 후보로 조회한다.
+      unknown-timeout-age: ${PAYMENT_RECOVERY_DISCOVERY_UNKNOWN_TIMEOUT_AGE:30s}
+      stale-processing-age: ${PAYMENT_RECOVERY_DISCOVERY_STALE_PROCESSING_AGE:1m}
+      stale-pending-age: ${PAYMENT_RECOVERY_DISCOVERY_STALE_PENDING_AGE:1m}
     worker:
       lease-duration: ${PAYMENT_RECOVERY_WORKER_LEASE_DURATION:30s}
   card:

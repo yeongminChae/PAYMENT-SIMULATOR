@@ -1,4 +1,4 @@
-package com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler;
+package com.chaeyeongmin.payment_sim.api.payment.service.recovery.policy;
 
 
 import org.springframework.stereotype.Component;
