@@ -2,8 +2,10 @@ package com.chaeyeongmin.payment_sim.infra.repository;
 
 import com.chaeyeongmin.payment_sim.domain.model.RecoveryCandidate;
 import com.chaeyeongmin.payment_sim.domain.model.RecoveryTask;
+import com.chaeyeongmin.payment_sim.domain.policy.RecoveryStatus;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -13,6 +15,12 @@ import java.util.Optional;
  * 동일 target 생성 방지는 DB unique constraint에 맡긴다.
  */
 public interface RecoveryTaskRepository {
+
+    /** 상태가 일치하는 task를 최근 갱신 순으로 조회한다. */
+    List<RecoveryTask> findByStatus(RecoveryStatus status);
+
+    /** 관리자 상세 조회를 위해 task ID로 한 건을 조회한다. */
+    Optional<RecoveryTask> findById(Long taskId);
 
     /**
      * 동일 복구 target의 task가 없을 때만 PENDING task를 생성한다.

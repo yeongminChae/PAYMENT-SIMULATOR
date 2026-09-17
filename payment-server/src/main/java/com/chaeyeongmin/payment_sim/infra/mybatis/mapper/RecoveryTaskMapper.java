@@ -2,10 +2,12 @@ package com.chaeyeongmin.payment_sim.infra.mybatis.mapper;
 
 import com.chaeyeongmin.payment_sim.domain.model.RecoveryCandidate;
 import com.chaeyeongmin.payment_sim.domain.model.RecoveryTask;
+import com.chaeyeongmin.payment_sim.domain.policy.RecoveryStatus;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * PAYMENT_RECOVERY_TASK MyBatis mapper.
@@ -14,6 +16,12 @@ import java.time.LocalDateTime;
  */
 @Mapper
 public interface RecoveryTaskMapper {
+
+    /** 상태가 일치하는 task를 최근 갱신 순으로 조회한다. */
+    List<RecoveryTask> findByStatus(@Param("status") RecoveryStatus status);
+
+    /** task ID로 한 건을 조회한다. */
+    RecoveryTask findById(@Param("taskId") Long taskId);
 
     /**
      * 동일 복구 target의 task가 없을 때만 PENDING task를 생성한다.

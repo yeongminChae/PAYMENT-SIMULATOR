@@ -4,9 +4,13 @@ import com.chaeyeongmin.payment_sim.api.payment.service.recovery.transaction.Rec
 import com.chaeyeongmin.payment_sim.domain.model.RecoveryHistory;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /** Recovery Task의 실행 시도 이력을 저장하는 저장소 포트다. */
 public interface RecoveryHistoryRepository {
+
+    /** task의 전체 실행 이력을 실행 순서대로 조회한다. */
+    List<RecoveryHistory> findByRecoveryTaskId(Long recoveryTaskId);
 
     /** 기존 실행 이력의 가장 큰 tryNo보다 1 큰 값을 구한다. 이력이 없으면 1이다. */
     int nextTryNo(Long recoveryTaskId);

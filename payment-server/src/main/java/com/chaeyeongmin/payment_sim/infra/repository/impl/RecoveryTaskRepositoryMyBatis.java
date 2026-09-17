@@ -2,12 +2,14 @@ package com.chaeyeongmin.payment_sim.infra.repository.impl;
 
 import com.chaeyeongmin.payment_sim.domain.model.RecoveryCandidate;
 import com.chaeyeongmin.payment_sim.domain.model.RecoveryTask;
+import com.chaeyeongmin.payment_sim.domain.policy.RecoveryStatus;
 import com.chaeyeongmin.payment_sim.infra.mybatis.mapper.RecoveryTaskMapper;
 import com.chaeyeongmin.payment_sim.infra.repository.RecoveryTaskRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -20,6 +22,16 @@ import java.util.Optional;
 public class RecoveryTaskRepositoryMyBatis implements RecoveryTaskRepository {
 
     private final RecoveryTaskMapper mapper;
+
+    @Override
+    public List<RecoveryTask> findByStatus(RecoveryStatus status) {
+        return mapper.findByStatus(status);
+    }
+
+    @Override
+    public Optional<RecoveryTask> findById(Long taskId) {
+        return Optional.ofNullable(mapper.findById(taskId));
+    }
 
     @Override
     public int insertIfAbsent(RecoveryCandidate candidate) {

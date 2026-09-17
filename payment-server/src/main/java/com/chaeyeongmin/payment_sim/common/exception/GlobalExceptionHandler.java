@@ -1,5 +1,6 @@
 package com.chaeyeongmin.payment_sim.common.exception;
 
+import com.chaeyeongmin.payment_sim.api.payment.recovery.exception.RecoveryTaskNotFoundException;
 import com.chaeyeongmin.payment_sim.common.api.ApiResponse;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import lombok.extern.slf4j.Slf4j;
@@ -21,6 +22,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Object>> handleBusiness(BusinessException e) {
         return ResponseEntity.ok(ApiResponse.of(e.getResultCode(), e.getMessage(), null));
+    }
+
+    @ExceptionHandler(RecoveryTaskNotFoundException.class)
+    public ResponseEntity<ApiResponse<Object>> handleRecoveryTaskNotFound(RecoveryTaskNotFoundException e) {
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.of(ResultCode.NOT_FOUND, "RECOVERY_TASK_NOT_FOUND", null));
     }
 
     // Bean Validation 원문 메시지는 rejected value를 포함할 수 있어 외부 응답은 고정 코드로 제한한다.
