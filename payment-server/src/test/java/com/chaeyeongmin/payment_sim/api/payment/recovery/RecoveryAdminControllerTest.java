@@ -4,6 +4,8 @@ import com.chaeyeongmin.payment_sim.api.payment.recovery.dto.RecoveryHistoryResp
 import com.chaeyeongmin.payment_sim.api.payment.recovery.dto.RecoveryTaskDetailResponse;
 import com.chaeyeongmin.payment_sim.api.payment.recovery.dto.RecoveryTaskSummaryResponse;
 import com.chaeyeongmin.payment_sim.api.payment.recovery.exception.RecoveryTaskNotFoundException;
+import com.chaeyeongmin.payment_sim.api.payment.recovery.exception.RecoveryTaskRequeueConflictException;
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.admin.RecoveryAdminCommandService;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.admin.RecoveryAdminQueryService;
 import com.chaeyeongmin.payment_sim.common.exception.GlobalExceptionHandler;
 import com.chaeyeongmin.payment_sim.domain.policy.RecoveryStatus;
@@ -20,6 +22,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -30,13 +33,15 @@ class RecoveryAdminControllerTest {
     private static final LocalDateTime UPDATED_AT = LocalDateTime.of(2026, 9, 17, 10, 0);
 
     private RecoveryAdminQueryService queryService;
+    private RecoveryAdminCommandService commandService;
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         queryService = mock(RecoveryAdminQueryService.class);
+        commandService = mock(RecoveryAdminCommandService.class);
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new RecoveryAdminController(queryService))
+                .standaloneSetup(new RecoveryAdminController(queryService, commandService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
@@ -113,6 +118,57 @@ class RecoveryAdminControllerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.result_code").value("NOT_FOUND"))
                 .andExpect(jsonPath("$.message").value("RECOVERY_TASK_NOT_FOUND"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void manualReviewTask재등록은_200과변경된task를반환한다() throws Exception {
+        RecoveryTaskSummaryResponse requeued = new RecoveryTaskSummaryResponse(
+                TASK_ID,
+                RecoveryTargetType.CANCEL,
+                "ADMIN-CANCEL-1",
+                null,
+                "ADMIN-ORIGINAL-1",
+                1,
+                RecoveryStatus.PENDING,
+                0,
+                null,
+                CREATED_AT,
+                UPDATED_AT
+        );
+        when(commandService.requeue(TASK_ID)).thenReturn(requeued);
+
+        mockMvc.perform(post("/api/admin/recovery/tasks/{taskId}/requeue", TASK_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result_code").value("OK"))
+                .andExpect(jsonPath("$.data.taskId").value(TASK_ID))
+                .andExpect(jsonPath("$.data.recoveryStatus").value("PENDING"))
+                .andExpect(jsonPath("$.data.retryCount").value(0));
+
+        verify(commandService).requeue(TASK_ID);
+    }
+
+    @Test
+    void 존재하지않는task재등록은_404를반환한다() throws Exception {
+        when(commandService.requeue(TASK_ID))
+                .thenThrow(new RecoveryTaskNotFoundException(TASK_ID));
+
+        mockMvc.perform(post("/api/admin/recovery/tasks/{taskId}/requeue", TASK_ID))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.result_code").value("NOT_FOUND"))
+                .andExpect(jsonPath("$.message").value("RECOVERY_TASK_NOT_FOUND"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void manualReview상태가아닌task재등록은_409를반환한다() throws Exception {
+        when(commandService.requeue(TASK_ID))
+                .thenThrow(new RecoveryTaskRequeueConflictException(TASK_ID, RecoveryStatus.PENDING));
+
+        mockMvc.perform(post("/api/admin/recovery/tasks/{taskId}/requeue", TASK_ID))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.result_code").value("CONFLICT"))
+                .andExpect(jsonPath("$.message").value("RECOVERY_TASK_REQUEUE_CONFLICT"))
                 .andExpect(jsonPath("$.data").doesNotExist());
     }
 }

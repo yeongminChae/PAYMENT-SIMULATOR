@@ -17,10 +17,14 @@ import java.util.List;
 @Mapper
 public interface RecoveryTaskMapper {
 
-    /** 상태가 일치하는 task를 최근 갱신 순으로 조회한다. */
+    /**
+     * 상태가 일치하는 task를 최근 갱신 순으로 조회한다.
+     */
     List<RecoveryTask> findByStatus(@Param("status") RecoveryStatus status);
 
-    /** task ID로 한 건을 조회한다. */
+    /**
+     * task ID로 한 건을 조회한다.
+     */
     RecoveryTask findById(@Param("taskId") Long taskId);
 
     /**
@@ -33,21 +37,27 @@ public interface RecoveryTaskMapper {
      */
     int insertIfAbsent(@Param("candidate") RecoveryCandidate candidate);
 
-    /** 실행 가능한 task 한 건을 잠그고 RUNNING 상태와 새 lease를 부여한다. */
+    /**
+     * 실행 가능한 task 한 건을 잠그고 RUNNING 상태와 새 lease를 부여한다.
+     */
     RecoveryTask claimNext(
             @Param("claimToken") String claimToken,
             @Param("now") LocalDateTime now,
             @Param("leaseExpiresAt") LocalDateTime leaseExpiresAt
     );
 
-    /** claim token과 lease가 아직 유효한 task만 RESOLVED로 변경한다. */
+    /**
+     * claim token과 lease가 아직 유효한 task만 RESOLVED로 변경한다.
+     */
     int markResolved(
             @Param("taskId") Long taskId,
             @Param("claimToken") String claimToken,
             @Param("now") LocalDateTime now
     );
 
-    /** 현재 소유한 task만 RETRY_WAIT로 변경하고 retryCount를 1 증가시킨다. */
+    /**
+     * 현재 소유한 task만 RETRY_WAIT로 변경하고 retryCount를 1 증가시킨다.
+     */
     int markRetryWait(
             @Param("taskId") Long taskId,
             @Param("claimToken") String claimToken,
@@ -55,10 +65,17 @@ public interface RecoveryTaskMapper {
             @Param("nextRetryAt") LocalDateTime nextRetryAt
     );
 
-    /** 현재 소유한 task만 MANUAL_REVIEW로 변경한다. */
+    /**
+     * 현재 소유한 task만 MANUAL_REVIEW로 변경한다.
+     */
     int markManualReview(
             @Param("taskId") Long taskId,
             @Param("claimToken") String claimToken,
+            @Param("now") LocalDateTime now
+    );
+
+    int requeueManualReview(
+            @Param("taskId") Long taskId,
             @Param("now") LocalDateTime now
     );
 

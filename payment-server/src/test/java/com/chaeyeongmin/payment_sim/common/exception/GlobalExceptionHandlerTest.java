@@ -1,7 +1,9 @@
 package com.chaeyeongmin.payment_sim.common.exception;
 
+import com.chaeyeongmin.payment_sim.api.payment.recovery.exception.RecoveryTaskRequeueConflictException;
 import com.chaeyeongmin.payment_sim.common.api.ApiResponse;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
+import com.chaeyeongmin.payment_sim.domain.policy.RecoveryStatus;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -62,6 +64,23 @@ class GlobalExceptionHandlerTest {
         assertEquals(404, response.getStatusCode().value());
         assertEquals("NOT_FOUND", body.getResult_code());
         assertEquals("NOT_FOUND", body.getMessage());
+        assertNull(body.getData());
+    }
+
+    @Test
+    @DisplayName("Recovery requeue 상태 충돌 -> HTTP 409와 고정 CONFLICT 응답")
+    void handleRecoveryTaskRequeueConflict_shouldReturnHttp409AndConflictResponse() {
+        RecoveryTaskRequeueConflictException exception =
+                new RecoveryTaskRequeueConflictException(41L, RecoveryStatus.RUNNING);
+
+        ResponseEntity<ApiResponse<Object>> response =
+                handler.handleRecoveryTaskRequeueConflict(exception);
+
+        ApiResponse<Object> body = response.getBody();
+
+        assertEquals(409, response.getStatusCode().value());
+        assertEquals("CONFLICT", body.getResult_code());
+        assertEquals("RECOVERY_TASK_REQUEUE_CONFLICT", body.getMessage());
         assertNull(body.getData());
     }
 

@@ -16,10 +16,14 @@ import java.util.Optional;
  */
 public interface RecoveryTaskRepository {
 
-    /** 상태가 일치하는 task를 최근 갱신 순으로 조회한다. */
+    /**
+     * 상태가 일치하는 task를 최근 갱신 순으로 조회한다.
+     */
     List<RecoveryTask> findByStatus(RecoveryStatus status);
 
-    /** 관리자 상세 조회를 위해 task ID로 한 건을 조회한다. */
+    /**
+     * 관리자 상세 조회를 위해 task ID로 한 건을 조회한다.
+     */
     Optional<RecoveryTask> findById(Long taskId);
 
     /**
@@ -37,13 +41,21 @@ public interface RecoveryTaskRepository {
      */
     Optional<RecoveryTask> claimNext(String claimToken, LocalDateTime now, LocalDateTime leaseExpiresAt);
 
-    /** 현재 Worker가 소유한 RUNNING task를 RESOLVED로 끝낸다. */
+    /**
+     * 현재 Worker가 소유한 RUNNING task를 RESOLVED로 끝낸다.
+     */
     int markResolved(Long taskId, String claimToken, LocalDateTime now);
 
-    /** 미해결 task의 retryCount를 올리고 다음 실행 시각까지 RETRY_WAIT로 보낸다. */
+    /**
+     * 미해결 task의 retryCount를 올리고 다음 실행 시각까지 RETRY_WAIT로 보낸다.
+     */
     int markRetryWait(Long taskId, String claimToken, LocalDateTime now, LocalDateTime nextRetryAt);
 
-    /** 자동 복구를 중단하고 task를 MANUAL_REVIEW로 보낸다. */
+    /**
+     * 자동 복구를 중단하고 task를 MANUAL_REVIEW로 보낸다.
+     */
     int markManualReview(Long taskId, String claimToken, LocalDateTime now);
+
+    int requeueManualReview(Long taskId, LocalDateTime now);
 
 }

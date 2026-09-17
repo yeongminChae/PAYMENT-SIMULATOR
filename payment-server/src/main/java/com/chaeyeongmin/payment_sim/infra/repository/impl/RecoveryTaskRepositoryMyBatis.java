@@ -58,4 +58,9 @@ public class RecoveryTaskRepositoryMyBatis implements RecoveryTaskRepository {
         return mapper.markManualReview(taskId, claimToken, now);
     }
 
+    @Override
+    public int requeueManualReview(Long taskId, LocalDateTime now) {
+        return mapper.requeueManualReview(taskId, now);
+    }
+
 }

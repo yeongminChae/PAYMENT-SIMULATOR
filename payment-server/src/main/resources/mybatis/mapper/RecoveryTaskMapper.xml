@@ -7,19 +7,19 @@
     <select id="findByStatus"
             resultType="com.chaeyeongmin.payment_sim.domain.model.RecoveryTask">
         SELECT
-            ID,
-            TARGET_TYPE,
-            TARGET_TRX_NO,
-            TARGET_ATTEMPT_SEQ,
-            ORIGINAL_POS_TRX,
-            ORIGINAL_ATTEMPT_SEQ,
-            RECOVERY_STATUS,
-            RETRY_COUNT,
-            NEXT_RETRY_AT,
-            CLAIM_TOKEN,
-            LEASE_EXPIRES_AT,
-            CREATED_AT,
-            UPDATED_AT
+        ID,
+        TARGET_TYPE,
+        TARGET_TRX_NO,
+        TARGET_ATTEMPT_SEQ,
+        ORIGINAL_POS_TRX,
+        ORIGINAL_ATTEMPT_SEQ,
+        RECOVERY_STATUS,
+        RETRY_COUNT,
+        NEXT_RETRY_AT,
+        CLAIM_TOKEN,
+        LEASE_EXPIRES_AT,
+        CREATED_AT,
+        UPDATED_AT
         FROM PAYMENT_RECOVERY_TASK
         WHERE RECOVERY_STATUS = #{status}
         ORDER BY UPDATED_AT DESC, ID DESC
@@ -28,39 +28,39 @@
     <select id="findById"
             resultType="com.chaeyeongmin.payment_sim.domain.model.RecoveryTask">
         SELECT
-            ID,
-            TARGET_TYPE,
-            TARGET_TRX_NO,
-            TARGET_ATTEMPT_SEQ,
-            ORIGINAL_POS_TRX,
-            ORIGINAL_ATTEMPT_SEQ,
-            RECOVERY_STATUS,
-            RETRY_COUNT,
-            NEXT_RETRY_AT,
-            CLAIM_TOKEN,
-            LEASE_EXPIRES_AT,
-            CREATED_AT,
-            UPDATED_AT
+        ID,
+        TARGET_TYPE,
+        TARGET_TRX_NO,
+        TARGET_ATTEMPT_SEQ,
+        ORIGINAL_POS_TRX,
+        ORIGINAL_ATTEMPT_SEQ,
+        RECOVERY_STATUS,
+        RETRY_COUNT,
+        NEXT_RETRY_AT,
+        CLAIM_TOKEN,
+        LEASE_EXPIRES_AT,
+        CREATED_AT,
+        UPDATED_AT
         FROM PAYMENT_RECOVERY_TASK
         WHERE ID = #{taskId}
     </select>
 
     <insert id="insertIfAbsent">
         INSERT INTO PAYMENT_RECOVERY_TASK (
-            TARGET_TYPE,
-            TARGET_TRX_NO,
-            TARGET_ATTEMPT_SEQ,
-            ORIGINAL_POS_TRX,
-            ORIGINAL_ATTEMPT_SEQ,
-            RECOVERY_STATUS
+        TARGET_TYPE,
+        TARGET_TRX_NO,
+        TARGET_ATTEMPT_SEQ,
+        ORIGINAL_POS_TRX,
+        ORIGINAL_ATTEMPT_SEQ,
+        RECOVERY_STATUS
         )
         VALUES (
-            #{candidate.targetType},
-            #{candidate.targetTrxNo},
-            #{candidate.targetAttemptSeq},
-            #{candidate.originalPosTrx},
-            #{candidate.originalAttemptSeq},
-            'PENDING'
+        #{candidate.targetType},
+        #{candidate.targetTrxNo},
+        #{candidate.targetAttemptSeq},
+        #{candidate.originalPosTrx},
+        #{candidate.originalAttemptSeq},
+        'PENDING'
         )
         ON CONFLICT DO NOTHING
     </insert>
@@ -72,90 +72,102 @@
     <select id="claimNext"
             resultType="com.chaeyeongmin.payment_sim.domain.model.RecoveryTask">
         WITH candidate AS (
-            SELECT ID
-            FROM PAYMENT_RECOVERY_TASK
-            WHERE (
-                RECOVERY_STATUS = 'PENDING'
-                OR (
-                    RECOVERY_STATUS = 'RETRY_WAIT'
-                    AND NEXT_RETRY_AT &lt;= #{now}
-                )
-                OR (
-                    RECOVERY_STATUS = 'RUNNING'
-                    AND LEASE_EXPIRES_AT &lt;= #{now}
-                )
-            )
-            ORDER BY CREATED_AT, ID
-            FOR UPDATE SKIP LOCKED
-            LIMIT 1
-            )
+        SELECT ID
+        FROM PAYMENT_RECOVERY_TASK
+        WHERE (
+        RECOVERY_STATUS = 'PENDING'
+        OR (
+        RECOVERY_STATUS = 'RETRY_WAIT'
+        AND NEXT_RETRY_AT &lt;= #{now}
+        )
+        OR (
+        RECOVERY_STATUS = 'RUNNING'
+        AND LEASE_EXPIRES_AT &lt;= #{now}
+        )
+        )
+        ORDER BY CREATED_AT, ID
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+        )
         UPDATE PAYMENT_RECOVERY_TASK T
         SET
-            RECOVERY_STATUS = 'RUNNING',
-            CLAIM_TOKEN = #{claimToken},
-            LEASE_EXPIRES_AT = #{leaseExpiresAt},
-            NEXT_RETRY_AT = NULL,
-            UPDATED_AT = CURRENT_TIMESTAMP
+        RECOVERY_STATUS = 'RUNNING',
+        CLAIM_TOKEN = #{claimToken},
+        LEASE_EXPIRES_AT = #{leaseExpiresAt},
+        NEXT_RETRY_AT = NULL,
+        UPDATED_AT = CURRENT_TIMESTAMP
         FROM candidate C
         WHERE T.ID = C.ID
         RETURNING
-            T.ID,
-            T.TARGET_TYPE,
-            T.TARGET_TRX_NO,
-            T.TARGET_ATTEMPT_SEQ,
-            T.ORIGINAL_POS_TRX,
-            T.ORIGINAL_ATTEMPT_SEQ,
-            T.RECOVERY_STATUS,
-            T.RETRY_COUNT,
-            T.NEXT_RETRY_AT,
-            T.CLAIM_TOKEN,
-            T.LEASE_EXPIRES_AT,
-            T.CREATED_AT,
-            T.UPDATED_AT
+        T.ID,
+        T.TARGET_TYPE,
+        T.TARGET_TRX_NO,
+        T.TARGET_ATTEMPT_SEQ,
+        T.ORIGINAL_POS_TRX,
+        T.ORIGINAL_ATTEMPT_SEQ,
+        T.RECOVERY_STATUS,
+        T.RETRY_COUNT,
+        T.NEXT_RETRY_AT,
+        T.CLAIM_TOKEN,
+        T.LEASE_EXPIRES_AT,
+        T.CREATED_AT,
+        T.UPDATED_AT
     </select>
 
     <!-- claim token이 같고 lease가 남아 있는 현재 owner만 완료할 수 있다. -->
     <update id="markResolved">
         UPDATE PAYMENT_RECOVERY_TASK
         SET
-            RECOVERY_STATUS = 'RESOLVED',
-            CLAIM_TOKEN = NULL,
-            LEASE_EXPIRES_AT = NULL,
-            NEXT_RETRY_AT = NULL,
-            UPDATED_AT = CURRENT_TIMESTAMP
+        RECOVERY_STATUS = 'RESOLVED',
+        CLAIM_TOKEN = NULL,
+        LEASE_EXPIRES_AT = NULL,
+        NEXT_RETRY_AT = NULL,
+        UPDATED_AT = CURRENT_TIMESTAMP
         WHERE ID = #{taskId}
-          AND RECOVERY_STATUS = 'RUNNING'
-          AND CLAIM_TOKEN = #{claimToken}
-          AND LEASE_EXPIRES_AT > #{now}
+        AND RECOVERY_STATUS = 'RUNNING'
+        AND CLAIM_TOKEN = #{claimToken}
+        AND LEASE_EXPIRES_AT > #{now}
     </update>
 
     <!-- 다음 실행 시각을 저장하고 소유권을 반납한다. retryCount는 RETRY_WAIT 전이 횟수다. -->
     <update id="markRetryWait">
         UPDATE PAYMENT_RECOVERY_TASK
         SET RECOVERY_STATUS = 'RETRY_WAIT',
-            RETRY_COUNT = RETRY_COUNT + 1,
-            NEXT_RETRY_AT = #{nextRetryAt},
-            CLAIM_TOKEN = NULL,
-            LEASE_EXPIRES_AT = NULL,
-            UPDATED_AT = CURRENT_TIMESTAMP
+        RETRY_COUNT = RETRY_COUNT + 1,
+        NEXT_RETRY_AT = #{nextRetryAt},
+        CLAIM_TOKEN = NULL,
+        LEASE_EXPIRES_AT = NULL,
+        UPDATED_AT = CURRENT_TIMESTAMP
         WHERE ID = #{taskId}
-            AND RECOVERY_STATUS = 'RUNNING'
-            AND CLAIM_TOKEN = #{claimToken}
-            AND LEASE_EXPIRES_AT > #{now}
+        AND RECOVERY_STATUS = 'RUNNING'
+        AND CLAIM_TOKEN = #{claimToken}
+        AND LEASE_EXPIRES_AT > #{now}
     </update>
 
     <!-- 자동 실행을 끝내고 운영자 확인 대상으로 넘기면서 소유권을 반납한다. -->
     <update id="markManualReview">
         UPDATE PAYMENT_RECOVERY_TASK
         SET RECOVERY_STATUS = 'MANUAL_REVIEW',
+        NEXT_RETRY_AT = NULL,
+        CLAIM_TOKEN = NULL,
+        LEASE_EXPIRES_AT = NULL,
+        UPDATED_AT = CURRENT_TIMESTAMP
+        WHERE ID = #{taskId}
+        AND RECOVERY_STATUS = 'RUNNING'
+        AND CLAIM_TOKEN = #{claimToken}
+        AND LEASE_EXPIRES_AT > #{now}
+    </update>
+
+    <update id="requeueManualReview">
+        UPDATE PAYMENT_RECOVERY_TASK
+        SET RECOVERY_STATUS = 'PENDING',
+            RETRY_COUNT = 0,
             NEXT_RETRY_AT = NULL,
             CLAIM_TOKEN = NULL,
             LEASE_EXPIRES_AT = NULL,
-            UPDATED_AT = CURRENT_TIMESTAMP
+            UPDATED_AT = #{now}
         WHERE ID = #{taskId}
-            AND RECOVERY_STATUS = 'RUNNING'
-            AND CLAIM_TOKEN = #{claimToken}
-            AND LEASE_EXPIRES_AT > #{now}
+          AND RECOVERY_STATUS = 'MANUAL_REVIEW'
     </update>
 
 </mapper>
