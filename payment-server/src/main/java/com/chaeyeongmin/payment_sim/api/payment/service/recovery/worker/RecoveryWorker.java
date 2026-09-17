@@ -5,6 +5,8 @@ import com.chaeyeongmin.payment_sim.api.payment.service.recovery.failure.Recover
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.failure.RecoveryFailureType;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler.RecoveryHandler;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler.RecoveryHandlerResult;
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.notification.RecoveryManualReviewNotification;
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.notification.RecoveryNotificationService;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.policy.RecoveryRetryPolicy;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.transaction.ClaimedRecoveryExecution;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.transaction.RecoveryExecutionTransactionService;
@@ -14,6 +16,7 @@ import com.chaeyeongmin.payment_sim.domain.model.RecoveryTask;
 import com.chaeyeongmin.payment_sim.domain.policy.RecoveryTargetType;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayRequestNotSentException;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutException;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -33,8 +36,10 @@ import java.util.Optional;
  * STILL_UNRESOLVED는 retry 정책에 따라 RETRY_WAIT 또는 MANUAL_REVIEW로,
  * TERMINAL_CONFLICT/TARGET_NOT_FOUND는 MANUAL_REVIEW로 전이한다.
  * 상태를 바꿀 때는 claim token과 lease를 함께 확인해 현재 소유자만 변경할 수 있게 한다.
+ * MANUAL_REVIEW 전환이 DB에 저장된 뒤에는 운영자가 확인할 수 있도록 알림을 요청한다.
  */
 @Component
+@Slf4j
 public class RecoveryWorker {
 
     /** Task claim과 History 시작, Task 상태와 History 종료를 각각 짧은 transaction으로 처리한다. */
@@ -55,6 +60,9 @@ public class RecoveryWorker {
     /** Handler 예외를 재시도, 운영자 확인, 원본 전파 중 하나로 분류한다. */
     private final RecoveryFailureClassifier recoveryFailureClassifier;
 
+    /** DB에 MANUAL_REVIEW가 저장된 뒤 운영자에게 필요한 정보를 전달한다. */
+    private final RecoveryNotificationService recoveryNotificationService;
+
     /**
      * Worker 실행에 필요한 저장소, Handler, lease 정책, 시간 기준을 구성한다.
      *
@@ -67,6 +75,7 @@ public class RecoveryWorker {
      * @param clock claim 시각과 완료 시각을 제공하는 시간 기준
      * @param recoveryRetryPolicy unresolved task의 retry 가능 여부와 다음 재시도 시각을 결정하는 정책
      * @param recoveryFailureClassifier Handler 예외를 retry/manual/unknown으로 분류하는 정책
+     * @param recoveryNotificationService MANUAL_REVIEW 전환 완료를 알리는 서비스
      * @throws IllegalArgumentException leaseDuration이 0 이하인 경우
      * @throws IllegalStateException 같은 targetType의 Handler가 중복 등록된 경우
      */
@@ -77,7 +86,8 @@ public class RecoveryWorker {
             Duration leaseDuration,
             Clock clock,
             RecoveryRetryPolicy recoveryRetryPolicy,
-            RecoveryFailureClassifier recoveryFailureClassifier
+            RecoveryFailureClassifier recoveryFailureClassifier,
+            RecoveryNotificationService recoveryNotificationService
     ) {
         if (leaseDuration.isZero() || leaseDuration.isNegative()) {
             throw new IllegalArgumentException("Recovery worker lease duration must be positive");
@@ -89,6 +99,7 @@ public class RecoveryWorker {
         this.clock = clock;
         this.recoveryRetryPolicy = recoveryRetryPolicy;
         this.recoveryFailureClassifier = recoveryFailureClassifier;
+        this.recoveryNotificationService = recoveryNotificationService;
     }
 
     /**
@@ -293,7 +304,12 @@ public class RecoveryWorker {
 
     }
 
-    /** Task와 History를 함께 MANUAL_REVIEW로 끝내며 소유권을 잃으면 OWNERSHIP_LOST를 반환한다. */
+    /**
+     * Task와 History를 MANUAL_REVIEW로 저장한 뒤 운영 알림을 보낸다.
+     *
+     * <p>DB 저장이 끝나기 전에 알림을 보내지 않는다. 저장 결과가 MANUAL_REVIEW일 때만 알리고,
+     * 소유권을 잃어 상태를 바꾸지 못했다면 알림 없이 OWNERSHIP_LOST를 반환한다.
+     */
     private RecoveryWorkerResultType applyManualReview(
             RecoveryTask task,
             RecoveryHistory history,
@@ -301,13 +317,50 @@ public class RecoveryWorker {
             LocalDateTime now,
             String errorCode
     ) {
-        return transactionService.manualReview(
+        RecoveryWorkerResultType resultType = transactionService.manualReview(
                 task.id(),
                 history.id(),
                 claimToken,
                 now,
                 errorCode
         );
+
+        // manualReview()가 정상 반환되면 Task와 History를 저장한 DB 트랜잭션도 커밋된 상태다.
+        // 실제 상태가 MANUAL_REVIEW로 바뀐 경우에만 그다음 순서로 알림을 보낸다.
+        if (resultType == RecoveryWorkerResultType.MANUAL_REVIEW) {
+            notifyManualReview(task, errorCode, now);
+        }
+
+        return resultType;
+    }
+
+    /**
+     * Task 정보를 알림 객체로 만들고 Notification Service에 전달한다.
+     * 알림 중 발생한 예외는 로그만 남기고 끝내 이미 저장된 MANUAL_REVIEW 상태를 그대로 유지한다.
+     */
+    private void notifyManualReview(RecoveryTask task, String errorCode, LocalDateTime occurredAt) {
+        RecoveryManualReviewNotification notification = new RecoveryManualReviewNotification(
+                task.id(),
+                task.targetType(),
+                task.targetTrxNo(),
+                task.targetAttemptSeq(),
+                task.originalPosTrx(),
+                task.originalAttemptSeq(),
+                task.retryCount(),
+                errorCode,
+                occurredAt
+        );
+
+        try {
+            recoveryNotificationService.notifyManualReview(notification);
+        } catch (RuntimeException e) {
+            log.error(
+                    "Recovery MANUAL_REVIEW notification failed. taskId={}, errorCode={}",
+                    task.id(),
+                    errorCode,
+                    e
+            );
+        }
     }
 
     /**

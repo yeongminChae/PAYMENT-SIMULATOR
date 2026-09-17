@@ -6,6 +6,8 @@ import com.chaeyeongmin.payment_sim.api.payment.service.recovery.failure.Recover
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler.RecoveryHandler;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler.RecoveryHandlerResult;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler.RecoveryHandlerResultType;
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.notification.RecoveryManualReviewNotification;
+import com.chaeyeongmin.payment_sim.api.payment.service.recovery.notification.RecoveryNotificationService;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.policy.RecoveryRetryPolicy;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.transaction.ClaimedRecoveryExecution;
 import com.chaeyeongmin.payment_sim.api.payment.service.recovery.transaction.RecoveryExecutionTransactionService;
@@ -21,6 +23,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -37,6 +40,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -59,6 +63,7 @@ class RecoveryWorkerTest {
     private Clock clock;
     private RecoveryRetryPolicy retryPolicy;
     private RecoveryFailureClassifier failureClassifier;
+    private RecoveryNotificationService notificationService;
     private RecoveryWorker worker;
 
     @BeforeEach
@@ -69,6 +74,7 @@ class RecoveryWorkerTest {
         clock = mock(Clock.class);
         retryPolicy = mock(RecoveryRetryPolicy.class);
         failureClassifier = mock(RecoveryFailureClassifier.class);
+        notificationService = mock(RecoveryNotificationService.class);
         when(clock.getZone()).thenReturn(ZONE_ID);
         when(clock.instant()).thenReturn(CLAIMED_INSTANT, COMPLETED_INSTANT);
         worker = new RecoveryWorker(
@@ -77,7 +83,8 @@ class RecoveryWorkerTest {
                 LEASE_DURATION,
                 clock,
                 retryPolicy,
-                failureClassifier
+                failureClassifier,
+                notificationService
         );
     }
 
@@ -108,6 +115,7 @@ class RecoveryWorkerTest {
         assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.RESOLVED);
         assertThat(result.handlerResult()).isSameAs(handlerResult);
         verify(transactionService).resolve(eq(TASK_ID), eq(HISTORY_ID), anyString(), eq(COMPLETED_AT));
+        verify(notificationService, never()).notifyManualReview(any());
     }
 
     @Test
@@ -143,6 +151,7 @@ class RecoveryWorkerTest {
 
         assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.RETRY_WAIT);
         assertThat(result.handlerResult()).isSameAs(handlerResult);
+        verify(notificationService, never()).notifyManualReview(any());
     }
 
     @Test
@@ -180,6 +189,50 @@ class RecoveryWorkerTest {
         assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.MANUAL_REVIEW);
         assertThat(result.handlerResult()).isSameAs(handlerResult);
         verify(retryPolicy, never()).canRetry(anyInt());
+
+        ArgumentCaptor<RecoveryManualReviewNotification> notificationCaptor =
+                ArgumentCaptor.forClass(RecoveryManualReviewNotification.class);
+        verify(notificationService).notifyManualReview(notificationCaptor.capture());
+
+        RecoveryManualReviewNotification notification = notificationCaptor.getValue();
+        assertThat(notification.taskId()).isEqualTo(TASK_ID);
+        assertThat(notification.targetType()).isEqualTo(RecoveryTargetType.APPROVAL);
+        assertThat(notification.targetTrxNo()).isEqualTo("TARGET-TRX-001");
+        assertThat(notification.retryCount()).isZero();
+        assertThat(notification.errorCode()).isEqualTo(errorCode);
+        assertThat(notification.occurredAt()).isEqualTo(COMPLETED_AT);
+    }
+
+    @Test
+    void manualReview전이에서소유권을잃으면_notification을호출하지않는다() {
+        RecoveryTask task = task(RecoveryTargetType.APPROVAL, 0);
+        givenClaimed(task);
+        when(approvalHandler.handle(task)).thenReturn(result(RecoveryHandlerResultType.TERMINAL_CONFLICT));
+        when(transactionService.manualReview(
+                eq(TASK_ID), eq(HISTORY_ID), anyString(), eq(COMPLETED_AT), eq("TERMINAL_CONFLICT")))
+                .thenReturn(RecoveryWorkerResultType.OWNERSHIP_LOST);
+
+        RecoveryWorkerResult result = worker.executeOne();
+
+        assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.OWNERSHIP_LOST);
+        verify(notificationService, never()).notifyManualReview(any());
+    }
+
+    @Test
+    void notification실패는_manualReview결과를바꾸지않는다() {
+        RecoveryTask task = task(RecoveryTargetType.APPROVAL, 0);
+        givenClaimed(task);
+        when(approvalHandler.handle(task)).thenReturn(result(RecoveryHandlerResultType.TARGET_NOT_FOUND));
+        when(transactionService.manualReview(
+                eq(TASK_ID), eq(HISTORY_ID), anyString(), eq(COMPLETED_AT), eq("TARGET_NOT_FOUND")))
+                .thenReturn(RecoveryWorkerResultType.MANUAL_REVIEW);
+        doThrow(new RuntimeException("notification failed"))
+                .when(notificationService).notifyManualReview(any());
+
+        RecoveryWorkerResult result = worker.executeOne();
+
+        assertThat(result.resultType()).isEqualTo(RecoveryWorkerResultType.MANUAL_REVIEW);
+        verify(notificationService).notifyManualReview(any());
     }
 
     @ParameterizedTest
@@ -327,7 +380,8 @@ class RecoveryWorkerTest {
                 LEASE_DURATION,
                 clock,
                 retryPolicy,
-                failureClassifier
+                failureClassifier,
+                notificationService
         )).isInstanceOf(IllegalStateException.class);
     }
 
@@ -340,7 +394,8 @@ class RecoveryWorkerTest {
                 duration,
                 clock,
                 retryPolicy,
-                failureClassifier
+                failureClassifier,
+                notificationService
         )).isInstanceOf(IllegalArgumentException.class);
     }
 
