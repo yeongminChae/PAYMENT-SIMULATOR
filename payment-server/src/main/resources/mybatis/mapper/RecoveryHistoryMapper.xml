@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.chaeyeongmin.payment_sim.infra.mybatis.mapper.RecoveryHistoryMapper">
+    <!-- 관리자 상세 화면에서 보여줄 실행 이력을 오래된 실행부터 조회한다. -->
+    <select id="findByRecoveryTaskId"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.RecoveryHistory">
+        SELECT
+            ID,
+            RECOVERY_TASK_ID,
+            TRY_NO,
+            RESULT,
+            ERROR_CODE,
+            STARTED_AT,
+            FINISHED_AT
+        FROM PAYMENT_RECOVERY_HISTORY
+        WHERE RECOVERY_TASK_ID = #{recoveryTaskId}
+        ORDER BY TRY_NO ASC
+    </select>
+
+    <!-- tryNo는 실제 Worker 실행 순서이며, 첫 실행은 1이다. -->
+    <select id="nextTryNo" resultType="int">
+        SELECT COALESCE(MAX(TRY_NO), 0) + 1
+        FROM PAYMENT_RECOVERY_HISTORY
+        WHERE RECOVERY_TASK_ID = #{recoveryTaskId}
+    </select>
+
+    <!-- 실행 시작 시점에는 결과가 아직 없으므로 완료 관련 컬럼은 null로 둔다. -->
+    <select id="insertStarted"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.RecoveryHistory"
+            affectData="true"
+            flushCache="true">
+        INSERT INTO PAYMENT_RECOVERY_HISTORY (
+            RECOVERY_TASK_ID,
+            TRY_NO,
+            RESULT,
+            ERROR_CODE,
+            STARTED_AT,
+            FINISHED_AT
+        )
+        VALUES (
+            #{recoveryTaskId},
+            #{tryNo},
+            NULL,
+            NULL,
+            #{startedAt},
+            NULL
+        )
+        RETURNING
+            ID,
+            RECOVERY_TASK_ID,
+            TRY_NO,
+            RESULT,
+            ERROR_CODE,
+            STARTED_AT,
+            FINISHED_AT
+    </select>
+
+    <!-- 먼저 종료된 실행 이력은 다시 덮어쓰지 않는다. -->
+    <update id="finish">
+        UPDATE PAYMENT_RECOVERY_HISTORY
+        SET RESULT = #{result},
+            ERROR_CODE = #{errorCode},
+            FINISHED_AT = #{finishedAt}
+        WHERE ID = #{historyId}
+          AND FINISHED_AT IS NULL
+    </update>
+</mapper>

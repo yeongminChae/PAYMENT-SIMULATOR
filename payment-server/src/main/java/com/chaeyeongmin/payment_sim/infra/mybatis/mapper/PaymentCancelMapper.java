@@ -47,6 +47,15 @@ public interface PaymentCancelMapper {
     );
 
     /**
+     * R6 Recovery 전용 update.
+     *
+     * <p>PENDING/UNKNOWN_TIMEOUT row만 확정 상태로 전환한다.
+     */
+    Optional<PaymentCancel> updateRecoverableToFinal(
+            @Param("cancel") CancelResultUpdateParam param
+    );
+
+    /**
      * UNKNOWN_TIMEOUT cancel row를 VAN inquiry 최종 결과로 확정한다.
      *
      * <p>

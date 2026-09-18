@@ -496,6 +496,242 @@ class TcpVanGatewayTest {
     }
 
     @Test
+    void TCP_REVERSAL_REVERSED_조회응답을_업무응답으로_변환한다() throws Exception {
+        VanInquiryRequest request = reversalInquiryRequest("2301-20260915-9999-0401");
+        VanInquiryTcpResponse tcpResponse = reversalInquiryTcpResponse(
+                request,
+                VanInquiryResultCode.SUCCESS,
+                VanInquiryStatus.REVERSED,
+                "VAN-REVERSAL-INQ-001",
+                "REVERSAL-APPROVAL-INQ-001",
+                null
+        );
+
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        VanInquiryResponse response = tcpVanGateway.inquiry(request);
+
+        assertThat(response.targetType()).isEqualTo(VanInquiryTargetType.REVERSAL);
+        assertThat(response.targetTrxNo()).isEqualTo(request.targetTrxNo());
+        assertThat(response.targetAttemptSeq()).isNull();
+        assertThat(response.resultCode()).isEqualTo(VanInquiryResultCode.SUCCESS);
+        assertThat(response.status()).isEqualTo(VanInquiryStatus.REVERSED);
+        assertThat(response.reversalApprovalNo()).isEqualTo("REVERSAL-APPROVAL-INQ-001");
+        assertThat(response.vanTrxId()).isEqualTo("VAN-REVERSAL-INQ-001");
+        assertThat(response.declineCode()).isNull();
+    }
+
+    @Test
+    void TCP_REVERSAL_DECLINED_조회응답의_VAN_decline_code_의미를_보존한다() throws Exception {
+        VanInquiryRequest request = reversalInquiryRequest("2301-20260915-9999-0402");
+        VanInquiryTcpResponse tcpResponse = reversalInquiryTcpResponse(
+                request,
+                VanInquiryResultCode.SUCCESS,
+                VanInquiryStatus.REVERSAL_DECLINED,
+                "VAN-REVERSAL-INQ-002",
+                null,
+                "ORIGINAL_NOT_REVERSIBLE"
+        );
+
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        VanInquiryResponse response = tcpVanGateway.inquiry(request);
+
+        assertThat(response.status()).isEqualTo(VanInquiryStatus.REVERSAL_DECLINED);
+        assertThat(response.reversalApprovalNo()).isNull();
+        assertThat(response.declineCode()).isEqualTo(VanDeclineCode.ORIGINAL_NOT_REVERSIBLE);
+    }
+
+    @Test
+    void TCP_REVERSAL_NOT_FOUND_조회응답을_빈_결과로_반환한다() throws Exception {
+        VanInquiryRequest request = reversalInquiryRequest("2301-20260915-9999-0403");
+        VanInquiryTcpResponse tcpResponse = reversalInquiryTcpResponse(
+                request,
+                VanInquiryResultCode.NOT_FOUND,
+                null,
+                null,
+                null,
+                null
+        );
+
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        VanInquiryResponse response = tcpVanGateway.inquiry(request);
+
+        assertThat(response.targetType()).isEqualTo(VanInquiryTargetType.REVERSAL);
+        assertThat(response.targetTrxNo()).isEqualTo(request.targetTrxNo());
+        assertThat(response.targetAttemptSeq()).isNull();
+        assertThat(response.resultCode()).isEqualTo(VanInquiryResultCode.NOT_FOUND);
+        assertThat(response.status()).isNull();
+        assertThat(response.reversalApprovalNo()).isNull();
+        assertThat(response.declineCode()).isNull();
+    }
+
+    @Test
+    void TCP_REVERSAL_조회응답의_targetType이_다르면_gateway_예외를_던진다() throws Exception {
+        VanInquiryRequest request = reversalInquiryRequest("2301-20260915-9999-0404");
+        VanInquiryTcpResponse mismatchedResponse = new VanInquiryTcpResponse(
+                "1", "INQUIRY_RESPONSE", inquiryRequestId(request), VanInquiryTargetType.CANCEL,
+                request.targetTrxNo(), null, VanInquiryResultCode.SUCCESS, "VAN-REVERSAL-INQ-004",
+                VanInquiryStatus.REVERSED, null, null, "REVERSAL-APPROVAL-INQ-004", null,
+                LocalDateTime.of(2026, 9, 15, 12, 4)
+        );
+
+        assertInquiryFailure(request, mismatchedResponse, "VAN_TCP_INQUIRY_RESPONSE_MISMATCH");
+    }
+
+    @Test
+    void TCP_REVERSAL_조회응답의_targetTrxNo가_다르면_gateway_예외를_던진다() throws Exception {
+        VanInquiryRequest request = reversalInquiryRequest("2301-20260915-9999-0405");
+        VanInquiryTcpResponse mismatchedResponse = new VanInquiryTcpResponse(
+                "1", "INQUIRY_RESPONSE", inquiryRequestId(request), VanInquiryTargetType.REVERSAL,
+                "2301-20260915-9999-DIFF", null, VanInquiryResultCode.SUCCESS, "VAN-REVERSAL-INQ-005",
+                VanInquiryStatus.REVERSED, null, null, "REVERSAL-APPROVAL-INQ-005", null,
+                LocalDateTime.of(2026, 9, 15, 12, 5)
+        );
+
+        assertInquiryFailure(request, mismatchedResponse, "VAN_TCP_INQUIRY_RESPONSE_MISMATCH");
+    }
+
+    @Test
+    void TCP_REVERSAL_조회응답의_targetAttemptSeq가_non_null이면_gateway_예외를_던진다() throws Exception {
+        VanInquiryRequest request = reversalInquiryRequest("2301-20260915-9999-0406");
+        VanInquiryTcpResponse mismatchedResponse = new VanInquiryTcpResponse(
+                "1", "INQUIRY_RESPONSE", inquiryRequestId(request), VanInquiryTargetType.REVERSAL,
+                request.targetTrxNo(), 1, VanInquiryResultCode.SUCCESS, "VAN-REVERSAL-INQ-006",
+                VanInquiryStatus.REVERSED, null, null, "REVERSAL-APPROVAL-INQ-006", null,
+                LocalDateTime.of(2026, 9, 15, 12, 6)
+        );
+
+        assertInquiryFailure(request, mismatchedResponse, "VAN_TCP_INQUIRY_RESPONSE_MISMATCH");
+    }
+
+    @Test
+    void TCP_REVERSAL_조회응답이_APPROVED_status이면_gateway_예외를_던진다() throws Exception {
+        VanInquiryRequest request = reversalInquiryRequest("2301-20260915-9999-0407");
+        VanInquiryTcpResponse invalidResponse = reversalInquiryTcpResponse(
+                request, VanInquiryResultCode.SUCCESS, VanInquiryStatus.APPROVED,
+                "VAN-REVERSAL-INQ-007", null, null
+        );
+
+        assertInquiryFailure(request, invalidResponse, "VAN_TCP_INQUIRY_RESPONSE_INVALID");
+    }
+
+    @Test
+    void TCP_REVERSAL_조회응답이_CANCELLED_status이면_gateway_예외를_던진다() throws Exception {
+        VanInquiryRequest request = reversalInquiryRequest("2301-20260915-9999-0408");
+        VanInquiryTcpResponse invalidResponse = reversalInquiryTcpResponse(
+                request, VanInquiryResultCode.SUCCESS, VanInquiryStatus.CANCELLED,
+                "VAN-REVERSAL-INQ-008", null, null
+        );
+
+        assertInquiryFailure(request, invalidResponse, "VAN_TCP_INQUIRY_RESPONSE_INVALID");
+    }
+
+    @Test
+    void TCP_REVERSED_조회응답의_reversalApprovalNo가_null이면_gateway_예외를_던진다() throws Exception {
+        VanInquiryRequest request = reversalInquiryRequest("2301-20260915-9999-0409");
+        VanInquiryTcpResponse invalidResponse = reversalInquiryTcpResponse(
+                request, VanInquiryResultCode.SUCCESS, VanInquiryStatus.REVERSED,
+                "VAN-REVERSAL-INQ-009", null, null
+        );
+
+        assertInquiryFailure(request, invalidResponse, "VAN_TCP_INQUIRY_RESPONSE_INVALID");
+    }
+
+    @Test
+    void TCP_REVERSED_조회응답의_reversalApprovalNo가_blank이면_gateway_예외를_던진다() throws Exception {
+        VanInquiryRequest request = reversalInquiryRequest("2301-20260915-9999-0410");
+        VanInquiryTcpResponse invalidResponse = reversalInquiryTcpResponse(
+                request, VanInquiryResultCode.SUCCESS, VanInquiryStatus.REVERSED,
+                "VAN-REVERSAL-INQ-010", " ", null
+        );
+
+        assertInquiryFailure(request, invalidResponse, "VAN_TCP_INQUIRY_RESPONSE_INVALID");
+    }
+
+    @Test
+    void TCP_REVERSED_조회응답에_declineCode가_있으면_gateway_예외를_던진다() throws Exception {
+        VanInquiryRequest request = reversalInquiryRequest("2301-20260915-9999-0411");
+        VanInquiryTcpResponse invalidResponse = reversalInquiryTcpResponse(
+                request, VanInquiryResultCode.SUCCESS, VanInquiryStatus.REVERSED,
+                "VAN-REVERSAL-INQ-011", "REVERSAL-APPROVAL-INQ-011", "ORIGINAL_NOT_REVERSIBLE"
+        );
+
+        assertInquiryFailure(request, invalidResponse, "VAN_TCP_INQUIRY_RESPONSE_INVALID");
+    }
+
+    @Test
+    void TCP_REVERSAL_DECLINED_조회응답에_reversalApprovalNo가_있으면_gateway_예외를_던진다() throws Exception {
+        VanInquiryRequest request = reversalInquiryRequest("2301-20260915-9999-0412");
+        VanInquiryTcpResponse invalidResponse = reversalInquiryTcpResponse(
+                request, VanInquiryResultCode.SUCCESS, VanInquiryStatus.REVERSAL_DECLINED,
+                "VAN-REVERSAL-INQ-012", "REVERSAL-APPROVAL-INQ-012", "ORIGINAL_NOT_REVERSIBLE"
+        );
+
+        assertInquiryFailure(request, invalidResponse, "VAN_TCP_INQUIRY_RESPONSE_INVALID");
+    }
+
+    @Test
+    void TCP_REVERSAL_DECLINED_조회응답의_declineCode가_null이면_gateway_예외를_던진다() throws Exception {
+        VanInquiryRequest request = reversalInquiryRequest("2301-20260915-9999-0413");
+        VanInquiryTcpResponse invalidResponse = reversalInquiryTcpResponse(
+                request, VanInquiryResultCode.SUCCESS, VanInquiryStatus.REVERSAL_DECLINED,
+                "VAN-REVERSAL-INQ-013", null, null
+        );
+
+        assertInquiryFailure(request, invalidResponse, "VAN_TCP_INQUIRY_RESPONSE_INVALID");
+    }
+
+    @Test
+    void TCP_REVERSAL_DECLINED_조회응답의_declineCode가_blank이면_gateway_예외를_던진다() throws Exception {
+        VanInquiryRequest request = reversalInquiryRequest("2301-20260915-9999-0414");
+        VanInquiryTcpResponse invalidResponse = reversalInquiryTcpResponse(
+                request, VanInquiryResultCode.SUCCESS, VanInquiryStatus.REVERSAL_DECLINED,
+                "VAN-REVERSAL-INQ-014", null, " "
+        );
+
+        assertInquiryFailure(request, invalidResponse, "VAN_TCP_INQUIRY_RESPONSE_INVALID");
+    }
+
+    @Test
+    void TCP_NOT_FOUND_조회응답에_reversalApprovalNo가_있으면_gateway_예외를_던진다() throws Exception {
+        VanInquiryRequest request = reversalInquiryRequest("2301-20260915-9999-0415");
+        VanInquiryTcpResponse invalidResponse = reversalInquiryTcpResponse(
+                request, VanInquiryResultCode.NOT_FOUND, null,
+                null, "REVERSAL-APPROVAL-INQ-015", null
+        );
+
+        assertInquiryFailure(request, invalidResponse, "VAN_TCP_INQUIRY_RESPONSE_INVALID");
+    }
+
+    @Test
+    void TCP_APPROVAL_조회응답에_reversalApprovalNo가_있으면_gateway_예외를_던진다() throws Exception {
+        VanInquiryRequest request = inquiryRequest("2301-20260915-9999-0416", 1);
+        VanInquiryTcpResponse invalidResponse = new VanInquiryTcpResponse(
+                "1", "INQUIRY_RESPONSE", inquiryRequestId(request), VanInquiryTargetType.APPROVAL,
+                request.targetTrxNo(), request.targetAttemptSeq(), VanInquiryResultCode.SUCCESS,
+                "VAN-APPROVAL-INQ-016", VanInquiryStatus.APPROVED, "APPROVAL-INQ-016", null,
+                "REVERSAL-APPROVAL-INQ-016", null, LocalDateTime.of(2026, 9, 15, 12, 16)
+        );
+
+        assertInquiryFailure(request, invalidResponse, "VAN_TCP_INQUIRY_RESPONSE_INVALID");
+    }
+
+    @Test
+    void TCP_CANCEL_조회응답에_reversalApprovalNo가_있으면_gateway_예외를_던진다() throws Exception {
+        VanInquiryRequest request = cancelInquiryRequest("2301-20260915-9999-0417");
+        VanInquiryTcpResponse invalidResponse = new VanInquiryTcpResponse(
+                "1", "INQUIRY_RESPONSE", inquiryRequestId(request), VanInquiryTargetType.CANCEL,
+                request.targetTrxNo(), null, VanInquiryResultCode.SUCCESS, "VAN-CANCEL-INQ-017",
+                VanInquiryStatus.CANCELLED, null, "CANCEL-APPROVAL-INQ-017",
+                "REVERSAL-APPROVAL-INQ-017", null, LocalDateTime.of(2026, 9, 15, 12, 17)
+        );
+
+        assertInquiryFailure(request, invalidResponse, "VAN_TCP_INQUIRY_RESPONSE_INVALID");
+    }
+
+    @Test
     void TCP_조회응답_timeout이면_gateway_timeout으로_변환한다() {
         // given
         VanInquiryRequest request = inquiryRequest("2301-20260808-9999-0105", 1);
@@ -882,6 +1118,59 @@ class TcpVanGatewayTest {
                 .vanTrxId("STORED-VAN-CANCEL-TRX")
                 .cardLast4("4242")
                 .build();
+    }
+
+    private VanInquiryRequest reversalInquiryRequest(String reversalPosTrx) {
+        return VanInquiryRequest.builder()
+                .targetType(VanInquiryTargetType.REVERSAL)
+                .targetTrxNo(reversalPosTrx)
+                .targetAttemptSeq(null)
+                .vanTrxId(null)
+                .cardLast4(null)
+                .build();
+    }
+
+    private VanInquiryTcpResponse reversalInquiryTcpResponse(
+            VanInquiryRequest request,
+            VanInquiryResultCode resultCode,
+            VanInquiryStatus status,
+            String vanTrxId,
+            String reversalApprovalNo,
+            String declineCode
+    ) {
+        return new VanInquiryTcpResponse(
+                "1",
+                "INQUIRY_RESPONSE",
+                inquiryRequestId(request),
+                VanInquiryTargetType.REVERSAL,
+                request.targetTrxNo(),
+                request.targetAttemptSeq(),
+                resultCode,
+                vanTrxId,
+                status,
+                null,
+                null,
+                reversalApprovalNo,
+                declineCode,
+                LocalDateTime.of(2026, 9, 15, 12, 0)
+        );
+    }
+
+    private String inquiryRequestId(VanInquiryRequest request) {
+        return "INQUIRY-" + request.targetType() + "-" + request.targetTrxNo()
+                + "-" + (request.targetAttemptSeq() == null ? "null" : request.targetAttemptSeq());
+    }
+
+    private void assertInquiryFailure(
+            VanInquiryRequest request,
+            VanInquiryTcpResponse response,
+            String expectedMessage
+    ) throws Exception {
+        when(vanTcpClient.send(any(byte[].class))).thenReturn(objectMapper.writeValueAsBytes(response));
+
+        assertThatThrownBy(() -> tcpVanGateway.inquiry(request))
+                .isInstanceOf(TcpVanGatewayException.class)
+                .hasMessage(expectedMessage);
     }
 
     private VanInquiryTcpResponse inquiryTcpResponse(
