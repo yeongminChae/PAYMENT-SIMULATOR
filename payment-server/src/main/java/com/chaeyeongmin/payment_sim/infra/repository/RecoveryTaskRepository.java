@@ -56,6 +56,12 @@ public interface RecoveryTaskRepository {
      */
     int markManualReview(Long taskId, String claimToken, LocalDateTime now);
 
+    /**
+     * 운영자가 다시 실행하기로 한 MANUAL_REVIEW Task를 PENDING으로 되돌린다.
+     * retry 횟수, 다음 실행 시각, 이전 Worker의 소유권 정보도 함께 초기화한다.
+     *
+     * @return 상태를 변경하면 1, Task가 없거나 MANUAL_REVIEW가 아니면 0
+     */
     int requeueManualReview(Long taskId, LocalDateTime now);
 
 }

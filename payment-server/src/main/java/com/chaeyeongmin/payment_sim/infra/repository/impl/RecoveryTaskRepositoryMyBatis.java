@@ -60,6 +60,7 @@ public class RecoveryTaskRepositoryMyBatis implements RecoveryTaskRepository {
 
     @Override
     public int requeueManualReview(Long taskId, LocalDateTime now) {
+        // 상태 확인과 PENDING 전환을 하나의 조건부 SQL로 처리해 중간 상태 변경과의 경합을 막는다.
         return mapper.requeueManualReview(taskId, now);
     }
 

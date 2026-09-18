@@ -6,6 +6,7 @@ import com.chaeyeongmin.payment_sim.domain.policy.RecoveryTargetType;
 
 import java.time.LocalDateTime;
 
+/** 관리자 목록과 requeue 결과에 사용하는 Recovery Task 요약 응답이다. */
 public record RecoveryTaskSummaryResponse(
         Long taskId,
         RecoveryTargetType targetType,
@@ -20,6 +21,7 @@ public record RecoveryTaskSummaryResponse(
         LocalDateTime updatedAt
 ) {
 
+    /** 저장소에서 읽은 Recovery Task를 API 응답으로 변환한다. */
     public static RecoveryTaskSummaryResponse from(RecoveryTask task) {
         return new RecoveryTaskSummaryResponse(
                 task.id(),

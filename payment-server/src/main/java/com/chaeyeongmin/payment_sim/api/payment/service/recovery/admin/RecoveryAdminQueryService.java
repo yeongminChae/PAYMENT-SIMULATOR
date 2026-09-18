@@ -22,12 +22,17 @@ public class RecoveryAdminQueryService {
     private final RecoveryTaskRepository recoveryTaskRepository;
     private final RecoveryHistoryRepository recoveryHistoryRepository;
 
+    /** 선택한 상태의 Task를 조회해 관리자 목록용 요약 응답으로 변환한다. */
     public List<RecoveryTaskSummaryResponse> findTasksByStatus(RecoveryStatus status) {
         return recoveryTaskRepository.findByStatus(status).stream()
                 .map(this::toSummaryResponse)
                 .toList();
     }
 
+    /**
+     * Task 한 건과 그 Task의 전체 실행 이력을 조합해 상세 응답을 만든다.
+     * Task가 없으면 실행 이력을 조회하지 않고 404로 변환될 예외를 던진다.
+     */
     public RecoveryTaskDetailResponse findTaskDetail(Long taskId) {
         RecoveryTask task = recoveryTaskRepository.findById(taskId)
                 .orElseThrow(() -> new RecoveryTaskNotFoundException(taskId));
@@ -53,6 +58,7 @@ public class RecoveryAdminQueryService {
         );
     }
 
+    /** Recovery Task를 관리자 목록에 필요한 필드만 가진 응답으로 바꾼다. */
     private RecoveryTaskSummaryResponse toSummaryResponse(RecoveryTask task) {
         return new RecoveryTaskSummaryResponse(
                 task.id(),
@@ -69,6 +75,7 @@ public class RecoveryAdminQueryService {
         );
     }
 
+    /** Worker 실행 이력을 관리자 상세 화면에 표시할 응답으로 바꾼다. */
     private RecoveryHistoryResponse toHistoryResponse(RecoveryHistory history) {
         return new RecoveryHistoryResponse(
                 history.id(),

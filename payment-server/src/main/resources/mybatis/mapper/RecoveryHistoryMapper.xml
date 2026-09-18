@@ -4,6 +4,7 @@
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
 <mapper namespace="com.chaeyeongmin.payment_sim.infra.mybatis.mapper.RecoveryHistoryMapper">
+    <!-- 관리자 상세 화면에서 보여줄 실행 이력을 오래된 실행부터 조회한다. -->
     <select id="findByRecoveryTaskId"
             resultType="com.chaeyeongmin.payment_sim.domain.model.RecoveryHistory">
         SELECT

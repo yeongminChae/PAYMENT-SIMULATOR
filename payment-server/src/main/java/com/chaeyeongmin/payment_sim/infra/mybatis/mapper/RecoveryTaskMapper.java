@@ -74,6 +74,11 @@ public interface RecoveryTaskMapper {
             @Param("now") LocalDateTime now
     );
 
+    /**
+     * MANUAL_REVIEW Task만 PENDING으로 되돌리고 retry와 기존 소유권 정보를 초기화한다.
+     *
+     * @return 상태를 변경하면 1, Task가 없거나 MANUAL_REVIEW가 아니면 0
+     */
     int requeueManualReview(
             @Param("taskId") Long taskId,
             @Param("now") LocalDateTime now

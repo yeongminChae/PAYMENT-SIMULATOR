@@ -4,6 +4,7 @@
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
 <mapper namespace="com.chaeyeongmin.payment_sim.infra.mybatis.mapper.RecoveryTaskMapper">
+    <!-- 관리자 목록에서 선택한 상태의 Task를 최근 변경된 순서로 조회한다. -->
     <select id="findByStatus"
             resultType="com.chaeyeongmin.payment_sim.domain.model.RecoveryTask">
         SELECT
@@ -25,6 +26,7 @@
         ORDER BY UPDATED_AT DESC, ID DESC
     </select>
 
+    <!-- 관리자 상세 조회와 requeue 결과 확인에 사용할 Task 한 건을 조회한다. -->
     <select id="findById"
             resultType="com.chaeyeongmin.payment_sim.domain.model.RecoveryTask">
         SELECT
@@ -158,6 +160,10 @@
         AND LEASE_EXPIRES_AT > #{now}
     </update>
 
+    <!--
+        운영자가 다시 자동 복구하기로 한 MANUAL_REVIEW Task만 PENDING으로 되돌린다.
+        이전 실행의 retry 예약과 Worker 소유권 정보는 새 실행에 남지 않도록 모두 초기화한다.
+    -->
     <update id="requeueManualReview">
         UPDATE PAYMENT_RECOVERY_TASK
         SET RECOVERY_STATUS = 'PENDING',
