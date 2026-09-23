@@ -3,6 +3,7 @@ package com.chaeyeongmin.payment_sim.api.payment.integration;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
+import com.chaeyeongmin.payment_sim.van.gateway.SimulatedVanGateway;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -12,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
@@ -32,41 +34,27 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 테스트 전용 SQLite 파일을 사용하고, 각 테스트가 사용하는 고유 거래번호를
  * FK 순서에 맞춰 정리해 반복 실행과 테스트 순서 변경에도 영향을 받지 않게 한다.
  */
-// @SpringBootTest는 운영 코드와 같은 Spring ApplicationContext를 구성해 실제 Bean 연결을 검증한다.
+@SuppressWarnings({"deprecation", "removal"})
 @SpringBootTest
-// @AutoConfigureMockMvc는 서버 포트를 직접 띄우지 않고도 Controller부터 HTTP 요청 흐름을 실행할 MockMvc를 준비한다.
 @AutoConfigureMockMvc
-// @TestPropertySource는 운영 DB 대신 테스트 전용 SQLite 파일을 사용하도록 datasource URL을 덮어쓴다.
-@TestPropertySource(properties = "spring.datasource.url=jdbc:sqlite:./build/payment-flow-integration-test.db")
+@Import(SimulatedVanGateway.class)
+@TestPropertySource(properties = {
+        "spring.datasource.url=jdbc:sqlite:./build/payment-flow-integration-test.db",
+        "payment.van.mode=simulated"
+})
 class PaymentFlowIntegrationTest {
 
-    // 각 시나리오가 서로의 DB row를 재사용하지 않도록 승인 거래번호를 분리한다.
-    // 고유 거래번호를 사용하면 실행 순서가 바뀌거나 일부 테스트만 반복 실행되어도 결과가 섞이지 않는다.
-    // IT-APP-001 승인 저장 검증용 원거래 번호다.
     private static final String APPROVE_POS_TRX_IT_APP_001 = "2376-20260601-9991-1001";
-    // IT-APP-002 승인 거절 저장 검증용 원거래 번호다.
     private static final String APPROVE_POS_TRX_IT_APP_002 = "2376-20260601-9991-1002";
-    // IT-APP-003 승인 UNKNOWN_TIMEOUT 저장 검증용 원거래 번호다.
     private static final String APPROVE_POS_TRX_IT_APP_003 = "2376-20260601-9991-1003";
-    // IT-APP-004 확정 승인건 Inquiry 검증용 원거래 번호다.
     private static final String APPROVE_POS_TRX_IT_APP_004 = "2376-20260601-9991-1004";
-    // IT-APP-005 승인 후 취소 검증용 원거래 번호다.
     private static final String APPROVE_POS_TRX_IT_APP_005 = "2376-20260601-9991-1005";
-    // IT-APP-006 거절 승인건 취소 불가 검증용 원거래 번호다.
     private static final String APPROVE_POS_TRX_IT_APP_006 = "2376-20260601-9991-1006";
-    // IT-APP-007 동일 원거래 재취소 검증용 원거래 번호다.
     private static final String APPROVE_POS_TRX_IT_APP_007 = "2376-20260601-9991-1017";
-    // IT-APP-008 active 8자리 BIN 기반 PAYMENT_EXTERNAL_INFO 저장 검증용 거래 번호다.
     private static final String APPROVE_POS_TRX_IT_APP_008 = "2376-20260601-9991-1008";
-
-    // 취소 요청 거래번호도 시나리오별로 분리한다. IT-APP-007은 재취소 요청 자체도 두 번 구분한다.
-    // IT-APP-005에서 원거래를 취소할 때 사용하는 현재 취소 거래번호다.
     private static final String CANCEL_POS_TRX_IT_APP_005 = "2376-20260601-9991-2001";
-    // IT-APP-006에서 거절 원거래의 취소를 시도할 때 사용하는 현재 취소 거래번호다.
     private static final String CANCEL_POS_TRX_IT_APP_006 = "2376-20260601-9991-2003";
-    // IT-APP-007의 첫 번째 취소 요청 거래번호다.
     private static final String FIRST_CANCEL_POS_TRX_IT_APP_007 = "2376-20260601-9991-2007";
-    // IT-APP-007의 두 번째 취소 요청 거래번호다. 원거래는 같지만 요청 자체는 별도임을 표현한다.
     private static final String SECOND_CANCEL_POS_TRX_IT_APP_007 = "2376-20260601-9991-2008";
 
     private static final List<String> APPROVE_POS_TRXS = List.of(
@@ -102,13 +90,11 @@ class PaymentFlowIntegrationTest {
     @Autowired
     private PaymentCancelRepository paymentCancelRepository;
 
-    // @BeforeEach는 각 테스트 실행 직전에 호출된다. 이전 실행이 남긴 DB 데이터가 현재 테스트에 영향을 주지 않게 한다.
     @BeforeEach
     void cleanBefore() {
         cleanupTestData();
     }
 
-    // @AfterEach는 각 테스트 실행 직후에도 호출된다. 성공 여부와 무관하게 다음 실행을 위해 테스트 데이터를 치운다.
     @AfterEach
     void cleanAfter() {
         cleanupTestData();
@@ -122,7 +108,6 @@ class PaymentFlowIntegrationTest {
         // approve()가 실제 API 응답 JSON 문자열을 JsonNode로 변환해서 반환한다.
         JsonNode approveResponse = approve(APPROVE_POS_TRX_IT_APP_001);
 
-        // assertEquals(expected, actual)는 두 값이 같은지 검증한다. 다르면 이 테스트는 실패한다.
         // path("result_code")는 JSON 객체에서 result_code 필드로 이동한다.
         // asText()는 해당 JSON 값을 Java String으로 꺼낸다.
         // 예: {"result_code":"OK"} -> path("result_code").asText() 결과는 "OK"
@@ -133,7 +118,6 @@ class PaymentFlowIntegrationTest {
         // asInt()는 JSON 숫자 값을 Java int로 변환한다.
         int attemptSeq = approveData.path("attemptSeq").asInt();
 
-        // assertEquals는 실제 값이 기대값과 같은지, assertNotNull은 필수 응답 값이 생성되었는지 검증한다.
         assertEquals("APPROVED", approveData.path("finalStatus").asText());
         assertNotNull(textOrNull(approveData, "approvalNo"));
 
@@ -146,7 +130,6 @@ class PaymentFlowIntegrationTest {
         assertEquals("4242", attemptRow.get("CARD_LAST4"));
         assertNotNull(attemptRow.get("APPROVAL_NO"));
         assertNotNull(attemptRow.get("VAN_TRX_ID"));
-        // assertNull은 승인 성공 row에 거절 사유가 잘못 저장되지 않았는지 확인한다.
         assertNull(attemptRow.get("DECLINE_CODE"));
 
     }
@@ -411,11 +394,11 @@ class PaymentFlowIntegrationTest {
         // queryForObject는 단일 집계값을 읽는다. row count = 1은 중복 취소 row 생성을 방어했다는 의미다.
         Integer cancelRowCount = jdbcTemplate.queryForObject(
                 """
-                SELECT COUNT(*)
-                FROM PAYMENT_CANCEL
-                WHERE ORIGINAL_TRX_NO = ?
-                  AND ORIGINAL_ATTEMPT_SEQ = ?
-                """,
+                        SELECT COUNT(*)
+                        FROM PAYMENT_CANCEL
+                        WHERE ORIGINAL_TRX_NO = ?
+                          AND ORIGINAL_ATTEMPT_SEQ = ?
+                        """,
                 Integer.class,
                 APPROVE_POS_TRX_IT_APP_007,
                 attemptSeq
@@ -471,10 +454,10 @@ class PaymentFlowIntegrationTest {
         String responseBody = mockMvc.perform(post("/api/v1/payments/approve")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody))
-                        .andExpect(status().isOk())
-                        .andReturn()
-                        .getResponse()
-                        .getContentAsString();
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
 
         // responseBody는 서버가 실제로 반환한 JSON 문자열이다.
         // readTree()는 문자열을 JsonNode 트리로 바꿔 path("data")처럼 필드 단위로 탐색할 수 있게 한다.
@@ -499,33 +482,33 @@ class PaymentFlowIntegrationTest {
         String responseBody = mockMvc.perform(post("/api/v1/payments/approve")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody))
-                        .andExpect(status().isOk())
-                        .andReturn()
-                        .getResponse()
-                        .getContentAsString();
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
 
         return objectMapper.readTree(responseBody);
     }
 
     private JsonNode approveUnknownTimeout(String posTrx) throws Exception {
         String requestBody = """
-            {
-              "posTrx": "%s",
-              "amount": 10000,
-              "card": {
-                "pan": "4111111100087777",
-                "expiryYyMm": "2812"
-              }
-            }
-            """.formatted(posTrx);
+                {
+                  "posTrx": "%s",
+                  "amount": 10000,
+                  "card": {
+                    "pan": "4111111100087777",
+                    "expiryYyMm": "2812"
+                  }
+                }
+                """.formatted(posTrx);
 
         String responseBody = mockMvc.perform(post("/api/v1/payments/approve")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody))
-                        .andExpect(status().isOk())
-                        .andReturn()
-                        .getResponse()
-                        .getContentAsString();
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
 
         return objectMapper.readTree(responseBody);
     }
@@ -544,10 +527,10 @@ class PaymentFlowIntegrationTest {
         String responseBody = mockMvc.perform(post("/api/v1/payments/inquiry")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody))
-                        .andExpect(status().isOk())
-                        .andReturn()
-                        .getResponse()
-                        .getContentAsString();
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
 
         return objectMapper.readTree(responseBody);
     }
@@ -574,10 +557,10 @@ class PaymentFlowIntegrationTest {
         String responseBody = mockMvc.perform(post("/api/v1/payments/cancel")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody))
-                        .andExpect(status().isOk())
-                        .andReturn()
-                        .getResponse()
-                        .getContentAsString();
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
 
         return objectMapper.readTree(responseBody);
     }
@@ -591,11 +574,11 @@ class PaymentFlowIntegrationTest {
                 // COUNT(*)는 정상적으로 null을 반환하지 않지만, Integer -> int 자동 변환 시 발생할 수 있는
                 // NullPointerException 경고를 없애고 예상 밖 null을 즉시 발견하기 위해 requireNonNull()을 사용한다.
                 """
-                SELECT COUNT(*)
-                FROM PAYMENT_ATTEMPT
-                WHERE POS_TRX = ?
-                  AND ATTEMPT_SEQ = ?
-                """,
+                        SELECT COUNT(*)
+                        FROM PAYMENT_ATTEMPT
+                        WHERE POS_TRX = ?
+                          AND ATTEMPT_SEQ = ?
+                        """,
                 Integer.class,
                 posTrx,
                 attemptSeq
@@ -609,11 +592,11 @@ class PaymentFlowIntegrationTest {
                 // COUNT(*)는 정상적으로 null을 반환하지 않지만, Integer -> int 자동 변환 시 발생할 수 있는
                 // NullPointerException 경고를 없애고 예상 밖 null을 즉시 발견하기 위해 requireNonNull()을 사용한다.
                 """
-                SELECT COUNT(*)
-                FROM PAYMENT_CANCEL
-                WHERE ORIGINAL_TRX_NO = ?
-                  AND ORIGINAL_ATTEMPT_SEQ = ?
-                """,
+                        SELECT COUNT(*)
+                        FROM PAYMENT_CANCEL
+                        WHERE ORIGINAL_TRX_NO = ?
+                          AND ORIGINAL_ATTEMPT_SEQ = ?
+                        """,
                 Integer.class,
                 originalPosTrx,
                 originalAttemptSeq
@@ -626,20 +609,20 @@ class PaymentFlowIntegrationTest {
         // 예: attemptRow.get("FINAL_STATUS")는 조회된 row의 FINAL_STATUS 컬럼 값을 읽는다.
         return jdbcTemplate.queryForMap(
                 """
-                    SELECT
-                        POS_TRX,
-                        ATTEMPT_SEQ,
-                        AMOUNT,
-                        CARD_BIN,
-                        CARD_LAST4,
-                        FINAL_STATUS,
-                        APPROVAL_NO,
-                        DECLINE_CODE,
-                        VAN_TRX_ID
-                    FROM PAYMENT_ATTEMPT
-                    WHERE POS_TRX = ?
-                      AND ATTEMPT_SEQ = ?
-                """,
+                            SELECT
+                                POS_TRX,
+                                ATTEMPT_SEQ,
+                                AMOUNT,
+                                CARD_BIN,
+                                CARD_LAST4,
+                                FINAL_STATUS,
+                                APPROVAL_NO,
+                                DECLINE_CODE,
+                                VAN_TRX_ID
+                            FROM PAYMENT_ATTEMPT
+                            WHERE POS_TRX = ?
+                              AND ATTEMPT_SEQ = ?
+                        """,
                 posTrx,
                 attemptSeq
         );
@@ -648,20 +631,20 @@ class PaymentFlowIntegrationTest {
     private Map<String, Object> findPaymentExternalInfo(String posTrx, int attemptSeq) {
         return jdbcTemplate.queryForMap(
                 """
-                    SELECT
-                        POS_TRX,
-                        ATTEMPT_SEQ,
-                        CARD_BIN,
-                        CARD_LAST4,
-                        MASKED_CARD_NO,
-                        CARD_BRAND,
-                        CARD_ISSUER,
-                        CARD_COUNTRY,
-                        VAN_PROVIDER
-                    FROM PAYMENT_EXTERNAL_INFO
-                    WHERE POS_TRX = ?
-                      AND ATTEMPT_SEQ = ?
-                """,
+                            SELECT
+                                POS_TRX,
+                                ATTEMPT_SEQ,
+                                CARD_BIN,
+                                CARD_LAST4,
+                                MASKED_CARD_NO,
+                                CARD_BRAND,
+                                CARD_ISSUER,
+                                CARD_COUNTRY,
+                                VAN_PROVIDER
+                            FROM PAYMENT_EXTERNAL_INFO
+                            WHERE POS_TRX = ?
+                              AND ATTEMPT_SEQ = ?
+                        """,
                 posTrx,
                 attemptSeq
         );
@@ -677,18 +660,18 @@ class PaymentFlowIntegrationTest {
     private Map<String, Object> findPaymentCancel(String originalPosTrx, int originalAttemptSeq) {
         return jdbcTemplate.queryForMap(
                 """
-                    SELECT
-                        CURRENT_TRX_NO,
-                        ORIGINAL_TRX_NO,
-                        ORIGINAL_ATTEMPT_SEQ,
-                        CANCEL_STATUS,
-                        VAN_CANCEL_TRX_ID,
-                        CANCEL_APPROVAL_NO,
-                        DECLINE_CODE
-                    FROM PAYMENT_CANCEL
-                    WHERE ORIGINAL_TRX_NO = ?
-                      AND ORIGINAL_ATTEMPT_SEQ = ?
-                """,
+                            SELECT
+                                CURRENT_TRX_NO,
+                                ORIGINAL_TRX_NO,
+                                ORIGINAL_ATTEMPT_SEQ,
+                                CANCEL_STATUS,
+                                VAN_CANCEL_TRX_ID,
+                                CANCEL_APPROVAL_NO,
+                                DECLINE_CODE
+                            FROM PAYMENT_CANCEL
+                            WHERE ORIGINAL_TRX_NO = ?
+                              AND ORIGINAL_ATTEMPT_SEQ = ?
+                        """,
                 originalPosTrx,
                 originalAttemptSeq
         );

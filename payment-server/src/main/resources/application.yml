@@ -41,7 +41,7 @@ payment:
     # fingerprint 재현성을 위해 실행 환경마다 고정된 비밀키를 주입하며, 저장소에는 실제 키를 남기지 않는다.
     secret-key: ${CARD_SECRET_KEY}
   van:
-    mode: ${PAYMENT_VAN_MODE:simulated}
+    mode: ${PAYMENT_VAN_MODE:tcp}
     tcp:
       host: ${PAYMENT_VAN_TCP_HOST:localhost}
       port: ${PAYMENT_VAN_TCP_PORT:9090}
