@@ -12,6 +12,8 @@ import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.RecoveryTaskRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdateParam;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
+import com.chaeyeongmin.payment_sim.infra.repository.dto.ReversalResultUpdateParam;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,6 +46,10 @@ class PostgresRecoveryFinalizationFencingIntegrationTest {
 
     private static final String TEST_PREFIX = "R6-P1-FINALIZE-FENCE-";
     private static final String POS_TRX = TEST_PREFIX + "001";
+    private static final String CANCEL_TRX = TEST_PREFIX + "CANCEL-001";
+    private static final String CANCEL_ORIGINAL_POS_TRX = TEST_PREFIX + "CANCEL-ORIGINAL-001";
+    private static final String REVERSAL_TRX = TEST_PREFIX + "REVERSAL-001";
+    private static final String REVERSAL_ORIGINAL_POS_TRX = TEST_PREFIX + "REVERSAL-ORIGINAL-001";
 
     @Container
     @ServiceConnection
@@ -192,6 +198,181 @@ class PostgresRecoveryFinalizationFencingIntegrationTest {
         assertThat(currentTask.claimToken()).isEqualTo("worker-b");
     }
 
+    @Test
+    void staleWorkerCannotFinalizeCancelAfterTaskIsReclaimed() {
+        // given
+        LocalDateTime now = LocalDateTime.now(clock);
+
+        LocalDateTime workerAClaimedAt = now.minusMinutes(2);
+        LocalDateTime workerALeaseExpiresAt = now.minusMinutes(1);
+
+        /*
+         * 원 승인 + UNKNOWN_TIMEOUT 취소 거래 준비
+         */
+        insertApprovedOriginalAttemptForCancel();
+        insertUnknownTimeoutCancel();
+
+        /*
+         * CANCEL Recovery Task 생성
+         */
+        Long taskId = insertPendingCancelRecoveryTask(now);
+
+        /*
+         * Worker A claim
+         */
+        ClaimedRecoveryExecution workerA =
+                transactionService
+                        .claimAndStart("cancel-worker-a", workerAClaimedAt, workerALeaseExpiresAt)
+                        .orElseThrow();
+
+        RecoveryTask staleTaskFromWorkerA = workerA.task();
+
+        /*
+         * A lease 만료 후 Worker B reclaim
+         */
+        ClaimedRecoveryExecution workerB =
+                transactionService
+                        .claimAndStart("cancel-worker-b", now, now.plusMinutes(5))
+                        .orElseThrow();
+
+        assertThat(workerA.task().id()).isEqualTo(taskId);
+        assertThat(workerB.task().id()).isEqualTo(taskId);
+        assertThat(staleTaskFromWorkerA.claimToken()).isEqualTo("cancel-worker-a");
+        assertThat(workerB.task().claimToken()).isEqualTo("cancel-worker-b");
+
+        /*
+         * Worker A가 VAN Inquiry에서
+         * CANCELLED 사실을 확인하고 늦게 돌아왔다고 가정한다.
+         */
+        CancelResultUpdateParam intended =
+                CancelResultUpdateParam.cancelled(
+                        CANCEL_TRX,
+                        CANCEL_ORIGINAL_POS_TRX,
+                        1,
+                        "VAN-CANCEL-FENCE",
+                        "CANCEL-APPROVAL-FENCE"
+                );
+
+        // when
+        RecoveryFinalizeResult result =
+                finalizationService.finalizeCancel(staleTaskFromWorkerA, intended);
+
+        // then 1
+        assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.OWNERSHIP_LOST);
+
+        /*
+         * 핵심:
+         * stale A가 CANCELLED를 들고 왔어도
+         * PAYMENT_CANCEL은 UNKNOWN_TIMEOUT 그대로여야 한다.
+         */
+        String cancelStatus = jdbcTemplate.queryForObject(
+                """
+                SELECT CANCEL_STATUS
+                FROM PAYMENT_CANCEL
+                WHERE CURRENT_TRX_NO = ?
+                """,
+                String.class,
+                CANCEL_TRX
+        );
+
+        assertThat(cancelStatus).isEqualTo("UNKNOWN_TIMEOUT");
+
+        /*
+         * Recovery Task ownership도 B에게 그대로 남아 있어야 한다.
+         */
+        RecoveryTask currentTask = recoveryTaskRepository.findById(taskId).orElseThrow();
+
+        assertThat(currentTask.recoveryStatus()).isEqualTo(RecoveryStatus.RUNNING);
+        assertThat(currentTask.claimToken()).isEqualTo("cancel-worker-b");
+    }
+
+    @Test
+    void staleWorkerCannotFinalizeReversalAfterTaskIsReclaimed() {
+        // given
+        LocalDateTime now = LocalDateTime.now(clock);
+
+        LocalDateTime workerAClaimedAt = now.minusMinutes(2);
+        LocalDateTime workerALeaseExpiresAt = now.minusMinutes(1);
+
+        /*
+         * 원 승인 + PENDING Reversal 거래 준비
+         */
+        insertApprovedOriginalAttemptForReversal();
+        insertPendingReversal();
+
+        /*
+         * REVERSAL Recovery Task 생성
+         */
+        Long taskId = insertPendingReversalRecoveryTask(now);
+
+        /*
+         * Worker A claim
+         */
+        ClaimedRecoveryExecution workerA =
+                transactionService
+                        .claimAndStart("reversal-worker-a", workerAClaimedAt, workerALeaseExpiresAt)
+                        .orElseThrow();
+
+        RecoveryTask staleTaskFromWorkerA = workerA.task();
+
+        /*
+         * A lease 만료 후 Worker B reclaim
+         */
+        ClaimedRecoveryExecution workerB =
+                transactionService
+                        .claimAndStart("reversal-worker-b", now, now.plusMinutes(5))
+                        .orElseThrow();
+
+        assertThat(workerA.task().id()).isEqualTo(taskId);
+        assertThat(workerB.task().id()).isEqualTo(taskId);
+        assertThat(staleTaskFromWorkerA.claimToken()).isEqualTo("reversal-worker-a");
+        assertThat(workerB.task().claimToken()).isEqualTo("reversal-worker-b");
+
+        /*
+         * Worker A가 VAN Inquiry에서
+         * REVERSED 사실을 확인하고 늦게 돌아왔다고 가정한다.
+         */
+        ReversalResultUpdateParam intended =
+                ReversalResultUpdateParam.reversed(
+                        REVERSAL_TRX,
+                        REVERSAL_ORIGINAL_POS_TRX,
+                        1,
+                        "VAN-REVERSAL-FENCE",
+                        "REVERSAL-APPROVAL-FENCE"
+                );
+
+        // when
+        RecoveryFinalizeResult result =
+                finalizationService.finalizeReversal(staleTaskFromWorkerA, intended);
+
+        // then 1
+        assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.OWNERSHIP_LOST);
+
+        /*
+         * stale A가 REVERSED를 들고 왔어도
+         * PAYMENT_REVERSAL은 PENDING 그대로여야 한다.
+         */
+        String reversalStatus = jdbcTemplate.queryForObject(
+                """
+                SELECT REVERSAL_STATUS
+                FROM PAYMENT_REVERSAL
+                WHERE CURRENT_TRX_NO = ?
+                """,
+                String.class,
+                REVERSAL_TRX
+        );
+
+        assertThat(reversalStatus).isEqualTo("PENDING");
+
+        /*
+         * Recovery Task ownership도 B에게 그대로 남아 있어야 한다.
+         */
+        RecoveryTask currentTask = recoveryTaskRepository.findById(taskId).orElseThrow();
+
+        assertThat(currentTask.recoveryStatus()).isEqualTo(RecoveryStatus.RUNNING);
+        assertThat(currentTask.claimToken()).isEqualTo("reversal-worker-b");
+    }
+
     private void insertUnknownTimeoutAttempt() {
         jdbcTemplate.update(
                 """
@@ -241,6 +422,144 @@ class PostgresRecoveryFinalizationFencingIntegrationTest {
         );
     }
 
+    private void insertApprovedOriginalAttemptForCancel() {
+        // CANCEL_ORIGINAL_POS_TRX / attempt 1 / APPROVED
+        jdbcTemplate.update(
+                """
+                INSERT INTO PAYMENT_ATTEMPT (
+                    POS_TRX,
+                    ATTEMPT_SEQ,
+                    AMOUNT,
+                    CARD_BIN,
+                    CARD_LAST4,
+                    CARD_BRAND,
+                    CARD_FINGERPRINT,
+                    FINAL_STATUS
+                )
+                VALUES (?, 1, 10000, '424242', '4242', 'VISA', ?, 'APPROVED')
+                """,
+                CANCEL_ORIGINAL_POS_TRX,
+                "fingerprint-" + CANCEL_ORIGINAL_POS_TRX
+        );
+    }
+
+    private void insertUnknownTimeoutCancel() {
+        // CURRENT_TRX_NO = CANCEL_TRX
+        // ORIGINAL_TRX_NO = CANCEL_ORIGINAL_POS_TRX
+        // ORIGINAL_ATTEMPT_SEQ = 1
+        // CANCEL_STATUS = UNKNOWN_TIMEOUT
+        jdbcTemplate.update(
+                """
+                INSERT INTO PAYMENT_CANCEL (
+                    CURRENT_TRX_NO,
+                    ORIGINAL_TRX_NO,
+                    ORIGINAL_ATTEMPT_SEQ,
+                    CANCEL_STATUS
+                )
+                VALUES (?, ?, 1, 'UNKNOWN_TIMEOUT')
+                """,
+                CANCEL_TRX,
+                CANCEL_ORIGINAL_POS_TRX
+        );
+    }
+
+    private Long insertPendingCancelRecoveryTask(LocalDateTime now) {
+        // TARGET_TYPE = CANCEL
+        // TARGET_TRX_NO = CANCEL_TRX
+        // ORIGINAL_POS_TRX = CANCEL_ORIGINAL_POS_TRX
+        // ORIGINAL_ATTEMPT_SEQ = 1
+        return jdbcTemplate.queryForObject(
+                """
+                INSERT INTO PAYMENT_RECOVERY_TASK (
+                    TARGET_TYPE,
+                    TARGET_TRX_NO,
+                    TARGET_ATTEMPT_SEQ,
+                    ORIGINAL_POS_TRX,
+                    ORIGINAL_ATTEMPT_SEQ,
+                    RECOVERY_STATUS,
+                    RETRY_COUNT,
+                    NEXT_RETRY_AT,
+                    CLAIM_TOKEN,
+                    LEASE_EXPIRES_AT,
+                    CREATED_AT,
+                    UPDATED_AT
+                )
+                VALUES ('CANCEL', ?, NULL, ?, 1, 'PENDING', 0, NULL, NULL, NULL, ?, ?)
+                RETURNING ID
+                """,
+                Long.class,
+                CANCEL_TRX,
+                CANCEL_ORIGINAL_POS_TRX,
+                now,
+                now
+        );
+    }
+
+    private void insertApprovedOriginalAttemptForReversal() {
+        jdbcTemplate.update(
+                """
+                INSERT INTO PAYMENT_ATTEMPT (
+                    POS_TRX,
+                    ATTEMPT_SEQ,
+                    AMOUNT,
+                    CARD_BIN,
+                    CARD_LAST4,
+                    CARD_BRAND,
+                    CARD_FINGERPRINT,
+                    FINAL_STATUS
+                )
+                VALUES (?, 1, 10000, '424242', '4242', 'VISA', ?, 'APPROVED')
+                """,
+                REVERSAL_ORIGINAL_POS_TRX,
+                "fingerprint-" + REVERSAL_ORIGINAL_POS_TRX
+        );
+    }
+
+    private void insertPendingReversal() {
+        jdbcTemplate.update(
+                """
+                INSERT INTO PAYMENT_REVERSAL (
+                    CURRENT_TRX_NO,
+                    ORIGINAL_TRX_NO,
+                    ORIGINAL_ATTEMPT_SEQ,
+                    AMOUNT,
+                    REVERSAL_STATUS
+                )
+                VALUES (?, ?, 1, 10000, 'PENDING')
+                """,
+                REVERSAL_TRX,
+                REVERSAL_ORIGINAL_POS_TRX
+        );
+    }
+
+    private Long insertPendingReversalRecoveryTask(LocalDateTime now) {
+        return jdbcTemplate.queryForObject(
+                """
+                INSERT INTO PAYMENT_RECOVERY_TASK (
+                    TARGET_TYPE,
+                    TARGET_TRX_NO,
+                    TARGET_ATTEMPT_SEQ,
+                    ORIGINAL_POS_TRX,
+                    ORIGINAL_ATTEMPT_SEQ,
+                    RECOVERY_STATUS,
+                    RETRY_COUNT,
+                    NEXT_RETRY_AT,
+                    CLAIM_TOKEN,
+                    LEASE_EXPIRES_AT,
+                    CREATED_AT,
+                    UPDATED_AT
+                )
+                VALUES ('REVERSAL', ?, NULL, ?, 1, 'PENDING', 0, NULL, NULL, NULL, ?, ?)
+                RETURNING ID
+                """,
+                Long.class,
+                REVERSAL_TRX,
+                REVERSAL_ORIGINAL_POS_TRX,
+                now,
+                now
+        );
+    }
+
     private void cleanup() {
         jdbcTemplate.update(
                 """
@@ -260,9 +579,20 @@ class PostgresRecoveryFinalizationFencingIntegrationTest {
         );
 
         jdbcTemplate.update(
+                "DELETE FROM PAYMENT_CANCEL WHERE CURRENT_TRX_NO LIKE ?",
+                TEST_PREFIX + "%"
+        );
+
+        jdbcTemplate.update(
+                "DELETE FROM PAYMENT_REVERSAL WHERE CURRENT_TRX_NO LIKE ?",
+                TEST_PREFIX + "%"
+        );
+
+        jdbcTemplate.update(
                 "DELETE FROM PAYMENT_ATTEMPT WHERE POS_TRX LIKE ?",
                 TEST_PREFIX + "%"
         );
+
     }
 
 }

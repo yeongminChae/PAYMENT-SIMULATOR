@@ -157,6 +157,19 @@ public class RecoveryFinalizationServiceImpl implements RecoveryFinalizationServ
             throw new IllegalArgumentException("Cancel recovery target must be CANCELLED or CANCEL_DECLINED");
         }
 
+        /*
+         * VAN Inquiry가 끝나는 동안 lease가 만료돼
+         * 다른 Worker가 Recovery Task를 reclaim했을 수 있다.
+         * 현재 Worker가 더 이상 Task owner가 아니라면 PAYMENT_CANCEL Ledger를 변경하면 안 된다.
+         */
+        if (hasValidOwnership(task) == false) {
+            return new RecoveryFinalizeResult(
+                    RecoveryFinalizeResultType.OWNERSHIP_LOST,
+                    intended.cancelStatusValue(),
+                    null
+            );
+        }
+
         Optional<PaymentCancel> updated = cancelRepository.updateRecoverableToFinal(intended);
 
         // 1. 내가 실제 DB terminal 확정에 성공
@@ -229,6 +242,18 @@ public class RecoveryFinalizationServiceImpl implements RecoveryFinalizationServ
         if (intended.reversalStatus() != ReversalStatus.REVERSED
                 && intended.reversalStatus() != ReversalStatus.REVERSAL_DECLINED) {
             throw new IllegalArgumentException("Reversal recovery target must be REVERSED or REVERSAL_DECLINED");
+        }
+
+        /*
+         * VAN Inquiry 중 lease가 만료되어 다른 Worker가 reclaim했을 수 있다.
+         * 현재 Worker가 owner가 아니라면 PAYMENT_REVERSAL을 변경하지 않는다.
+         */
+        if (hasValidOwnership(task) == false) {
+            return new RecoveryFinalizeResult(
+                    RecoveryFinalizeResultType.OWNERSHIP_LOST,
+                    intended.reversalStatusValue(),
+                    null
+            );
         }
 
         Optional<PaymentReversal> updated = reversalRepository.updateRecoverableToFinal(intended);
