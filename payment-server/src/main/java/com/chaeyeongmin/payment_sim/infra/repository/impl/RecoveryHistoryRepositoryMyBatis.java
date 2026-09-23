@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 /** 서비스 계층이 MyBatis mapper를 직접 사용하지 않도록 감싼 History 저장소 구현체다. */
 @Repository
@@ -35,6 +36,26 @@ public class RecoveryHistoryRepositoryMyBatis implements RecoveryHistoryReposito
     @Override
     public int finish(Long historyId, RecoveryHistoryResult result, String errorCode, LocalDateTime finishedAt) {
         return mapper.finish(historyId, result, errorCode, finishedAt);
+    }
+
+    @Override
+    public int finishOpenByRecoveryTaskId(
+            Long recoveryTaskId,
+            RecoveryHistoryResult result,
+            String errorCode,
+            LocalDateTime finishedAt
+    ) {
+        return mapper.finishOpenByRecoveryTaskId(
+                recoveryTaskId,
+                result,
+                errorCode,
+                finishedAt
+        );
+    }
+
+    @Override
+    public Optional<RecoveryHistory> findById(Long historyId) {
+        return Optional.ofNullable(mapper.findById(historyId));
     }
 
 }

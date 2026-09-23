@@ -7,6 +7,7 @@ import org.apache.ibatis.annotations.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 /** PAYMENT_RECOVERY_HISTORY의 실행 시작과 종료 결과를 저장하는 MyBatis mapper다. */
 @Mapper
@@ -36,4 +37,14 @@ public interface RecoveryHistoryMapper {
             @Param("errorCode") String errorCode,
             @Param("finishedAt") LocalDateTime finishedAt
     );
+
+    int finishOpenByRecoveryTaskId(
+            @Param("recoveryTaskId") Long recoveryTaskId,
+            @Param("result") RecoveryHistoryResult result,
+            @Param("errorCode") String errorCode,
+            @Param("finishedAt") LocalDateTime finishedAt
+    );
+
+    RecoveryHistory findById(@Param("historyId") Long historyId);
+
 }

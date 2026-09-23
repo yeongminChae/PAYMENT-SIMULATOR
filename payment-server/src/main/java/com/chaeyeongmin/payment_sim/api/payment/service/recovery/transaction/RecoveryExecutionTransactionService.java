@@ -40,11 +40,25 @@ public class RecoveryExecutionTransactionService {
         Optional<RecoveryTask> taskOptional = taskRepository.claimNext(claimToken, now, leaseExpiresAt);
 
         // claim하지 못했으면 실행 시도 자체가 없으므로 History도 만들지 않는다.
-        if (taskOptional.isEmpty()) {
-            return Optional.empty();
-        }
+        if (taskOptional.isEmpty()) return Optional.empty();
 
         RecoveryTask task = taskOptional.get();
+
+        /*
+         * 새 Worker가 Task를 claim했다는 것은,
+         * 이전 실행에서 아직 FINISHED_AT이 NULL인 History가 있다면
+         * 더 이상 정상 완료될 수 없는 stale 실행 이력이라는 뜻이다.
+         *
+         * 새 실행 History를 만들기 전에 기존 open History를
+         * OWNERSHIP_LOST로 종료한다.
+         */
+        historyRepository.finishOpenByRecoveryTaskId(
+                task.id(),
+                RecoveryHistoryResult.OWNERSHIP_LOST,
+                "LEASE_EXPIRED_RECLAIMED",
+                now
+        );
+
         // retryCount와 별개로 실제 Worker 실행 횟수를 이어서 기록한다.
         int tryNo = historyRepository.nextTryNo(task.id());
         RecoveryHistory history = historyRepository.insertStarted(task.id(), tryNo, now);
@@ -157,10 +171,32 @@ public class RecoveryExecutionTransactionService {
     ) {
         int updated = historyRepository.finish(historyId, result, errorCode, now);
 
-        // 0건은 이미 종료됐거나 대상이 없는 경우다. 1건이 아니면 Task와 함께 rollback한다.
-        if (updated != 1) {
-            throw new IllegalStateException("Recovery history finish failed: " + historyId);
+        if (updated == 1) return;
+
+        /*
+         * 새 Worker가 expired RUNNING Task를 reclaim하면서
+         * 이전 Worker의 open History를 이미 OWNERSHIP_LOST로 종료했을 수 있다.
+         *
+         * 이후 stale Worker가 늦게 돌아와 같은 History를
+         * OWNERSHIP_LOST로 다시 종료하려는 경우는 정상적인 중복 종료이므로 허용한다.
+         */
+        if (result == RecoveryHistoryResult.OWNERSHIP_LOST) {
+            Optional<RecoveryHistory> current = historyRepository.findById(historyId);
+
+            if (current.isPresent()
+                    && current.get().result().equals(RecoveryHistoryResult.OWNERSHIP_LOST.name())
+                    && current.get().finishedAt() != null
+            ) {
+                return;
+            }
         }
+
+        /*
+         * History가 없거나,
+         * OWNERSHIP_LOST가 아닌 다른 결과로 이미 종료된 경우는
+         * 예상하지 못한 상태이므로 숨기지 않고 실패시킨다.
+         */
+        throw new IllegalStateException("Recovery history finish failed: " + historyId);
     }
 
 }

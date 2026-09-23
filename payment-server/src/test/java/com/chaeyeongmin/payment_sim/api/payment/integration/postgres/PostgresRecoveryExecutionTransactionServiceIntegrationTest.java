@@ -242,6 +242,74 @@ class PostgresRecoveryExecutionTransactionServiceIntegrationTest {
         assertThat(asLocalDateTime(historyRow.get("finished_at"))).isEqualTo(finishedAt);
     }
 
+    @Test
+    void expiredRunningTask를_reclaim하면_이전OpenHistory를닫고_새History를시작한다() {
+        // given
+        Long taskId = insertPendingTask("RECLAIM-CLOSE-OPEN");
+
+        /*
+         * Worker A 최초 claim
+         *
+         * Task:
+         * RUNNING / worker-a
+         *
+         * History #1:
+         * RESULT = NULL
+         * FINISHED_AT = NULL
+         */
+        ClaimedRecoveryExecution workerA =
+                service.claimAndStart("worker-a", FIRST_STARTED_AT, FIRST_LEASE_EXPIRES_AT)
+                        .orElseThrow();
+
+        assertThat(workerA.history().tryNo()).isEqualTo(1);
+
+        /*
+         * A가 아무런 종료 처리를 못 하고 사라졌다고 가정한다.
+         *
+         * 정확히 lease 만료 시점에 Worker B가 reclaim.
+         */
+        LocalDateTime workerBClaimedAt = FIRST_LEASE_EXPIRES_AT;
+        LocalDateTime workerBLeaseExpiresAt = workerBClaimedAt.plusMinutes(5);
+
+        // when
+        ClaimedRecoveryExecution workerB =
+                service.claimAndStart("worker-b", workerBClaimedAt, workerBLeaseExpiresAt)
+                        .orElseThrow();
+
+        // then 1
+        // 같은 Task를 B가 다시 가져갔고 새 실행은 tryNo=2여야 한다.
+        assertThat(workerB.task().id()).isEqualTo(taskId);
+        assertThat(workerB.task().claimToken()).isEqualTo("worker-b");
+        assertThat(workerB.history().tryNo()).isEqualTo(2);
+
+        /*
+         * then 2
+         *
+         * 가장 중요한 검증.
+         *
+         * Worker A의 #1 History는 더 이상 open으로 남지 않고
+         * reclaim 시점에 OWNERSHIP_LOST로 닫혀야 한다.
+         */
+        Map<String, Object> workerAHistory = historyRow(workerA.history().id());
+
+        assertThat(workerAHistory.get("result")).isEqualTo("OWNERSHIP_LOST");
+        assertThat(workerAHistory.get("error_code")).isEqualTo("LEASE_EXPIRED_RECLAIMED");
+        assertThat(asLocalDateTime(workerAHistory.get("finished_at"))).isEqualTo(workerBClaimedAt);
+
+        /*
+         * then 3
+         *
+         * Worker B의 #2 History는 방금 시작한 실행이므로 아직 open 상태다.
+         */
+        Map<String, Object> workerBHistory = historyRow(workerB.history().id());
+
+        assertThat(workerBHistory.get("result")).isNull();
+        assertThat(workerBHistory.get("error_code")).isNull();
+        assertThat(workerBHistory.get("finished_at")).isNull();
+        // History 자체는 #1, #2 두 건 모두 보존된다.
+        assertThat(historyTryNos(taskId)).containsExactly(1, 2);
+    }
+
     private Long insertPendingTask(String suffix) {
         String targetTrxNo = TEST_PREFIX + suffix;
         return jdbcTemplate.queryForObject(

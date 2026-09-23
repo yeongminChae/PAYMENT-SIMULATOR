@@ -5,6 +5,7 @@ import com.chaeyeongmin.payment_sim.domain.model.RecoveryHistory;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 /** Recovery Task의 실행 시도 이력을 저장하는 저장소 포트다. */
 public interface RecoveryHistoryRepository {
@@ -28,5 +29,14 @@ public interface RecoveryHistoryRepository {
      * @return 정상 종료하면 1, 이미 끝났거나 대상이 없으면 0
      */
     int finish(Long historyId, RecoveryHistoryResult result, String errorCode, LocalDateTime finishedAt);
+
+    int finishOpenByRecoveryTaskId(
+            Long recoveryTaskId,
+            RecoveryHistoryResult result,
+            String errorCode,
+            LocalDateTime finishedAt
+    );
+
+    Optional<RecoveryHistory> findById(Long historyId);
 
 }
