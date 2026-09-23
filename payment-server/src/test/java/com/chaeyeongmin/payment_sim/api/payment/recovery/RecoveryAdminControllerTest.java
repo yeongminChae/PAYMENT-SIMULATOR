@@ -18,9 +18,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -171,4 +169,22 @@ class RecoveryAdminControllerTest {
                 .andExpect(jsonPath("$.message").value("RECOVERY_TASK_REQUEUE_CONFLICT"))
                 .andExpect(jsonPath("$.data").doesNotExist());
     }
+
+    @Test
+    void 잘못된RecoveryStatus조회는_400을반환한다() throws Exception {
+        mockMvc.perform(get("/api/admin/recovery/tasks")
+                        .param("status", "INVALID"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.result_code").value("INVALID"))
+                .andExpect(jsonPath("$.message").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    void status누락조회는_400을반환한다() throws Exception {
+        mockMvc.perform(get("/api/admin/recovery/tasks"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.result_code").value("INVALID"))
+                .andExpect(jsonPath("$.message").value("INVALID_REQUEST"));
+    }
+
 }
