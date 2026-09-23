@@ -10,6 +10,9 @@ import com.chaeyeongmin.payment_sim.api.payment.service.PaymentInquiryService;
 import com.chaeyeongmin.payment_sim.api.payment.service.RecoveryFinalizationService;
 import com.chaeyeongmin.payment_sim.api.payment.service.transaction.model.RecoveryFinalizeResult;
 import com.chaeyeongmin.payment_sim.api.payment.service.transaction.model.RecoveryFinalizeResultType;
+import com.chaeyeongmin.payment_sim.domain.model.RecoveryTask;
+import com.chaeyeongmin.payment_sim.domain.policy.RecoveryStatus;
+import com.chaeyeongmin.payment_sim.domain.policy.RecoveryTargetType;
 import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdateParam;
 import com.chaeyeongmin.payment_sim.van.client.dto.*;
@@ -118,8 +121,9 @@ class PostgresInquiryRecoveryRaceIntegrationTest {
                         APPROVAL_NO,
                         VAN_TRX_ID
                 );
+        RecoveryTask recoveryTask = insertRunningApprovalTask(approve.attemptSeq());
 
-        RecoveryFinalizeResult recoveryResult = recoveryFinalizationService.finalizeApproval(null, intended);
+        RecoveryFinalizeResult recoveryResult = recoveryFinalizationService.finalizeApproval(recoveryTask, intended);
 
         // 4. Recovery는 덮어쓰지 않고 같은 terminal임을 확인
         assertThat(recoveryResult.resultType()).isEqualTo(RecoveryFinalizeResultType.ALREADY_CONSISTENT);
@@ -139,6 +143,7 @@ class PostgresInquiryRecoveryRaceIntegrationTest {
         assertThat(approve.finalStatus()).isEqualTo(PaymentFinalStatus.UNKNOWN_TIMEOUT);
 
         AtomicReference<RecoveryFinalizeResult> recoveryResult = new AtomicReference<>();
+        RecoveryTask recoveryTask = insertRunningApprovalTask(approve.attemptSeq());
 
         /*
          * Human Inquiry가 이미 UNKNOWN_TIMEOUT을 읽고 VAN Inquiry까지 보낸 시점에
@@ -158,7 +163,7 @@ class PostgresInquiryRecoveryRaceIntegrationTest {
                             VAN_TRX_ID
                     );
 
-            recoveryResult.set(recoveryFinalizationService.finalizeApproval(null, intended));
+            recoveryResult.set(recoveryFinalizationService.finalizeApproval(recoveryTask, intended));
         });
 
         InquiryResponse inquiry = inquiryService.inquiry(new InquiryRequest(POS_TRX, approve.attemptSeq()));
@@ -205,7 +210,76 @@ class PostgresInquiryRecoveryRaceIntegrationTest {
         );
     }
 
+    private RecoveryTask insertRunningApprovalTask(int attemptSeq) {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime leaseExpiresAt = now.plusMinutes(5);
+        String claimToken = "claim-" + POS_TRX;
+
+        Long taskId = jdbcTemplate.queryForObject(
+                """
+                INSERT INTO PAYMENT_RECOVERY_TASK (
+                    TARGET_TYPE,
+                    TARGET_TRX_NO,
+                    TARGET_ATTEMPT_SEQ,
+                    ORIGINAL_POS_TRX,
+                    ORIGINAL_ATTEMPT_SEQ,
+                    RECOVERY_STATUS,
+                    RETRY_COUNT,
+                    NEXT_RETRY_AT,
+                    CLAIM_TOKEN,
+                    LEASE_EXPIRES_AT,
+                    CREATED_AT,
+                    UPDATED_AT
+                )
+                VALUES ('APPROVAL', ?, ?, ?, ?, 'RUNNING', 0, NULL, ?, ?, ?, ?)
+                RETURNING ID
+                """,
+                Long.class,
+                POS_TRX,
+                attemptSeq,
+                POS_TRX,
+                attemptSeq,
+                claimToken,
+                leaseExpiresAt,
+                now,
+                now
+        );
+
+        return new RecoveryTask(
+                taskId,
+                RecoveryTargetType.APPROVAL,
+                POS_TRX,
+                attemptSeq,
+                POS_TRX,
+                attemptSeq,
+                RecoveryStatus.RUNNING,
+                0,
+                null,
+                claimToken,
+                leaseExpiresAt,
+                now,
+                now
+        );
+    }
+
     private void cleanupTestData() {
+        jdbcTemplate.update(
+                """
+                DELETE FROM PAYMENT_RECOVERY_HISTORY
+                WHERE RECOVERY_TASK_ID IN (
+                    SELECT ID
+                    FROM PAYMENT_RECOVERY_TASK
+                    WHERE TARGET_TRX_NO = ? OR ORIGINAL_POS_TRX = ?
+                )
+                """,
+                POS_TRX,
+                POS_TRX
+        );
+        jdbcTemplate.update(
+                "DELETE FROM PAYMENT_RECOVERY_TASK WHERE TARGET_TRX_NO = ? OR ORIGINAL_POS_TRX = ?",
+                POS_TRX,
+                POS_TRX
+        );
         jdbcTemplate.update("DELETE FROM PAYMENT_EVENT_LOG WHERE POS_TRX = ?", POS_TRX);
         jdbcTemplate.update("DELETE FROM PAYMENT_EXTERNAL_INFO WHERE POS_TRX = ?", POS_TRX);
         jdbcTemplate.update("DELETE FROM PAYMENT_ATTEMPT WHERE POS_TRX = ?", POS_TRX);

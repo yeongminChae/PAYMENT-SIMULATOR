@@ -3,7 +3,10 @@ package com.chaeyeongmin.payment_sim.api.payment.integration.postgres;
 import com.chaeyeongmin.payment_sim.api.payment.service.RecoveryFinalizationService;
 import com.chaeyeongmin.payment_sim.api.payment.service.transaction.model.RecoveryFinalizeResult;
 import com.chaeyeongmin.payment_sim.api.payment.service.transaction.model.RecoveryFinalizeResultType;
+import com.chaeyeongmin.payment_sim.domain.model.RecoveryTask;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
+import com.chaeyeongmin.payment_sim.domain.policy.RecoveryStatus;
+import com.chaeyeongmin.payment_sim.domain.policy.RecoveryTargetType;
 import com.chaeyeongmin.payment_sim.domain.policy.ReversalStatus;
 import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdateParam;
@@ -21,6 +24,8 @@ import org.springframework.test.context.TestPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+
+import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -75,11 +80,12 @@ class PostgresRecoveryFinalizationIntegrationTest {
                 "APPROVAL-R6P6",
                 "VAN-APP-R6P6"
         );
+        RecoveryTask task = insertRunningApprovalTask(intended);
 
         // first: PROCESSING(null) row가 recoverable 조건에 걸려 APPROVED로 실제 UPDATE 되어야 한다.
-        RecoveryFinalizeResult first = service.finalizeApproval(null, intended);
+        RecoveryFinalizeResult first = service.finalizeApproval(task, intended);
         // second: 이미 APPROVED terminal이므로 UPDATE는 miss되고, reread 결과가 intended와 같아야 한다.
-        RecoveryFinalizeResult second = service.finalizeApproval(null, intended);
+        RecoveryFinalizeResult second = service.finalizeApproval(task, intended);
 
         // 첫 호출은 DB를 바꾼 주체라 APPLIED, 두 번째 호출은 같은 terminal 재확인이라 ALREADY_CONSISTENT를 기대한다.
         assertThat(first.resultType()).isEqualTo(RecoveryFinalizeResultType.APPLIED);
@@ -100,9 +106,10 @@ class PostgresRecoveryFinalizationIntegrationTest {
                 "05",
                 "VAN-APP-R6P6-DECLINED"
         );
+        RecoveryTask task = insertRunningApprovalTask(intended);
 
         // result: UNKNOWN_TIMEOUT approval row가 DECLINED terminal로 실제 UPDATE 되어야 한다.
-        RecoveryFinalizeResult result = service.finalizeApproval(null, intended);
+        RecoveryFinalizeResult result = service.finalizeApproval(task, intended);
 
         // recovery finalization이 성공했으므로 APPLIED이고, DB에도 DECLINED가 남아야 한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.APPLIED);
@@ -121,9 +128,10 @@ class PostgresRecoveryFinalizationIntegrationTest {
                 "05",
                 "VAN-APP-CONFLICT"
         );
+        RecoveryTask task = insertRunningApprovalTask(intended);
 
         // result: 이미 APPROVED라 conditional UPDATE는 miss되고, reread에서 APPROVED를 확인해야 한다.
-        RecoveryFinalizeResult result = service.finalizeApproval(null, intended);
+        RecoveryFinalizeResult result = service.finalizeApproval(task, intended);
 
         // intended DECLINED와 DB APPROVED가 충돌하므로 TERMINAL_CONFLICT를 기대한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.TERMINAL_CONFLICT);
@@ -136,12 +144,14 @@ class PostgresRecoveryFinalizationIntegrationTest {
     void approval_missing_row_returns_TARGET_NOT_FOUND() {
         // finalizeApproval(): conditional update 대상도 없고 reread 대상도 없으면 missing target으로 판정한다.
         // result: 대상 attempt row가 없으므로 UPDATE도 miss되고 reread도 empty가 되어야 한다.
-        RecoveryFinalizeResult result = service.finalizeApproval(null, AttemptResultUpdateParam.approved(
+        AttemptResultUpdateParam intended = AttemptResultUpdateParam.approved(
                 "R6P6-APP-MISSING",
                 1,
                 "APPROVAL-MISSING",
                 "VAN-APP-MISSING"
-        ));
+        );
+        RecoveryTask task = insertRunningApprovalTask(intended);
+        RecoveryFinalizeResult result = service.finalizeApproval(task, intended);
 
         // recovery가 적용할 target이 없다는 의미로 TARGET_NOT_FOUND와 null dbStatus를 기대한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.TARGET_NOT_FOUND);
@@ -162,11 +172,12 @@ class PostgresRecoveryFinalizationIntegrationTest {
                 "VAN-CAN-R6P6",
                 "CANCEL-APPROVAL-R6P6"
         );
+        RecoveryTask task = insertRunningCancelTask(intended);
 
         // first: PENDING cancel row가 recoverable 조건에 걸려 CANCELLED로 실제 UPDATE 되어야 한다.
-        RecoveryFinalizeResult first = service.finalizeCancel(null, intended);
+        RecoveryFinalizeResult first = service.finalizeCancel(task, intended);
         // second: 이미 CANCELLED terminal이므로 UPDATE는 miss되고, reread 결과가 intended와 같아야 한다.
-        RecoveryFinalizeResult second = service.finalizeCancel(null, intended);
+        RecoveryFinalizeResult second = service.finalizeCancel(task, intended);
 
         // 첫 호출은 APPLIED, 반복 호출은 같은 terminal을 재확인한 ALREADY_CONSISTENT를 기대한다.
         assertThat(first.resultType()).isEqualTo(RecoveryFinalizeResultType.APPLIED);
@@ -188,9 +199,10 @@ class PostgresRecoveryFinalizationIntegrationTest {
                 "VAN-CAN-DECLINED",
                 "05"
         );
+        RecoveryTask task = insertRunningCancelTask(intended);
 
         // result: UNKNOWN_TIMEOUT cancel row가 CANCEL_DECLINED terminal로 실제 UPDATE 되어야 한다.
-        RecoveryFinalizeResult result = service.finalizeCancel(null, intended);
+        RecoveryFinalizeResult result = service.finalizeCancel(task, intended);
 
         // recovery finalization이 성공했으므로 APPLIED이고, DB에도 CANCEL_DECLINED가 남아야 한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.APPLIED);
@@ -211,9 +223,10 @@ class PostgresRecoveryFinalizationIntegrationTest {
                 "VAN-CAN-CONFLICT",
                 "05"
         );
+        RecoveryTask task = insertRunningCancelTask(intended);
 
         // result: 이미 CANCELLED라 conditional UPDATE는 miss되고, reread에서 CANCELLED를 확인해야 한다.
-        RecoveryFinalizeResult result = service.finalizeCancel(null, intended);
+        RecoveryFinalizeResult result = service.finalizeCancel(task, intended);
 
         // intended CANCEL_DECLINED와 DB CANCELLED가 충돌하므로 TERMINAL_CONFLICT를 기대한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.TERMINAL_CONFLICT);
@@ -226,13 +239,15 @@ class PostgresRecoveryFinalizationIntegrationTest {
     void cancel_missing_row_returns_TARGET_NOT_FOUND() {
         // finalizeCancel(): CURRENT_TRX_NO 기준 update/reread가 모두 실패하면 recovery 대상 없음으로 판정한다.
         // result: 대상 cancel row가 없으므로 UPDATE도 miss되고 CURRENT_TRX_NO reread도 empty가 되어야 한다.
-        RecoveryFinalizeResult result = service.finalizeCancel(null, CancelResultUpdateParam.cancelled(
+        CancelResultUpdateParam intended = CancelResultUpdateParam.cancelled(
                 "R6P6-CAN-MISSING",
                 "R6P6-CAN-ORIGINAL-MISSING",
                 1,
                 "VAN-CAN-MISSING",
                 "CANCEL-APPROVAL-MISSING"
-        ));
+        );
+        RecoveryTask task = insertRunningCancelTask(intended);
+        RecoveryFinalizeResult result = service.finalizeCancel(task, intended);
 
         // recovery가 적용할 target이 없다는 의미로 TARGET_NOT_FOUND와 null dbStatus를 기대한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.TARGET_NOT_FOUND);
@@ -253,11 +268,12 @@ class PostgresRecoveryFinalizationIntegrationTest {
                 "VAN-REV-R6P6",
                 "REVERSAL-APPROVAL-R6P6"
         );
+        RecoveryTask task = insertRunningReversalTask(intended);
 
         // first: PENDING reversal row가 recoverable 조건에 걸려 REVERSED로 실제 UPDATE 되어야 한다.
-        RecoveryFinalizeResult first = service.finalizeReversal(null, intended);
+        RecoveryFinalizeResult first = service.finalizeReversal(task, intended);
         // second: 이미 REVERSED terminal이므로 UPDATE는 miss되고, reread 결과가 intended와 같아야 한다.
-        RecoveryFinalizeResult second = service.finalizeReversal(null, intended);
+        RecoveryFinalizeResult second = service.finalizeReversal(task, intended);
 
         // 첫 호출은 APPLIED, 반복 호출은 같은 terminal을 재확인한 ALREADY_CONSISTENT를 기대한다.
         assertThat(first.resultType()).isEqualTo(RecoveryFinalizeResultType.APPLIED);
@@ -279,9 +295,10 @@ class PostgresRecoveryFinalizationIntegrationTest {
                 "VAN-REV-DECLINED",
                 "05"
         );
+        RecoveryTask task = insertRunningReversalTask(intended);
 
         // result: PENDING reversal row가 REVERSAL_DECLINED terminal로 실제 UPDATE 되어야 한다.
-        RecoveryFinalizeResult result = service.finalizeReversal(null, intended);
+        RecoveryFinalizeResult result = service.finalizeReversal(task, intended);
 
         // recovery finalization이 성공했으므로 APPLIED이고, DB에도 REVERSAL_DECLINED가 남아야 한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.APPLIED);
@@ -302,9 +319,10 @@ class PostgresRecoveryFinalizationIntegrationTest {
                 "VAN-REV-CONFLICT",
                 "05"
         );
+        RecoveryTask task = insertRunningReversalTask(intended);
 
         // result: 이미 REVERSED라 conditional UPDATE는 miss되고, reread에서 REVERSED를 확인해야 한다.
-        RecoveryFinalizeResult result = service.finalizeReversal(null, intended);
+        RecoveryFinalizeResult result = service.finalizeReversal(task, intended);
 
         // intended REVERSAL_DECLINED와 DB REVERSED가 충돌하므로 TERMINAL_CONFLICT를 기대한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.TERMINAL_CONFLICT);
@@ -317,13 +335,15 @@ class PostgresRecoveryFinalizationIntegrationTest {
     void reversal_missing_row_returns_TARGET_NOT_FOUND() {
         // finalizeReversal(): CURRENT_TRX_NO 기준 update/reread가 모두 실패하면 recovery 대상 없음으로 판정한다.
         // result: 대상 reversal row가 없으므로 UPDATE도 miss되고 CURRENT_TRX_NO reread도 empty가 되어야 한다.
-        RecoveryFinalizeResult result = service.finalizeReversal(null, ReversalResultUpdateParam.reversed(
+        ReversalResultUpdateParam intended = ReversalResultUpdateParam.reversed(
                 "R6P6-REV-MISSING",
                 "R6P6-REV-ORIGINAL-MISSING",
                 1,
                 "VAN-REV-MISSING",
                 "REVERSAL-APPROVAL-MISSING"
-        ));
+        );
+        RecoveryTask task = insertRunningReversalTask(intended);
+        RecoveryFinalizeResult result = service.finalizeReversal(task, intended);
 
         // recovery가 적용할 target이 없다는 의미로 TARGET_NOT_FOUND와 null dbStatus를 기대한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.TARGET_NOT_FOUND);
@@ -394,6 +414,95 @@ class PostgresRecoveryFinalizationIntegrationTest {
         );
     }
 
+    private RecoveryTask insertRunningApprovalTask(AttemptResultUpdateParam intended) {
+        return insertRunningTask(
+                RecoveryTargetType.APPROVAL,
+                intended.posTrx(),
+                intended.attemptSeq(),
+                intended.posTrx(),
+                intended.attemptSeq()
+        );
+    }
+
+    private RecoveryTask insertRunningCancelTask(CancelResultUpdateParam intended) {
+        return insertRunningTask(
+                RecoveryTargetType.CANCEL,
+                intended.posTrx(),
+                null,
+                intended.originalPosTrx(),
+                intended.originalAttemptSeq()
+        );
+    }
+
+    private RecoveryTask insertRunningReversalTask(ReversalResultUpdateParam intended) {
+        return insertRunningTask(
+                RecoveryTargetType.REVERSAL,
+                intended.reversalPosTrx(),
+                null,
+                intended.originalPosTrx(),
+                intended.originalAttemptSeq()
+        );
+    }
+
+    private RecoveryTask insertRunningTask(
+            RecoveryTargetType targetType,
+            String targetTrxNo,
+            Integer targetAttemptSeq,
+            String originalPosTrx,
+            int originalAttemptSeq
+    ) {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime leaseExpiresAt = now.plusMinutes(5);
+        String claimToken = "claim-" + targetTrxNo;
+
+        Long taskId = jdbcTemplate.queryForObject(
+                """
+                INSERT INTO PAYMENT_RECOVERY_TASK (
+                    TARGET_TYPE,
+                    TARGET_TRX_NO,
+                    TARGET_ATTEMPT_SEQ,
+                    ORIGINAL_POS_TRX,
+                    ORIGINAL_ATTEMPT_SEQ,
+                    RECOVERY_STATUS,
+                    RETRY_COUNT,
+                    NEXT_RETRY_AT,
+                    CLAIM_TOKEN,
+                    LEASE_EXPIRES_AT,
+                    CREATED_AT,
+                    UPDATED_AT
+                )
+                VALUES (?, ?, ?, ?, ?, 'RUNNING', 0, NULL, ?, ?, ?, ?)
+                RETURNING ID
+                """,
+                Long.class,
+                targetType.name(),
+                targetTrxNo,
+                targetAttemptSeq,
+                originalPosTrx,
+                originalAttemptSeq,
+                claimToken,
+                leaseExpiresAt,
+                now,
+                now
+        );
+
+        return new RecoveryTask(
+                taskId,
+                targetType,
+                targetTrxNo,
+                targetAttemptSeq,
+                originalPosTrx,
+                originalAttemptSeq,
+                RecoveryStatus.RUNNING,
+                0,
+                null,
+                claimToken,
+                leaseExpiresAt,
+                now,
+                now
+        );
+    }
+
     private String approvalStatus(String posTrx, int attemptSeq) {
         return jdbcTemplate.queryForObject(
                 """
@@ -446,6 +555,23 @@ class PostgresRecoveryFinalizationIntegrationTest {
     }
 
     private void cleanupTestData() {
+        jdbcTemplate.update(
+                """
+                DELETE FROM PAYMENT_RECOVERY_HISTORY
+                WHERE RECOVERY_TASK_ID IN (
+                    SELECT ID
+                    FROM PAYMENT_RECOVERY_TASK
+                    WHERE TARGET_TRX_NO LIKE ? OR ORIGINAL_POS_TRX LIKE ?
+                )
+                """,
+                TEST_PREFIX + "%",
+                TEST_PREFIX + "%"
+        );
+        jdbcTemplate.update(
+                "DELETE FROM PAYMENT_RECOVERY_TASK WHERE TARGET_TRX_NO LIKE ? OR ORIGINAL_POS_TRX LIKE ?",
+                TEST_PREFIX + "%",
+                TEST_PREFIX + "%"
+        );
         jdbcTemplate.update(
                 "DELETE FROM PAYMENT_REVERSAL WHERE CURRENT_TRX_NO LIKE ? OR ORIGINAL_TRX_NO LIKE ?",
                 TEST_PREFIX + "%",
