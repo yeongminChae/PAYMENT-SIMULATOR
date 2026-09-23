@@ -82,6 +82,14 @@ public interface PaymentAttemptRepository {
     Optional<PaymentAttemptUpdatedRow> updateAttemptResult(AttemptResultUpdateParam param);
 
     /**
+     * R6 Recovery 전용 승인 결과 확정 update.
+     *
+     * <p>PROCESSING 또는 UNKNOWN_TIMEOUT attempt만 APPROVED/DECLINED 최종 상태로 전환한다.
+     * 기존 updateAttemptResult는 일반 승인 finalization의 PROCESSING 전용 의미를 유지한다.
+     */
+    Optional<PaymentAttemptUpdatedRow> updateRecoverableToFinal(AttemptResultUpdateParam param);
+
+    /**
      * request-not-sent 정리 전에 대상 attempt가 여전히 PROCESSING인지 확인하면서 row lock을 잡는다.
      */
     Optional<Integer> lockProcessingAttemptForCleanup(String posTrx, int attemptSeq);

@@ -55,4 +55,20 @@ public class VanInquiryAssembler {
                 .build();
     }
 
+    /**
+     * 망취소 원장 조회 요청을 공용 VAN Inquiry 계약으로 구성한다.
+     *
+     * <p>reversalPosTrx가 망취소 원장을 식별하는 유일한 조회 키이므로
+     * 승인 시도 번호와 승인 전용 조회 값은 전문에 포함하지 않는다.
+     */
+    public VanInquiryRequest getReversalInquiryRequest(String reversalPosTrx) {
+        return VanInquiryRequest.builder()
+                .targetType(VanInquiryTargetType.REVERSAL)
+                .targetTrxNo(reversalPosTrx)
+                .targetAttemptSeq(null)
+                .vanTrxId(null)
+                .cardLast4(null)
+                .build();
+    }
+
 }

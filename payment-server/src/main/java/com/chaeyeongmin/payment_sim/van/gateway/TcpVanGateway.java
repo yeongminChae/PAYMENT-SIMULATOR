@@ -162,8 +162,8 @@ public class TcpVanGateway implements VanGateway {
      * Payment Reversal 요청을 TCP VAN Simulator reversal 호출로 변환한다.
      *
      * <p>
-     * Reversal은 Release 5 TCP mode 전용 boundary다.
-     * 요청 correlation은 requestId + reversalPosTrx + originalPosTrx + originalAttemptSeq로 검증한다.
+     * 요청 correlation은 requestId + reversalPosTrx + originalPosTrx + originalAttemptSeq로 검증해
+     * 다른 망취소 요청의 응답을 현재 거래에 반영하지 않도록 한다.
      */
     @Override
     public VanReversalResponse reversal(VanReversalRequest request) {
@@ -391,6 +391,10 @@ public class TcpVanGateway implements VanGateway {
         validateInquiryResult(tcpResponse);
     }
 
+    /**
+     * Inquiry 결과 코드에 맞는 필드 조합인지 확인한다.
+     * NOT_FOUND 응답에 거래 상태나 승인 정보가 섞여 있으면 어떤 사실을 믿어야 할지 모호하므로 거부한다.
+     */
     private void validateInquiryResult(VanInquiryTcpResponse response) {
         if (response.resultCode() == null) {
             throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
@@ -404,10 +408,12 @@ public class TcpVanGateway implements VanGateway {
                         || response.vanTrxId() != null
                         || response.approvalNo() != null
                         || response.cancelApprovalNo() != null
+                        || response.reversalApprovalNo() != null
                         || response.declineCode() != null) {
                     throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
                 }
             }
+
             case SUCCESS -> validateInquirySuccessResult(response);
         }
     }
@@ -423,6 +429,10 @@ public class TcpVanGateway implements VanGateway {
         }
     }
 
+    /**
+     * SUCCESS 응답이 조회 대상 종류에 맞는 상태와 결과 필드를 가지고 있는지 확인한다.
+     * 승인, 취소, 망취소의 상태가 서로 섞인 응답은 Payment DB 복구에 사용하지 않는다.
+     */
     private void validateInquirySuccessResult(VanInquiryTcpResponse response) {
         if (response.targetType() == null || response.status() == null) {
             throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
@@ -432,17 +442,48 @@ public class TcpVanGateway implements VanGateway {
             case APPROVAL -> {
                 // 승인 조회 성공은 승인 계열 status만 허용하고 cancelApprovalNo를 싣지 않는다.
                 if (isApprovalInquiryStatus(response.status()) == false
-                        || response.cancelApprovalNo() != null) {
+                        || response.cancelApprovalNo() != null
+                        || response.reversalApprovalNo() != null)
                     throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
-                }
             }
+
             case CANCEL -> {
                 // 취소 조회 성공은 취소 계열 status만 허용하고 approvalNo를 싣지 않는다.
                 if (isCancelInquiryStatus(response.status()) == false
-                        || response.approvalNo() != null) {
+                        || response.approvalNo() != null
+                        || response.reversalApprovalNo() != null)
                     throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
-                }
             }
+
+            case REVERSAL -> {
+                // 리버설 조회 성공은 reversal 계열 status만 허용하고 approvalNo/cancelApprovalNo를 싣지 않는다.
+                if (isReversalInquiryStatus(response.status()) == false
+                        || response.approvalNo() != null
+                        || response.cancelApprovalNo() != null
+                        || response.vanTrxId() == null
+                        || response.vanTrxId().isBlank())
+                    throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
+
+                switch (response.status()) {
+                    case REVERSED -> {
+                        if (response.reversalApprovalNo() == null
+                                || response.reversalApprovalNo().isBlank()
+                                || response.declineCode() != null)
+                            throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
+                    }
+
+                    case REVERSAL_DECLINED -> {
+                        if (response.reversalApprovalNo() != null
+                                || response.declineCode() == null
+                                || response.declineCode().isBlank())
+                            throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
+                    }
+
+                    default -> throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
+                }
+
+            }
+
         }
     }
 
@@ -522,6 +563,7 @@ public class TcpVanGateway implements VanGateway {
 
     /**
      * TCP Reversal 응답의 상태 조합이 업무적으로 유효한지 확인한다.
+     * 성공 계열은 REVERSED와 승인번호가 필요하고, 실패 계열은 REVERSAL_DECLINED와 거절코드가 필요하다.
      */
     private void validateReversalResult(VanReversalTcpResponse response) {
         switch (response.resultCode()) {
@@ -595,6 +637,7 @@ public class TcpVanGateway implements VanGateway {
                 .vanTrxId(tcpResponse.vanTrxId())
                 .approvalNo(tcpResponse.approvalNo())
                 .cancelApprovalNo(tcpResponse.cancelApprovalNo())
+                .reversalApprovalNo(tcpResponse.reversalApprovalNo())
                 .declineCode(toDeclineCode(tcpResponse))
                 .message(inquiryMessage(tcpResponse))
                 .respondedAt(tcpResponse.respondedAt())
@@ -676,22 +719,31 @@ public class TcpVanGateway implements VanGateway {
             case DECLINED -> PaymentFinalStatus.DECLINED;
             case UNKNOWN -> PaymentFinalStatus.UNKNOWN_TIMEOUT;
             case CANCELLED,
-                 CANCEL_DECLINED -> throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
+                 CANCEL_DECLINED,
+                 REVERSED,
+                 REVERSAL_DECLINED -> throw new TcpVanGatewayException("VAN_TCP_INQUIRY_RESPONSE_INVALID");
         };
     }
 
+    /**
+     * 공용 Inquiry protocol에서 APPROVED target이 가질 수 있는 성공 status 집합이다.
+     */
     private boolean isApprovalInquiryStatus(VanInquiryStatus status) {
-        return status == VanInquiryStatus.APPROVED
-                || status == VanInquiryStatus.DECLINED
-                || status == VanInquiryStatus.UNKNOWN;
+        return status == VanInquiryStatus.APPROVED || status == VanInquiryStatus.DECLINED || status == VanInquiryStatus.UNKNOWN;
     }
 
     /**
-     * R5 공용 Inquiry protocol에서 CANCEL target이 가질 수 있는 성공 status 집합이다.
+     * 공용 Inquiry protocol에서 CANCEL target이 가질 수 있는 성공 status 집합이다.
      */
     private boolean isCancelInquiryStatus(VanInquiryStatus status) {
-        return status == VanInquiryStatus.CANCELLED
-                || status == VanInquiryStatus.CANCEL_DECLINED;
+        return status == VanInquiryStatus.CANCELLED || status == VanInquiryStatus.CANCEL_DECLINED;
+    }
+
+    /**
+     * 공용 Inquiry protocol에서 REVERSAL target이 가질 수 있는 성공 status 집합이다.
+     */
+    private boolean isReversalInquiryStatus(VanInquiryStatus status) {
+        return status == VanInquiryStatus.REVERSED || status == VanInquiryStatus.REVERSAL_DECLINED;
     }
 
     /**
@@ -760,7 +812,8 @@ public class TcpVanGateway implements VanGateway {
     private VanDeclineCode toDeclineCode(VanInquiryTcpResponse response) {
         if (response.resultCode() == VanInquiryResultCode.NOT_FOUND
                 || response.status() == VanInquiryStatus.APPROVED
-                || response.status() == VanInquiryStatus.CANCELLED) {
+                || response.status() == VanInquiryStatus.CANCELLED
+                || response.status() == VanInquiryStatus.REVERSED) {
             return null;
         }
 
@@ -768,13 +821,20 @@ public class TcpVanGateway implements VanGateway {
             return VanDeclineCode.TIMEOUT;
         }
 
-        if ("INVALID_REQUEST".equals(response.declineCode())) {
-            return VanDeclineCode.INVALID_REQUEST;
-        }
+        if ("INVALID_REQUEST".equals(response.declineCode())) return VanDeclineCode.INVALID_REQUEST;
+
+        if ("ALREADY_CANCELLED".equals(response.declineCode())) return VanDeclineCode.ALREADY_CANCELLED;
+
+        if ("ORIGINAL_NOT_FOUND".equals(response.declineCode())) return VanDeclineCode.ORIGINAL_NOT_FOUND;
+
+        if ("ORIGINAL_NOT_REVERSIBLE".equals(response.declineCode())) return VanDeclineCode.ORIGINAL_NOT_REVERSIBLE;
+
+        if ("ORIGINAL_MISMATCH".equals(response.declineCode())) return VanDeclineCode.ORIGINAL_MISMATCH;
 
         return VanDeclineCode.DO_NOT_HONOR;
     }
 
+    /** 조회 대상이 없으면 결과 코드를, 있으면 확인된 거래 상태를 응답 메시지로 사용한다. */
     private String inquiryMessage(VanInquiryTcpResponse response) {
         return response.resultCode() == VanInquiryResultCode.NOT_FOUND
                 ? response.resultCode().name()
@@ -831,6 +891,7 @@ public class TcpVanGateway implements VanGateway {
                 + "-" + nullToDash(request.targetAttemptSeq());
     }
 
+    /** attemptSeq가 없는 취소·망취소 조회도 항상 같은 형식의 requestId를 만들도록 문자열로 바꾼다. */
     private String nullToDash(Integer value) {
         return value == null ? "null" : value.toString();
     }

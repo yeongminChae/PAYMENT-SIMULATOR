@@ -1,5 +1,6 @@
 package com.chaeyeongmin.payment_sim.api.payment.integration.postgres;
 
+import com.chaeyeongmin.payment_sim.van.gateway.SimulatedVanGateway;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -10,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
@@ -22,7 +24,6 @@ import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -38,22 +39,30 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Testcontainers가 테스트 실행 중 임시 PostgreSQL 컨테이너를 만들고, Spring Boot가 그 컨테이너의
  * JDBC 접속 정보를 테스트 ApplicationContext에 주입한다.
  */
+// @SuppressWarnings → deprecated를 의도적으로 쓰는 테스트라는 경고 억제
+@SuppressWarnings({"deprecation", "removal"})
 @Testcontainers
 @SpringBootTest
 @AutoConfigureMockMvc
+// @Import(SimulatedVanGateway.class)→ Component에서 빠진 legacy gateway를 테스트에서만 Bean 등록
+@Import(SimulatedVanGateway.class)
 @TestPropertySource(properties = {
         // 운영 application-postgres.yml을 활성화하지 않고, 테스트에서 필요한 datasource/초기화만 명시한다.
         // 이렇게 해야 localhost:5432의 로컬 DB나 POSTGRES_PASSWORD 환경변수가 테스트에 개입하지 않는다.
         "spring.datasource.driver-class-name=org.postgresql.Driver",
         "spring.sql.init.mode=always",
         // PostgreSQL 컨테이너에는 운영 PostgreSQL 검증에 사용한 schema/data SQL을 그대로 적용한다.
-        // continue-on-error=false로 두어 SQL 초기화 실패를 숨기지 않는다.
         "spring.sql.init.schema-locations=classpath:schema-postgres.sql",
         "spring.sql.init.data-locations=classpath:data-postgres.sql",
+        // continue-on-error=false로 두어 SQL 초기화 실패를 숨기지 않는다.
         "spring.sql.init.continue-on-error=false",
         // 카드 fingerprint는 HMAC 기반이라 테스트에서도 고정 secret이 필요하다.
         // Testcontainers 내부 DB와 함께 쓰는 테스트 전용 값이며 운영 비밀값이 아니다.
         "payment.card.secret-key=postgres-testcontainers-card-secret-key",
+        // Release 6부터 production 기본 VAN mode는 tcp다.
+        // 이 기존 통합 테스트는 legacy SimulatedVanGateway의 결정적 규칙을 검증하므로
+        // 이 테스트에서만 TcpVanGateway를 비활성화하고 legacy gateway를 사용한다.
+        "payment.van.mode=simulated",
         "logging.file.name=./build/logs/postgres-core-flow-it.log"
 })
 class PostgresCoreFlowIntegrationTest {
@@ -120,7 +129,7 @@ class PostgresCoreFlowIntegrationTest {
      * - When : POS 거래번호 발급 API를 같은 키로 3회 호출하고, 다른 posNo로 1회 추가 호출한다.
      * - Then : 동일 키 응답은 0001, 0002, 0003으로 증가하고 다른 posNo는 0001부터 시작한다.
      * - And  : DB에는 복합키별 row가 1건만 남고, 저장된 최종 seq는 응답의 마지막 4자리와 일치한다.
-     *
+     * <p>
      * [검증 의도]
      * - PostgreSQL의 INSERT ... ON CONFLICT ... DO UPDATE ... RETURNING 흐름이 실제 DB에서 동작하는지 확인한다.
      * - SQLite에서는 통과할 수 있는 UPSERT SQL이 PostgreSQL에서 컬럼 참조 모호성으로 깨지는 회귀를 잡는다.
@@ -156,7 +165,7 @@ class PostgresCoreFlowIntegrationTest {
      * - When : 승인 API를 동일한 요청 payload로 2회 호출한다.
      * - Then : 두 응답은 같은 attemptSeq와 같은 approvalNo를 반환한다.
      * - And  : PAYMENT_ATTEMPT와 PAYMENT_EXTERNAL_INFO는 각각 1건만 유지된다.
-     *
+     * <p>
      * [검증 의도]
      * - 중복 승인 요청이 신규 VAN 승인이나 신규 attempt 생성으로 이어지지 않는지 확인한다.
      * - PostgreSQL에서 PAYMENT_ATTEMPT_SEQ UPSERT와 승인 확정 UPDATE RETURNING이 함께 정상 동작하는지 검증한다.
@@ -192,7 +201,7 @@ class PostgresCoreFlowIntegrationTest {
      * - When : 해당 posTrx와 attemptSeq로 승인 거래 조회 API를 호출한다.
      * - Then : 조회 응답은 기존 APPROVED 상태와 기존 approvalNo를 반환한다.
      * - And  : 조회 과정에서 PAYMENT_ATTEMPT나 PAYMENT_EXTERNAL_INFO row가 새로 생성되지 않는다.
-     *
+     * <p>
      * [검증 의도]
      * - 확정 승인건 조회가 저장된 DB 결과를 재응답하는지 확인한다.
      * - 조회 요청이 승인 시도 생성이나 외부 정보 중복 저장 같은 부수효과를 만들지 않는지 고정한다.
@@ -223,7 +232,7 @@ class PostgresCoreFlowIntegrationTest {
      * - Then : 첫 요청은 CANCELLED로 확정되고, 두 번째 요청은 ALREADY_CANCELLED로 기존 취소 결과를 재응답한다.
      * - And  : PAYMENT_CANCEL은 원거래 기준 1건만 유지되며, 두 번째 cancel posTrx row는 생성되지 않는다.
      * - And  : PAYMENT_EVENT_LOG에는 CANCEL_REUSED_BY_ORIGINAL 이벤트가 남는다.
-     *
+     * <p>
      * [검증 의도]
      * - PostgreSQL에서 취소 PENDING INSERT, 취소 결과 UPDATE RETURNING, 동일 원거래 재취소 조회 흐름을 검증한다.
      * - 중복 취소가 데이터 중복이나 승인번호 변경으로 이어지지 않는지 확인한다.
@@ -264,12 +273,12 @@ class PostgresCoreFlowIntegrationTest {
         return postJson(
                 "/api/v1/pos-trx/issue",
                 """
-                {
-                  "storeCd": "%s",
-                  "bizDate": "%s",
-                  "posNo": "%s"
-                }
-                """.formatted(storeCd, bizDate, posNo)
+                        {
+                          "storeCd": "%s",
+                          "bizDate": "%s",
+                          "posNo": "%s"
+                        }
+                        """.formatted(storeCd, bizDate, posNo)
         );
     }
 
@@ -278,15 +287,15 @@ class PostgresCoreFlowIntegrationTest {
         return postJson(
                 "/api/v1/payments/approve",
                 """
-                {
-                  "posTrx": "%s",
-                  "amount": 10000,
-                  "card": {
-                    "pan": "4242424242424242",
-                    "expiryYyMm": "2812"
-                  }
-                }
-                """.formatted(posTrx)
+                        {
+                          "posTrx": "%s",
+                          "amount": 10000,
+                          "card": {
+                            "pan": "4242424242424242",
+                            "expiryYyMm": "2812"
+                          }
+                        }
+                        """.formatted(posTrx)
         );
     }
 
@@ -295,11 +304,11 @@ class PostgresCoreFlowIntegrationTest {
         return postJson(
                 "/api/v1/payments/inquiry",
                 """
-                {
-                  "posTrx": "%s",
-                  "attemptSeq": %d
-                }
-                """.formatted(posTrx, attemptSeq)
+                        {
+                          "posTrx": "%s",
+                          "attemptSeq": %d
+                        }
+                        """.formatted(posTrx, attemptSeq)
         );
     }
 
@@ -308,13 +317,13 @@ class PostgresCoreFlowIntegrationTest {
         return postJson(
                 "/api/v1/payments/cancel",
                 """
-                {
-                  "posTrx": "%s",
-                  "originalPosTrx": "%s",
-                  "originalAttemptSeq": %d,
-                  "cardNo": "4242424242424242"
-                }
-                """.formatted(posTrx, originalPosTrx, originalAttemptSeq)
+                        {
+                          "posTrx": "%s",
+                          "originalPosTrx": "%s",
+                          "originalAttemptSeq": %d,
+                          "cardNo": "4242424242424242"
+                        }
+                        """.formatted(posTrx, originalPosTrx, originalAttemptSeq)
         );
     }
 
@@ -340,12 +349,12 @@ class PostgresCoreFlowIntegrationTest {
     private int posTrxSequence(String storeCd, String bizDate, String posNo) {
         return Objects.requireNonNull(jdbcTemplate.queryForObject(
                 """
-                SELECT SEQ
-                FROM POS_TRX_SEQUENCE
-                WHERE STORE_CD = ?
-                  AND BIZ_DATE = ?
-                  AND POS_NO = ?
-                """,
+                        SELECT SEQ
+                        FROM POS_TRX_SEQUENCE
+                        WHERE STORE_CD = ?
+                          AND BIZ_DATE = ?
+                          AND POS_NO = ?
+                        """,
                 Integer.class,
                 storeCd,
                 bizDate,
@@ -357,12 +366,12 @@ class PostgresCoreFlowIntegrationTest {
     private int countPosTrxSequence(String storeCd, String bizDate, String posNo) {
         return count(
                 """
-                SELECT COUNT(*)
-                FROM POS_TRX_SEQUENCE
-                WHERE STORE_CD = ?
-                  AND BIZ_DATE = ?
-                  AND POS_NO = ?
-                """,
+                        SELECT COUNT(*)
+                        FROM POS_TRX_SEQUENCE
+                        WHERE STORE_CD = ?
+                          AND BIZ_DATE = ?
+                          AND POS_NO = ?
+                        """,
                 storeCd,
                 bizDate,
                 posNo
@@ -383,11 +392,11 @@ class PostgresCoreFlowIntegrationTest {
     private int countPaymentCancelByOriginal(String originalPosTrx, int originalAttemptSeq) {
         return count(
                 """
-                SELECT COUNT(*)
-                FROM PAYMENT_CANCEL
-                WHERE ORIGINAL_TRX_NO = ?
-                  AND ORIGINAL_ATTEMPT_SEQ = ?
-                """,
+                        SELECT COUNT(*)
+                        FROM PAYMENT_CANCEL
+                        WHERE ORIGINAL_TRX_NO = ?
+                          AND ORIGINAL_ATTEMPT_SEQ = ?
+                        """,
                 originalPosTrx,
                 originalAttemptSeq
         );
@@ -402,12 +411,12 @@ class PostgresCoreFlowIntegrationTest {
     private int countCancelReusedByOriginalEvents(String originalPosTrx, int originalAttemptSeq) {
         return count(
                 """
-                SELECT COUNT(*)
-                FROM PAYMENT_EVENT_LOG
-                WHERE EVENT_TYPE = 'CANCEL_REUSED_BY_ORIGINAL'
-                  AND ORIGINAL_POS_TRX = ?
-                  AND ORIGINAL_ATTEMPT_SEQ = ?
-                """,
+                        SELECT COUNT(*)
+                        FROM PAYMENT_EVENT_LOG
+                        WHERE EVENT_TYPE = 'CANCEL_REUSED_BY_ORIGINAL'
+                          AND ORIGINAL_POS_TRX = ?
+                          AND ORIGINAL_ATTEMPT_SEQ = ?
+                        """,
                 originalPosTrx,
                 originalAttemptSeq
         );
@@ -417,11 +426,11 @@ class PostgresCoreFlowIntegrationTest {
     private String paymentAttemptStatus(String posTrx, int attemptSeq) {
         return jdbcTemplate.queryForObject(
                 """
-                SELECT FINAL_STATUS
-                FROM PAYMENT_ATTEMPT
-                WHERE POS_TRX = ?
-                  AND ATTEMPT_SEQ = ?
-                """,
+                        SELECT FINAL_STATUS
+                        FROM PAYMENT_ATTEMPT
+                        WHERE POS_TRX = ?
+                          AND ATTEMPT_SEQ = ?
+                        """,
                 String.class,
                 posTrx,
                 attemptSeq
@@ -432,11 +441,11 @@ class PostgresCoreFlowIntegrationTest {
     private String paymentAttemptApprovalNo(String posTrx, int attemptSeq) {
         return jdbcTemplate.queryForObject(
                 """
-                SELECT APPROVAL_NO
-                FROM PAYMENT_ATTEMPT
-                WHERE POS_TRX = ?
-                  AND ATTEMPT_SEQ = ?
-                """,
+                        SELECT APPROVAL_NO
+                        FROM PAYMENT_ATTEMPT
+                        WHERE POS_TRX = ?
+                          AND ATTEMPT_SEQ = ?
+                        """,
                 String.class,
                 posTrx,
                 attemptSeq
@@ -447,11 +456,11 @@ class PostgresCoreFlowIntegrationTest {
     private String currentCancelPosTrx(String originalPosTrx, int originalAttemptSeq) {
         return jdbcTemplate.queryForObject(
                 """
-                SELECT CURRENT_TRX_NO
-                FROM PAYMENT_CANCEL
-                WHERE ORIGINAL_TRX_NO = ?
-                  AND ORIGINAL_ATTEMPT_SEQ = ?
-                """,
+                        SELECT CURRENT_TRX_NO
+                        FROM PAYMENT_CANCEL
+                        WHERE ORIGINAL_TRX_NO = ?
+                          AND ORIGINAL_ATTEMPT_SEQ = ?
+                        """,
                 String.class,
                 originalPosTrx,
                 originalAttemptSeq
@@ -479,10 +488,10 @@ class PostgresCoreFlowIntegrationTest {
     private void cleanupTestData() {
         jdbcTemplate.update(
                 """
-                DELETE FROM PAYMENT_EVENT_LOG
-                WHERE POS_TRX IN (?, ?, ?, ?, ?)
-                   OR ORIGINAL_POS_TRX IN (?, ?, ?)
-                """,
+                        DELETE FROM PAYMENT_EVENT_LOG
+                        WHERE POS_TRX IN (?, ?, ?, ?, ?)
+                           OR ORIGINAL_POS_TRX IN (?, ?, ?)
+                        """,
                 APPROVE_IDEMPOTENT_POS_TRX,
                 INQUIRY_POS_TRX,
                 CANCEL_ORIGINAL_POS_TRX,
@@ -519,11 +528,11 @@ class PostgresCoreFlowIntegrationTest {
         );
         jdbcTemplate.update(
                 """
-                DELETE FROM POS_TRX_SEQUENCE
-                WHERE STORE_CD = ?
-                  AND BIZ_DATE = ?
-                  AND POS_NO IN (?, ?)
-                """,
+                        DELETE FROM POS_TRX_SEQUENCE
+                        WHERE STORE_CD = ?
+                          AND BIZ_DATE = ?
+                          AND POS_NO IN (?, ?)
+                        """,
                 POS_TRX_STORE_CD,
                 POS_TRX_BIZ_DATE,
                 POS_TRX_POS_NO,
