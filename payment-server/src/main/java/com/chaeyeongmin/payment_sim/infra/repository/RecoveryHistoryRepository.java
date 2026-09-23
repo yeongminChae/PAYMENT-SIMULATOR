@@ -30,6 +30,11 @@ public interface RecoveryHistoryRepository {
      */
     int finish(Long historyId, RecoveryHistoryResult result, String errorCode, LocalDateTime finishedAt);
 
+    /**
+     * Task 재claim 시 이전 Worker가 끝내지 못한 History를 지정한 결과로 일괄 종료한다.
+     *
+     * @return 종료한 History 수. 열린 History가 없으면 0
+     */
     int finishOpenByRecoveryTaskId(
             Long recoveryTaskId,
             RecoveryHistoryResult result,
@@ -37,6 +42,7 @@ public interface RecoveryHistoryRepository {
             LocalDateTime finishedAt
     );
 
+    /** History 종료 결과가 이미 저장됐는지 확인하기 위해 ID로 조회한다. */
     Optional<RecoveryHistory> findById(Long historyId);
 
 }

@@ -38,6 +38,11 @@ public interface RecoveryHistoryMapper {
             @Param("finishedAt") LocalDateTime finishedAt
     );
 
+    /**
+     * Task 재claim 전에 이전 Worker가 남긴 열린 History를 모두 종료한다.
+     *
+     * @return 종료한 History 수. 열린 History가 없으면 0
+     */
     int finishOpenByRecoveryTaskId(
             @Param("recoveryTaskId") Long recoveryTaskId,
             @Param("result") RecoveryHistoryResult result,
@@ -45,6 +50,7 @@ public interface RecoveryHistoryMapper {
             @Param("finishedAt") LocalDateTime finishedAt
     );
 
+    /** History 종료 충돌 시 현재 저장된 결과를 확인하기 위해 ID로 한 건을 조회한다. */
     RecoveryHistory findById(@Param("historyId") Long historyId);
 
 }
