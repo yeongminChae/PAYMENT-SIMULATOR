@@ -24,18 +24,11 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * 취소 Recovery Task 한 건을 현재 PAYMENT_CANCEL 및 VAN 원장 사실과 대조해 복구한다.
+ * 결과가 확정되지 않은 취소 거래를 복구한다.
  *
- * <p>task가 생성된 뒤 수동 Cancel Inquiry나 다른 흐름이 먼저 취소를 확정했을 수 있으므로
- * PAYMENT_CANCEL을 반드시 다시 읽는다. DB가 이미 CANCELLED/CANCEL_DECLINED라면 그 상태를
- * 정본으로 보고 VAN을 다시 호출하지 않는다. 아직 PENDING/UNKNOWN_TIMEOUT일 때만 VAN Inquiry를
- * 수행하며, 확인한 terminal 사실의 조건부 반영은 RecoveryFinalizationService에 맡긴다.
- *
- * <p>취소 task는 현재 취소 거래번호뿐 아니라 원승인 identity도 일치해야 한다. 잘못 연결된 task가
- * 다른 원승인의 취소 row를 확정하지 않도록 VAN 호출 전에 originalPosTrx/originalAttemptSeq를 검증한다.
- *
- * <p>이 클래스는 외부 I/O를 포함하므로 class 또는 handle 메서드에 transaction을 열지 않는다.
- * DB 확정 transaction은 RecoveryFinalizationService의 짧은 transaction으로 제한한다.
+ * <p>먼저 PAYMENT_CANCEL의 현재 상태를 확인한다. 이미 취소 또는 취소 거절로 끝났다면 그대로 복구
+ * 완료로 처리하고, 아직 대기 또는 타임아웃 상태일 때만 VAN에 실제 결과를 조회한다.
+ * 잘못된 원승인에 취소 결과를 반영하지 않도록 취소 거래의 원승인 정보도 함께 확인한다.
  */
 @Component
 @RequiredArgsConstructor
@@ -51,6 +44,9 @@ public class CancelRecoveryHandler implements RecoveryHandler {
         return RecoveryTargetType.CANCEL;
     }
 
+    /**
+     * 취소 거래의 현재 상태를 확인하고, 필요하면 VAN 조회 결과로 미확정 거래를 마무리한다.
+     */
     @Override
     public RecoveryHandlerResult handle(RecoveryTask task) {
         // Worker가 잘못된 구현체를 선택한 경우 CANCEL 데이터에 접근하기 전에 즉시 차단한다.
@@ -99,8 +95,7 @@ public class CancelRecoveryHandler implements RecoveryHandler {
             );
         }
 
-        // Recovery가 자동으로 VAN Inquiry를 해도 되는 내부 상태를 명시적으로 제한
-        // 추후 상태 추가시, 아무런 방어없이 흘러가서 밴 호출되는 경우를 방지
+        // 자동 복구 대상으로 정한 미확정 상태만 VAN에 조회한다.
         if (dbStatus != CancelStatus.PENDING && dbStatus != CancelStatus.UNKNOWN_TIMEOUT) {
             throw new IllegalStateException("Unexpected PAYMENT_CANCEL status for recovery: " + dbStatus);
         }
@@ -143,11 +138,7 @@ public class CancelRecoveryHandler implements RecoveryHandler {
             );
         }
 
-        /*
-         * Cancel recovery가 받아들일 수 있는 terminal 사실은 CANCELLED/CANCEL_DECLINED뿐이다.
-         * 기존 R5 DTO factory와 decline-code 변환을 재사용해 Phase 6 finalizer 입력을 구성한다.
-         * APPROVED/DECLINED 같은 승인 상태는 정상 미확정으로 삼키지 않고 mismatch로 드러낸다.
-         */
+        // VAN의 취소 결과를 취소 원장에 저장할 값으로 바꾼다. 다른 종류의 상태는 잘못된 응답으로 본다.
         CancelResultUpdateParam intended = switch (response.status()) {
             case CANCELLED -> CancelResultUpdateParam.cancelled(
                     cancel.posTrx(),
@@ -170,23 +161,14 @@ public class CancelRecoveryHandler implements RecoveryHandler {
             );
         };
 
-        /*
-         * 실제 conditional update와 경합 후 DB 재확인은 finalizer의 짧은 transaction에서 수행한다.
-         * Handler는 외부 I/O 전후를 하나의 transaction으로 묶지 않는다.
-         */
+        // 실제 원장 갱신과 작업 소유권 검사는 짧은 transaction을 사용하는 Finalizer가 처리한다.
         RecoveryFinalizeResult finalizeResult = recoveryFinalizationService.finalizeCancel(task, intended);
 
-        /*
-         * finalizer의 APPLIED와 ALREADY_CONSISTENT는 처리 주체만 다를 뿐 Worker 관점에서는 모두
-         * 추가 자동 복구가 필요 없는 RESOLVED다. 나머지 결과는 의미를 유지해 Worker에 전달한다.
-         */
+        // Finalizer 결과를 Worker가 이해하는 공통 복구 결과로 바꾼다.
         return getRecoveryHandlerResult(finalizeResult);
     }
 
-    /**
-     * task와 PAYMENT_CANCEL row가 같은 원승인을 가리키는지 확인하는 application-level fencing이다.
-     * Phase 6 finalizer의 재검증은 경합 이후 DB 상태를 방어하고, 이 검증은 외부 I/O 자체를 사전에 막는다.
-     */
+    /** Task와 취소 원장이 같은 원승인을 가리키는지 확인한다. */
     private void validateIdentity(RecoveryTask task, PaymentCancel cancel) {
         if (Objects.equals(cancel.originalPosTrx(), task.originalPosTrx()) == false
                 || cancel.originalAttemptSeq() != task.originalAttemptSeq()) {
@@ -207,7 +189,7 @@ public class CancelRecoveryHandler implements RecoveryHandler {
         }
     }
 
-    /** finalizer의 DB 반영 결과를 Worker가 공통으로 이해하는 결과로 바꾼다. */
+    /** 원장 반영 결과를 Worker가 처리할 수 있는 복구 결과로 바꾼다. */
     private RecoveryHandlerResult getRecoveryHandlerResult(RecoveryFinalizeResult finalizeResult) {
         return switch (finalizeResult.resultType()) {
             case APPLIED, ALREADY_CONSISTENT -> new RecoveryHandlerResult(

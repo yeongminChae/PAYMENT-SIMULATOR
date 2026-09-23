@@ -24,15 +24,11 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * 승인 Recovery Task 한 건을 현재 PAYMENT_ATTEMPT 및 VAN 원장 사실과 대조해 복구한다.
+ * 결과가 확정되지 않은 승인 거래를 복구한다.
  *
- * <p>task가 생성된 뒤 수동 Inquiry나 다른 요청이 먼저 승인을 확정했을 수 있으므로
- * PAYMENT_ATTEMPT를 반드시 다시 읽는다. DB가 이미 APPROVED/DECLINED라면 그 상태를 정본으로 보고
- * VAN을 다시 호출하지 않는다. 아직 PROCESSING/UNKNOWN_TIMEOUT일 때만 VAN Inquiry를 수행하며,
- * VAN에서 얻은 terminal 사실의 조건부 반영은 RecoveryFinalizationService에 맡긴다.
- *
- * <p>이 클래스는 외부 I/O를 포함하므로 class 또는 handle 메서드에 transaction을 열지 않는다.
- * DB 확정 transaction은 RecoveryFinalizationService의 짧은 transaction으로 제한한다.
+ * <p>먼저 PAYMENT_ATTEMPT의 현재 상태를 확인한다. 이미 승인 또는 거절로 끝났다면 그대로 복구 완료로
+ * 처리하고, 아직 처리 중이거나 타임아웃 상태일 때만 VAN에 실제 결과를 조회한다.
+ * VAN에서 최종 결과를 확인하면 RecoveryFinalizationService가 작업 소유권을 검사한 뒤 원장에 반영한다.
  */
 @Component
 @RequiredArgsConstructor
@@ -48,6 +44,9 @@ public class ApprovalRecoveryHandler implements RecoveryHandler {
         return RecoveryTargetType.APPROVAL;
     }
 
+    /**
+     * 승인 거래의 현재 상태를 확인하고, 필요하면 VAN 조회 결과로 미확정 거래를 마무리한다.
+     */
     @Override
     public RecoveryHandlerResult handle(RecoveryTask task) {
         /*
@@ -133,18 +132,12 @@ public class ApprovalRecoveryHandler implements RecoveryHandler {
             );
         }
 
-        /*
-         * Approval recovery가 받아들일 수 있는 terminal 사실은 APPROVED/DECLINED뿐이다.
-         * Cancel 계열 상태는 정상 미확정으로 삼키지 않고 protocol/target mismatch로 즉시 드러낸다.
-         */
+        // 승인 복구에서는 승인 또는 거절 결과만 처리한다. 다른 종류의 상태는 잘못된 응답으로 본다.
         if (response.status() != VanInquiryStatus.APPROVED && response.status() != VanInquiryStatus.DECLINED) {
             throw new RecoveryInvariantViolationException("RECOVERY_APPROVAL_INQUIRY_STATUS_INVALID: " + response.status());
         }
 
-        /*
-         * VAN terminal 응답을 PAYMENT_ATTEMPT에 반영할 의도 값으로 변환한다. 실제 update와 경합 후
-         * DB 재확인은 Phase 6 finalizer가 짧은 transaction 안에서 수행한다.
-         */
+        // VAN 응답을 승인 원장에 저장할 값으로 바꾼다. 실제 갱신과 소유권 검사는 Finalizer가 처리한다.
         AttemptResultUpdateParam intended =
                 AttemptResultUpdateParamFactory.fromVanInquiry(
                         response,
@@ -154,10 +147,7 @@ public class ApprovalRecoveryHandler implements RecoveryHandler {
 
         RecoveryFinalizeResult finalizeResult = recoveryFinalizationService.finalizeApproval(task, intended);
 
-        /*
-         * finalizer의 APPLIED와 ALREADY_CONSISTENT는 처리 주체만 다를 뿐 Worker 관점에서는 모두
-         * 추가 자동 복구가 필요 없는 RESOLVED다. 나머지 결과는 의미를 유지해 Worker에 전달한다.
-         */
+        // Finalizer 결과를 Worker가 이해하는 공통 복구 결과로 바꾼다.
         return getRecoveryHandlerResult(finalizeResult);
 
     }
@@ -176,7 +166,7 @@ public class ApprovalRecoveryHandler implements RecoveryHandler {
         }
     }
 
-    /** finalizer의 DB 반영 결과를 Worker가 공통으로 이해하는 결과로 바꾼다. */
+    /** 원장 반영 결과를 Worker가 처리할 수 있는 복구 결과로 바꾼다. */
     private RecoveryHandlerResult getRecoveryHandlerResult(RecoveryFinalizeResult finalizeResult) {
         return switch (finalizeResult.resultType()) {
             case APPLIED, ALREADY_CONSISTENT -> new RecoveryHandlerResult(

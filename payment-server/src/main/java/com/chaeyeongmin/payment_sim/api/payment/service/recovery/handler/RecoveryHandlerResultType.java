@@ -1,21 +1,19 @@
 package com.chaeyeongmin.payment_sim.api.payment.service.recovery.handler;
 
-/**
- * Handler가 반환하는 거래 복구 결과다. RecoveryStatus와 달리 이번 처리 시도의 업무 결과만 표현한다.
- */
+/** Recovery Handler가 이번 실행에서 확인한 업무 결과다. */
 public enum RecoveryHandlerResultType {
-    /** DB가 이미 terminal이거나, VAN terminal 사실을 DB에 적용 또는 동일 사실로 확인했다. */
+    /** 거래가 이미 끝났거나 VAN에서 확인한 최종 결과를 DB에 반영했다. */
     RESOLVED,
 
-    /** VAN에서도 확정 사실을 얻지 못했거나 conditional finalization 뒤 DB가 여전히 unresolved다. */
+    /** VAN과 DB를 확인했지만 아직 최종 결과를 정할 수 없다. */
     STILL_UNRESOLVED,
 
-    /** VAN이 확인한 terminal 사실과 DB에 저장된 terminal 사실이 서로 다르다. */
+    /** VAN의 최종 결과와 DB의 최종 결과가 서로 다르다. */
     TERMINAL_CONFLICT,
 
-    /** task가 가리키는 대상 거래가 선행 또는 finalization 재조회 시점에 존재하지 않는다. */
+    /** Task가 가리키는 거래를 DB에서 찾을 수 없다. */
     TARGET_NOT_FOUND,
 
-    /** lease 만료 또는 재claim으로 현재 Worker가 target ledger를 변경할 권한을 잃었다. */
+    /** lease 만료나 다른 Worker의 재선점으로 현재 Worker가 원장을 변경할 권한을 잃었다. */
     OWNERSHIP_LOST
 }

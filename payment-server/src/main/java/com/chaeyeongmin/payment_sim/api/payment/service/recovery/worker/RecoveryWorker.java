@@ -208,6 +208,7 @@ public class RecoveryWorker {
                 );
 
             case OWNERSHIP_LOST:
+                // 다른 Worker가 이미 Task를 가져갔으므로 현재 Worker는 Task나 원장을 더 변경하지 않는다.
                 return RecoveryWorkerResultType.OWNERSHIP_LOST;
 
             default: throw new IllegalStateException("Unexpected handler result: " + handlerResult.resultType());

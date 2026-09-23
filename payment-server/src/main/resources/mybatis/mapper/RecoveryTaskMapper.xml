@@ -116,7 +116,7 @@
         T.UPDATED_AT
     </select>
 
-
+    <!-- 원장 갱신 전에 현재 Worker의 소유권을 확인하고, 확인 중 재선점되지 않도록 Task 행을 잠근다. -->
     <select id="findByIdForUpdate"
             resultType="com.chaeyeongmin.payment_sim.domain.model.RecoveryTask">
         SELECT

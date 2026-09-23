@@ -28,8 +28,8 @@ public interface RecoveryTaskMapper {
     RecoveryTask findById(@Param("taskId") Long taskId);
 
     /**
-     * task ID로 한 건을 조회한다.
-     * 조회하면서 이 row를 현재 transaction이 끝날 때까지 잠금
+     * 원장 반영 전 소유권 확인을 위해 Task 한 건을 조회하고 잠근다.
+     * 잠금은 현재 transaction이 끝날 때까지 유지된다.
      */
     RecoveryTask findByIdForUpdate(@Param("taskId") Long taskId);
 

@@ -23,19 +23,11 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * 망취소 Recovery Task 한 건을 현재 PAYMENT_REVERSAL 및 VAN 원장 사실과 대조해 복구한다.
+ * 결과가 확정되지 않은 망취소 거래를 복구한다.
  *
- * <p>task가 생성된 뒤 다른 요청이나 복구 흐름이 먼저 망취소를 확정했을 수 있으므로
- * PAYMENT_REVERSAL을 반드시 다시 읽는다. DB가 이미 REVERSED/REVERSAL_DECLINED라면 그 상태를
- * 정본으로 보고 VAN을 다시 호출하지 않는다. 아직 PENDING일 때만 VAN Inquiry를 수행하며,
- * 확인한 terminal 사실의 조건부 반영은 RecoveryFinalizationService에 맡긴다.
- *
- * <p>망취소 task는 reversalPosTrx뿐 아니라 원승인 identity도 실제 PAYMENT_REVERSAL row와
- * 일치해야 한다. 잘못 연결된 task가 다른 원승인의 망취소 상태를 확정하지 않도록 VAN 호출 전에
- * originalPosTrx/originalAttemptSeq를 검증한다.
- *
- * <p>이 클래스는 외부 I/O를 포함하므로 class 또는 handle 메서드에 transaction을 열지 않는다.
- * DB 확정 transaction은 RecoveryFinalizationService의 짧은 transaction으로 제한한다.
+ * <p>먼저 PAYMENT_REVERSAL의 현재 상태를 확인한다. 이미 망취소 또는 망취소 거절로 끝났다면 그대로
+ * 복구 완료로 처리하고, 아직 대기 상태일 때만 VAN에 실제 결과를 조회한다.
+ * 잘못된 원승인에 망취소 결과를 반영하지 않도록 망취소 거래의 원승인 정보도 함께 확인한다.
  */
 @Component
 @RequiredArgsConstructor
@@ -52,8 +44,7 @@ public class ReversalRecoveryHandler implements RecoveryHandler {
     }
 
     /**
-     * 망취소 task의 현재 DB 상태를 다시 확인하고, 필요할 때만 VAN Inquiry로 최종 사실을 조회한다.
-     * 이미 끝난 거래는 바로 RESOLVED로 반환하고, 미확정 거래만 finalizer에 반영한다.
+     * 망취소 거래의 현재 상태를 확인하고, 필요하면 VAN 조회 결과로 미확정 거래를 마무리한다.
      */
     @Override
     public RecoveryHandlerResult handle(RecoveryTask task) {
@@ -127,11 +118,7 @@ public class ReversalRecoveryHandler implements RecoveryHandler {
          */
         validateSuccessfulResponse(reversal, response);
 
-        /*
-         * Reversal recovery가 받아들일 수 있는 terminal 사실은 REVERSED/REVERSAL_DECLINED뿐이다.
-         * 성공이면 reversal 승인번호를, 거절이면 내부 저장 형식으로 변환한 decline code를 담아
-         * Phase 6 finalizer에 전달할 의도 값을 구성한다.
-         */
+        // VAN의 망취소 결과를 원장에 저장할 값으로 바꾼다. 다른 종류의 상태는 잘못된 응답으로 본다.
         ReversalResultUpdateParam intended =
                 switch (response.status()) {
                     case REVERSED ->
@@ -156,16 +143,10 @@ public class ReversalRecoveryHandler implements RecoveryHandler {
                             "Unexpected VAN inquiry status for REVERSAL: " + response.status());
                 };
 
-        /*
-         * 실제 conditional update와 경합 후 DB 재확인은 finalizer의 짧은 transaction에서 수행한다.
-         * Handler는 외부 I/O 전후를 하나의 transaction으로 묶지 않는다.
-         */
+        // 실제 원장 갱신과 작업 소유권 검사는 짧은 transaction을 사용하는 Finalizer가 처리한다.
         RecoveryFinalizeResult finalizeResult = recoveryFinalizationService.finalizeReversal(task, intended);
 
-        /*
-         * finalizer의 APPLIED와 ALREADY_CONSISTENT는 처리 주체만 다를 뿐 Worker 관점에서는 모두
-         * 추가 자동 복구가 필요 없는 RESOLVED다. 나머지 결과는 의미를 유지해 Worker에 전달한다.
-         */
+        // Finalizer 결과를 Worker가 이해하는 공통 복구 결과로 바꾼다.
         return getRecoveryHandlerResult(finalizeResult);
     }
 
@@ -184,9 +165,7 @@ public class ReversalRecoveryHandler implements RecoveryHandler {
 
     }
 
-    /**
-     * finalizer가 판정한 DB 반영 결과를 Worker가 이해하는 공통 Handler 결과로 변환한다.
-     */
+    /** 원장 반영 결과를 Worker가 처리할 수 있는 복구 결과로 바꾼다. */
     private RecoveryHandlerResult getRecoveryHandlerResult(RecoveryFinalizeResult finalizeResult) {
         return switch (finalizeResult.resultType()) {
             case APPLIED, ALREADY_CONSISTENT ->
@@ -227,10 +206,7 @@ public class ReversalRecoveryHandler implements RecoveryHandler {
 
     }
 
-    /*
-     * targetTrxNo로 row를 찾았더라도 task가 기록한 원승인과 실제 reversal row의 원승인이 다르면
-     * 동일 복구 대상이라고 볼 수 없다. 잘못된 VAN 조회와 DB 확정을 모두 막기 위해 먼저 검증한다.
-     */
+    /** Task와 망취소 원장이 같은 원승인을 가리키는지 확인한다. */
     private void validateIdentity(RecoveryTask task, PaymentReversal reversal) {
         if (Objects.equals(reversal.originalPosTrx(), task.originalPosTrx()) == false
                 || reversal.originalAttemptSeq() != task.originalAttemptSeq()

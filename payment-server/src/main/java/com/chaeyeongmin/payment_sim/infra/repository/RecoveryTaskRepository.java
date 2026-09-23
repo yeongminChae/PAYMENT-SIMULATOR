@@ -27,8 +27,8 @@ public interface RecoveryTaskRepository {
     Optional<RecoveryTask> findById(Long taskId);
 
     /**
-     * 관리자 상세 조회를 위해 task ID로 한 건을 조회한다.
-     * 조회하면서 이 row를 현재 transaction이 끝날 때까지 잠금
+     * 원장 반영 전 소유권 확인을 위해 Task 한 건을 조회하고 잠근다.
+     * 다른 Worker는 현재 transaction이 끝난 뒤에 이 Task를 다시 가져갈 수 있다.
      */
     Optional<RecoveryTask> findByIdForUpdate(Long taskId);
 
