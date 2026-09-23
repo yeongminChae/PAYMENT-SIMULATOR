@@ -15,5 +15,9 @@ public enum RecoveryFinalizeResultType {
     STILL_UNRESOLVED,
 
     // 대상 row 자체가 사라짐
-    TARGET_NOT_FOUND
+    TARGET_NOT_FOUND,
+
+    // VAN 결과가 틀렸다는 뜻이 아니라,
+    // 이 Worker가 더 이상 그 결과를 Payment Ledger에 적용할 권한이 없다는 뜻.
+    OWNERSHIP_LOST
 }

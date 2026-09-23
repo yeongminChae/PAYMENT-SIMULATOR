@@ -5,12 +5,16 @@ import com.chaeyeongmin.payment_sim.api.payment.service.transaction.model.Recove
 import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
 import com.chaeyeongmin.payment_sim.domain.model.PaymentReversal;
+import com.chaeyeongmin.payment_sim.domain.model.RecoveryTask;
 import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
+import com.chaeyeongmin.payment_sim.domain.policy.RecoveryStatus;
+import com.chaeyeongmin.payment_sim.domain.policy.RecoveryTargetType;
 import com.chaeyeongmin.payment_sim.domain.policy.ReversalStatus;
 import com.chaeyeongmin.payment_sim.domain.status.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentReversalRepository;
+import com.chaeyeongmin.payment_sim.infra.repository.RecoveryTaskRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdateParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentAttemptUpdatedRow;
@@ -19,6 +23,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,9 +37,13 @@ import static org.mockito.Mockito.when;
 
 class RecoveryFinalizationServiceImplTest {
 
+    private static final LocalDateTime NOW = LocalDateTime.of(2026, 1, 1, 0, 0);
+
     private PaymentAttemptRepository attemptRepository;
     private PaymentCancelRepository cancelRepository;
     private PaymentReversalRepository reversalRepository;
+    private RecoveryTaskRepository recoveryTaskRepository;
+    private RecoveryTask approvalTask;
     private RecoveryFinalizationServiceImpl service;
 
     @BeforeEach
@@ -39,10 +51,31 @@ class RecoveryFinalizationServiceImplTest {
         attemptRepository = mock(PaymentAttemptRepository.class);
         cancelRepository = mock(PaymentCancelRepository.class);
         reversalRepository = mock(PaymentReversalRepository.class);
+        recoveryTaskRepository = mock(RecoveryTaskRepository.class);
+        Clock clock = Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC);
+        approvalTask = new RecoveryTask(
+                1L,
+                RecoveryTargetType.APPROVAL,
+                "APPROVAL-TARGET",
+                1,
+                "APPROVAL-TARGET",
+                1,
+                RecoveryStatus.RUNNING,
+                0,
+                NOW,
+                "claim-token",
+                NOW.plusMinutes(5),
+                NOW,
+                NOW
+        );
+        when(recoveryTaskRepository.findByIdForUpdate(approvalTask.id()))
+                .thenReturn(Optional.of(approvalTask));
         service = new RecoveryFinalizationServiceImpl(
                 attemptRepository,
                 cancelRepository,
-                reversalRepository
+                reversalRepository,
+                recoveryTaskRepository,
+                clock
         );
     }
 
@@ -60,7 +93,7 @@ class RecoveryFinalizationServiceImplTest {
                 .thenReturn(Optional.of(updatedAttempt(intended, PaymentFinalStatus.APPROVED)));
 
         // result: repository가 updated row를 반환했으므로 finalizeApproval()은 이번 recovery가 확정했다고 봐야 한다.
-        RecoveryFinalizeResult result = service.finalizeApproval(intended);
+        RecoveryFinalizeResult result = service.finalizeApproval(approvalTask, intended);
 
         // conditional update 성공 케이스이므로 APPLIED와 APPROVED dbStatus를 기대한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.APPLIED);
@@ -82,7 +115,7 @@ class RecoveryFinalizationServiceImplTest {
                 .thenReturn(Optional.of(updatedAttempt(intended, PaymentFinalStatus.DECLINED)));
 
         // result: repository가 DECLINED updated row를 반환했으므로 finalizeApproval()은 확정 성공으로 처리해야 한다.
-        RecoveryFinalizeResult result = service.finalizeApproval(intended);
+        RecoveryFinalizeResult result = service.finalizeApproval(approvalTask, intended);
 
         // UNKNOWN_TIMEOUT에서 terminal로 수렴한 호출이므로 APPLIED와 DECLINED dbStatus를 기대한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.APPLIED);
@@ -105,7 +138,7 @@ class RecoveryFinalizationServiceImplTest {
                 .thenReturn(Optional.of(attempt(PaymentFinalStatus.APPROVED)));
 
         // result: update miss 후 reread한 DB 상태가 intended와 같은 APPROVED라야 한다.
-        RecoveryFinalizeResult result = service.finalizeApproval(intended);
+        RecoveryFinalizeResult result = service.finalizeApproval(approvalTask, intended);
 
         // 다른 흐름이 이미 같은 결론을 저장한 상황이므로 ALREADY_CONSISTENT를 기대한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.ALREADY_CONSISTENT);
@@ -127,7 +160,7 @@ class RecoveryFinalizationServiceImplTest {
                 .thenReturn(Optional.of(attempt(PaymentFinalStatus.APPROVED)));
 
         // result: update miss 후 reread한 DB 상태가 intended DECLINED와 다른 APPROVED라야 한다.
-        RecoveryFinalizeResult result = service.finalizeApproval(intended);
+        RecoveryFinalizeResult result = service.finalizeApproval(approvalTask, intended);
 
         // 이미 존재하는 APPROVED terminal을 덮지 말고 TERMINAL_CONFLICT로 알려야 한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.TERMINAL_CONFLICT);
@@ -150,7 +183,7 @@ class RecoveryFinalizationServiceImplTest {
                 .thenReturn(Optional.of(attempt(PaymentFinalStatus.PROCESSING)));
 
         // result: update miss 후 reread해도 PROCESSING이면 recovery finalization은 아직 확정되지 않은 것이다.
-        RecoveryFinalizeResult result = service.finalizeApproval(intended);
+        RecoveryFinalizeResult result = service.finalizeApproval(approvalTask, intended);
 
         // terminal도 target missing도 아니므로 STILL_UNRESOLVED를 기대한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.STILL_UNRESOLVED);
@@ -172,7 +205,7 @@ class RecoveryFinalizationServiceImplTest {
                 .thenReturn(Optional.of(attempt(PaymentFinalStatus.UNKNOWN_TIMEOUT)));
 
         // result: update miss 후 reread해도 UNKNOWN_TIMEOUT이면 아직 terminal fact가 DB에 없다.
-        RecoveryFinalizeResult result = service.finalizeApproval(intended);
+        RecoveryFinalizeResult result = service.finalizeApproval(approvalTask, intended);
 
         // 다음 recovery 시도 여지를 남기는 STILL_UNRESOLVED를 기대한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.STILL_UNRESOLVED);
@@ -194,7 +227,7 @@ class RecoveryFinalizationServiceImplTest {
                 .thenReturn(Optional.empty());
 
         // result: update miss 후 reread 결과도 empty면 finalizeApproval()이 처리할 대상이 없다.
-        RecoveryFinalizeResult result = service.finalizeApproval(intended);
+        RecoveryFinalizeResult result = service.finalizeApproval(approvalTask, intended);
 
         // missing target은 TARGET_NOT_FOUND로 표현하고 dbStatus는 null이어야 한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.TARGET_NOT_FOUND);
@@ -213,7 +246,7 @@ class RecoveryFinalizationServiceImplTest {
         );
 
         // result: UNKNOWN_TIMEOUT은 approval recovery의 intended terminal이 아니므로 즉시 예외를 기대한다.
-        assertThatThrownBy(() -> service.finalizeApproval(intended))
+        assertThatThrownBy(() -> service.finalizeApproval(approvalTask, intended))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Approval recovery target must be APPROVED or DECLINED");
         // reject 케이스에서 repository가 호출되면 잘못된 target으로 DB write를 시도할 수 있으므로 호출 자체가 없어야 한다.
@@ -235,7 +268,7 @@ class RecoveryFinalizationServiceImplTest {
                 .thenReturn(Optional.of(cancel(intended, CancelStatus.CANCELLED)));
 
         // result: repository가 updated row를 반환했으므로 finalizeCancel()은 이번 recovery가 확정했다고 봐야 한다.
-        RecoveryFinalizeResult result = service.finalizeCancel(intended);
+        RecoveryFinalizeResult result = service.finalizeCancel(null, intended);
 
         // conditional update 성공 케이스이므로 APPLIED와 CANCELLED dbStatus를 기대한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.APPLIED);
@@ -257,7 +290,7 @@ class RecoveryFinalizationServiceImplTest {
                 .thenReturn(Optional.of(cancel(intended, CancelStatus.CANCEL_DECLINED)));
 
         // result: repository가 CANCEL_DECLINED updated row를 반환했으므로 확정 성공으로 처리해야 한다.
-        RecoveryFinalizeResult result = service.finalizeCancel(intended);
+        RecoveryFinalizeResult result = service.finalizeCancel(null, intended);
 
         // UNKNOWN_TIMEOUT에서 terminal로 수렴한 호출이므로 APPLIED와 CANCEL_DECLINED dbStatus를 기대한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.APPLIED);
@@ -280,7 +313,7 @@ class RecoveryFinalizationServiceImplTest {
                 .thenReturn(Optional.of(cancel(intended, CancelStatus.CANCELLED)));
 
         // result: update miss 후 reread한 cancel row가 intended와 같은 CANCELLED라야 한다.
-        RecoveryFinalizeResult result = service.finalizeCancel(intended);
+        RecoveryFinalizeResult result = service.finalizeCancel(null, intended);
 
         // 반복 finalization 또는 선행 확정으로 보고 ALREADY_CONSISTENT를 기대한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.ALREADY_CONSISTENT);
@@ -303,7 +336,7 @@ class RecoveryFinalizationServiceImplTest {
                 .thenReturn(Optional.of(cancel(intended, CancelStatus.CANCELLED)));
 
         // result: update miss 후 reread한 DB 상태가 intended CANCEL_DECLINED와 다른 CANCELLED라야 한다.
-        RecoveryFinalizeResult result = service.finalizeCancel(intended);
+        RecoveryFinalizeResult result = service.finalizeCancel(null, intended);
 
         // 이미 CANCELLED인 terminal을 덮지 말고 TERMINAL_CONFLICT로 알려야 한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.TERMINAL_CONFLICT);
@@ -326,7 +359,7 @@ class RecoveryFinalizationServiceImplTest {
                 .thenReturn(Optional.of(cancel(intended, CancelStatus.PENDING)));
 
         // result: update miss 후 reread해도 PENDING이면 취소 결과가 아직 확정되지 않은 것이다.
-        RecoveryFinalizeResult result = service.finalizeCancel(intended);
+        RecoveryFinalizeResult result = service.finalizeCancel(null, intended);
 
         // terminal도 target missing도 아니므로 STILL_UNRESOLVED를 기대한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.STILL_UNRESOLVED);
@@ -349,7 +382,7 @@ class RecoveryFinalizationServiceImplTest {
                 .thenReturn(Optional.of(cancel(intended, CancelStatus.UNKNOWN_TIMEOUT)));
 
         // result: update miss 후 reread해도 UNKNOWN_TIMEOUT이면 아직 terminal fact가 DB에 없다.
-        RecoveryFinalizeResult result = service.finalizeCancel(intended);
+        RecoveryFinalizeResult result = service.finalizeCancel(null, intended);
 
         // 다음 recovery 시도 여지를 남기는 STILL_UNRESOLVED를 기대한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.STILL_UNRESOLVED);
@@ -371,7 +404,7 @@ class RecoveryFinalizationServiceImplTest {
         when(cancelRepository.findByPosTrx(intended.posTrx())).thenReturn(Optional.empty());
 
         // result: update miss 후 CURRENT_TRX_NO reread 결과도 empty면 finalizeCancel()이 처리할 대상이 없다.
-        RecoveryFinalizeResult result = service.finalizeCancel(intended);
+        RecoveryFinalizeResult result = service.finalizeCancel(null, intended);
 
         // missing target은 TARGET_NOT_FOUND로 표현하고 dbStatus는 null이어야 한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.TARGET_NOT_FOUND);
@@ -389,7 +422,7 @@ class RecoveryFinalizationServiceImplTest {
         );
 
         // result: UNKNOWN_TIMEOUT은 cancel recovery의 intended terminal이 아니므로 즉시 예외를 기대한다.
-        assertThatThrownBy(() -> service.finalizeCancel(intended))
+        assertThatThrownBy(() -> service.finalizeCancel(null, intended))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Cancel recovery target must be CANCELLED or CANCEL_DECLINED");
         // reject 케이스에서 repository가 호출되면 잘못된 target으로 DB write를 시도할 수 있으므로 호출 자체가 없어야 한다.
@@ -420,7 +453,7 @@ class RecoveryFinalizationServiceImplTest {
                 )));
 
         // result: CURRENT_TRX_NO는 같지만 원거래 identity가 다르므로 정상적인 idempotent/conflict 결과가 아니다.
-        assertThatThrownBy(() -> service.finalizeCancel(intended))
+        assertThatThrownBy(() -> service.finalizeCancel(null, intended))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("RECOVERY_CANCEL_TARGET_IDENTITY_MISMATCH");
     }
@@ -440,7 +473,7 @@ class RecoveryFinalizationServiceImplTest {
                 .thenReturn(Optional.of(reversal(intended, ReversalStatus.REVERSED)));
 
         // result: repository가 updated row를 반환했으므로 finalizeReversal()은 이번 recovery가 확정했다고 봐야 한다.
-        RecoveryFinalizeResult result = service.finalizeReversal(intended);
+        RecoveryFinalizeResult result = service.finalizeReversal(null, intended);
 
         // conditional update 성공 케이스이므로 APPLIED와 REVERSED dbStatus를 기대한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.APPLIED);
@@ -462,7 +495,7 @@ class RecoveryFinalizationServiceImplTest {
                 .thenReturn(Optional.of(reversal(intended, ReversalStatus.REVERSAL_DECLINED)));
 
         // result: repository가 REVERSAL_DECLINED updated row를 반환했으므로 확정 성공으로 처리해야 한다.
-        RecoveryFinalizeResult result = service.finalizeReversal(intended);
+        RecoveryFinalizeResult result = service.finalizeReversal(null, intended);
 
         // PENDING에서 terminal로 수렴한 호출이므로 APPLIED와 REVERSAL_DECLINED dbStatus를 기대한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.APPLIED);
@@ -485,7 +518,7 @@ class RecoveryFinalizationServiceImplTest {
                 .thenReturn(Optional.of(reversal(intended, ReversalStatus.REVERSED)));
 
         // result: update miss 후 reread한 reversal row가 intended와 같은 REVERSED라야 한다.
-        RecoveryFinalizeResult result = service.finalizeReversal(intended);
+        RecoveryFinalizeResult result = service.finalizeReversal(null, intended);
 
         // 반복 finalization 또는 선행 확정으로 보고 ALREADY_CONSISTENT를 기대한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.ALREADY_CONSISTENT);
@@ -508,7 +541,7 @@ class RecoveryFinalizationServiceImplTest {
                 .thenReturn(Optional.of(reversal(intended, ReversalStatus.REVERSED)));
 
         // result: update miss 후 reread한 DB 상태가 intended REVERSAL_DECLINED와 다른 REVERSED라야 한다.
-        RecoveryFinalizeResult result = service.finalizeReversal(intended);
+        RecoveryFinalizeResult result = service.finalizeReversal(null, intended);
 
         // 이미 REVERSED인 terminal을 덮지 말고 TERMINAL_CONFLICT로 알려야 한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.TERMINAL_CONFLICT);
@@ -531,7 +564,7 @@ class RecoveryFinalizationServiceImplTest {
                 .thenReturn(Optional.of(reversal(intended, ReversalStatus.PENDING)));
 
         // result: update miss 후 reread해도 PENDING이면 망취소 결과가 아직 확정되지 않은 것이다.
-        RecoveryFinalizeResult result = service.finalizeReversal(intended);
+        RecoveryFinalizeResult result = service.finalizeReversal(null, intended);
 
         // terminal도 target missing도 아니므로 STILL_UNRESOLVED를 기대한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.STILL_UNRESOLVED);
@@ -554,7 +587,7 @@ class RecoveryFinalizationServiceImplTest {
                 .thenReturn(Optional.empty());
 
         // result: update miss 후 CURRENT_TRX_NO reread 결과도 empty면 finalizeReversal()이 처리할 대상이 없다.
-        RecoveryFinalizeResult result = service.finalizeReversal(intended);
+        RecoveryFinalizeResult result = service.finalizeReversal(null, intended);
 
         // missing target은 TARGET_NOT_FOUND로 표현하고 dbStatus는 null이어야 한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.TARGET_NOT_FOUND);
@@ -576,7 +609,7 @@ class RecoveryFinalizationServiceImplTest {
         );
 
         // result: PENDING은 reversal recovery의 intended terminal이 아니므로 즉시 예외를 기대한다.
-        assertThatThrownBy(() -> service.finalizeReversal(intended))
+        assertThatThrownBy(() -> service.finalizeReversal(null, intended))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Reversal recovery target must be REVERSED or REVERSAL_DECLINED");
         // reject 케이스에서 repository가 호출되면 잘못된 target으로 DB write를 시도할 수 있으므로 호출 자체가 없어야 한다.
@@ -608,7 +641,7 @@ class RecoveryFinalizationServiceImplTest {
                 )));
 
         // result: CURRENT_TRX_NO는 같지만 원거래 identity가 다르므로 정상적인 idempotent/conflict 결과가 아니다.
-        assertThatThrownBy(() -> service.finalizeReversal(intended))
+        assertThatThrownBy(() -> service.finalizeReversal(null, intended))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("RECOVERY_CANCEL_TARGET_IDENTITY_MISMATCH");
     }

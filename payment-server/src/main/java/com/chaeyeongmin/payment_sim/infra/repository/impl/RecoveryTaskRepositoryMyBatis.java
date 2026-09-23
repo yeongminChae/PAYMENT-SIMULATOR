@@ -34,6 +34,11 @@ public class RecoveryTaskRepositoryMyBatis implements RecoveryTaskRepository {
     }
 
     @Override
+    public Optional<RecoveryTask> findByIdForUpdate(Long taskId) {
+        return Optional.ofNullable(mapper.findByIdForUpdate(taskId));
+    }
+
+    @Override
     public int insertIfAbsent(RecoveryCandidate candidate) {
         return mapper.insertIfAbsent(candidate);
     }

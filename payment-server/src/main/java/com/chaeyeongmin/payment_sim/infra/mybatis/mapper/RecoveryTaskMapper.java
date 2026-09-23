@@ -28,6 +28,12 @@ public interface RecoveryTaskMapper {
     RecoveryTask findById(@Param("taskId") Long taskId);
 
     /**
+     * task ID로 한 건을 조회한다.
+     * 조회하면서 이 row를 현재 transaction이 끝날 때까지 잠금
+     */
+    RecoveryTask findByIdForUpdate(@Param("taskId") Long taskId);
+
+    /**
      * 동일 복구 target의 task가 없을 때만 PENDING task를 생성한다.
      *
      * <p>중복 판정은 application SELECT가 아니라 DB unique constraint와

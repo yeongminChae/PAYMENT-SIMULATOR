@@ -119,7 +119,7 @@ class PostgresInquiryRecoveryRaceIntegrationTest {
                         VAN_TRX_ID
                 );
 
-        RecoveryFinalizeResult recoveryResult = recoveryFinalizationService.finalizeApproval(intended);
+        RecoveryFinalizeResult recoveryResult = recoveryFinalizationService.finalizeApproval(null, intended);
 
         // 4. Recovery는 덮어쓰지 않고 같은 terminal임을 확인
         assertThat(recoveryResult.resultType()).isEqualTo(RecoveryFinalizeResultType.ALREADY_CONSISTENT);
@@ -158,7 +158,7 @@ class PostgresInquiryRecoveryRaceIntegrationTest {
                             VAN_TRX_ID
                     );
 
-            recoveryResult.set(recoveryFinalizationService.finalizeApproval(intended));
+            recoveryResult.set(recoveryFinalizationService.finalizeApproval(null, intended));
         });
 
         InquiryResponse inquiry = inquiryService.inquiry(new InquiryRequest(POS_TRX, approve.attemptSeq()));

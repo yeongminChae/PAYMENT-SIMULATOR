@@ -191,14 +191,14 @@ class ReversalRecoveryHandlerTest {
     @DisplayName("SUCCESS REVERSED를 reversal 승인 결과로 만들어 finalizer에 전달한다")
     void handle_vanReversed_shouldPassReversedParamToFinalizer() {
         stubInquiry(inquiryResponse(VanInquiryResultCode.SUCCESS, VanInquiryStatus.REVERSED));
-        when(recoveryFinalizationService.finalizeReversal(any()))
+        when(recoveryFinalizationService.finalizeReversal(any(), any()))
                 .thenReturn(finalizeResult(RecoveryFinalizeResultType.APPLIED, "REVERSED", "REVERSED"));
 
         handler.handle(reversalTask());
 
         ArgumentCaptor<ReversalResultUpdateParam> captor =
                 ArgumentCaptor.forClass(ReversalResultUpdateParam.class);
-        verify(recoveryFinalizationService).finalizeReversal(captor.capture());
+        verify(recoveryFinalizationService).finalizeReversal(any(), captor.capture());
         ReversalResultUpdateParam intended = captor.getValue();
         assertThat(intended.reversalPosTrx()).isEqualTo(REVERSAL_POS_TRX);
         assertThat(intended.originalPosTrx()).isEqualTo(ORIGINAL_POS_TRX);
@@ -213,7 +213,7 @@ class ReversalRecoveryHandlerTest {
     @DisplayName("SUCCESS REVERSAL_DECLINED를 decline 결과로 만들어 finalizer에 전달한다")
     void handle_vanReversalDeclined_shouldPassDeclinedParamToFinalizer() {
         stubInquiry(inquiryResponse(VanInquiryResultCode.SUCCESS, VanInquiryStatus.REVERSAL_DECLINED));
-        when(recoveryFinalizationService.finalizeReversal(any()))
+        when(recoveryFinalizationService.finalizeReversal(any(), any()))
                 .thenReturn(finalizeResult(
                         RecoveryFinalizeResultType.APPLIED,
                         "REVERSAL_DECLINED",
@@ -224,7 +224,7 @@ class ReversalRecoveryHandlerTest {
 
         ArgumentCaptor<ReversalResultUpdateParam> captor =
                 ArgumentCaptor.forClass(ReversalResultUpdateParam.class);
-        verify(recoveryFinalizationService).finalizeReversal(captor.capture());
+        verify(recoveryFinalizationService).finalizeReversal(any(), captor.capture());
         ReversalResultUpdateParam intended = captor.getValue();
         assertThat(intended.reversalPosTrx()).isEqualTo(REVERSAL_POS_TRX);
         assertThat(intended.originalPosTrx()).isEqualTo(ORIGINAL_POS_TRX);
@@ -378,7 +378,7 @@ class ReversalRecoveryHandlerTest {
                 .isInstanceOf(RecoveryInvariantViolationException.class)
                 .hasMessage("Invalid VAN inquiry response for REVERSAL recovery");
 
-        verify(recoveryFinalizationService, never()).finalizeReversal(any());
+        verify(recoveryFinalizationService, never()).finalizeReversal(any(), any());
     }
 
     private void assertUnexpectedStatus(VanInquiryStatus status) {
@@ -386,7 +386,7 @@ class ReversalRecoveryHandlerTest {
                 .isInstanceOf(RecoveryInvariantViolationException.class)
                 .hasMessage("Unexpected VAN inquiry status for REVERSAL: " + status);
 
-        verify(recoveryFinalizationService, never()).finalizeReversal(any());
+        verify(recoveryFinalizationService, never()).finalizeReversal(any(), any());
     }
 
     private RecoveryHandlerResult handleWithFinalizerResult(
@@ -395,7 +395,7 @@ class ReversalRecoveryHandlerTest {
             String dbStatus
     ) {
         stubInquiry(inquiryResponse(VanInquiryResultCode.SUCCESS, VanInquiryStatus.REVERSED));
-        when(recoveryFinalizationService.finalizeReversal(any()))
+        when(recoveryFinalizationService.finalizeReversal(any(), any()))
                 .thenReturn(finalizeResult(resultType, intendedStatus, dbStatus));
 
         return handler.handle(reversalTask());
@@ -410,7 +410,7 @@ class ReversalRecoveryHandlerTest {
         assertThat(result.resultType()).isEqualTo(resultType);
         assertThat(result.observedStatus()).isEqualTo(observedStatus);
         assertThat(result.dbStatus()).isEqualTo(dbStatus);
-        verify(recoveryFinalizationService).finalizeReversal(any());
+        verify(recoveryFinalizationService).finalizeReversal(any(), any());
     }
 
     private RecoveryTask reversalTask() {

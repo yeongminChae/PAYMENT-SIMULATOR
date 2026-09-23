@@ -219,7 +219,7 @@ class ApprovalRecoveryHandlerTest {
                 PaymentFinalStatus.PROCESSING,
                 inquiryResponse(VanInquiryResultCode.SUCCESS, VanInquiryStatus.APPROVED)
         );
-        when(recoveryFinalizationService.finalizeApproval(any()))
+        when(recoveryFinalizationService.finalizeApproval(any(), any()))
                 .thenReturn(finalizeResult(RecoveryFinalizeResultType.APPLIED, "APPROVED", "APPROVED"));
 
         RecoveryHandlerResult result = handler.handle(approvalTask());
@@ -229,7 +229,7 @@ class ApprovalRecoveryHandlerTest {
         assertThat(result.dbStatus()).isEqualTo("APPROVED");
 
         ArgumentCaptor<AttemptResultUpdateParam> captor = ArgumentCaptor.forClass(AttemptResultUpdateParam.class);
-        verify(recoveryFinalizationService).finalizeApproval(captor.capture());
+        verify(recoveryFinalizationService).finalizeApproval(any(), captor.capture());
         assertThat(captor.getValue().posTrx()).isEqualTo(POS_TRX);
         assertThat(captor.getValue().attemptSeq()).isEqualTo(ATTEMPT_SEQ);
         assertThat(captor.getValue().finalStatus()).isEqualTo(PaymentFinalStatus.APPROVED);
@@ -244,7 +244,7 @@ class ApprovalRecoveryHandlerTest {
                 PaymentFinalStatus.UNKNOWN_TIMEOUT,
                 inquiryResponse(VanInquiryResultCode.SUCCESS, VanInquiryStatus.DECLINED)
         );
-        when(recoveryFinalizationService.finalizeApproval(any()))
+        when(recoveryFinalizationService.finalizeApproval(any(), any()))
                 .thenReturn(finalizeResult(
                         RecoveryFinalizeResultType.ALREADY_CONSISTENT,
                         "DECLINED",
@@ -256,7 +256,7 @@ class ApprovalRecoveryHandlerTest {
         assertThat(result.resultType()).isEqualTo(RecoveryHandlerResultType.RESOLVED);
 
         ArgumentCaptor<AttemptResultUpdateParam> captor = ArgumentCaptor.forClass(AttemptResultUpdateParam.class);
-        verify(recoveryFinalizationService).finalizeApproval(captor.capture());
+        verify(recoveryFinalizationService).finalizeApproval(any(), captor.capture());
         assertThat(captor.getValue().finalStatus()).isEqualTo(PaymentFinalStatus.DECLINED);
         assertThat(captor.getValue().declineCode()).isEqualTo(VanDeclineCode.DO_NOT_HONOR.code());
         assertThat(captor.getValue().vanTrxId()).isEqualTo(RESPONSE_VAN_TRX_ID);
@@ -405,7 +405,7 @@ class ApprovalRecoveryHandlerTest {
                 PaymentFinalStatus.UNKNOWN_TIMEOUT,
                 inquiryResponse(VanInquiryResultCode.SUCCESS, VanInquiryStatus.APPROVED)
         );
-        when(recoveryFinalizationService.finalizeApproval(any()))
+        when(recoveryFinalizationService.finalizeApproval(any(), any()))
                 .thenReturn(finalizeResult(resultType, intendedStatus, dbStatus));
     }
 

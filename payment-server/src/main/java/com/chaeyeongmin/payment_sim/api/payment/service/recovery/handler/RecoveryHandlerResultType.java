@@ -14,5 +14,8 @@ public enum RecoveryHandlerResultType {
     TERMINAL_CONFLICT,
 
     /** task가 가리키는 대상 거래가 선행 또는 finalization 재조회 시점에 존재하지 않는다. */
-    TARGET_NOT_FOUND
+    TARGET_NOT_FOUND,
+
+    /** lease 만료 또는 재claim으로 현재 Worker가 target ledger를 변경할 권한을 잃었다. */
+    OWNERSHIP_LOST
 }

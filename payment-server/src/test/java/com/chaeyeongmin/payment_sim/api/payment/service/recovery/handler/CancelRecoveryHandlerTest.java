@@ -188,7 +188,7 @@ class CancelRecoveryHandlerTest {
                 CancelStatus.PENDING,
                 inquiryResponse(VanInquiryResultCode.SUCCESS, VanInquiryStatus.CANCELLED)
         );
-        when(recoveryFinalizationService.finalizeCancel(any()))
+        when(recoveryFinalizationService.finalizeCancel(any(), any()))
                 .thenReturn(finalizeResult(RecoveryFinalizeResultType.APPLIED, "CANCELLED", "CANCELLED"));
 
         RecoveryHandlerResult result = handler.handle(cancelTask());
@@ -198,7 +198,7 @@ class CancelRecoveryHandlerTest {
         assertThat(result.dbStatus()).isEqualTo("CANCELLED");
 
         ArgumentCaptor<CancelResultUpdateParam> captor = ArgumentCaptor.forClass(CancelResultUpdateParam.class);
-        verify(recoveryFinalizationService).finalizeCancel(captor.capture());
+        verify(recoveryFinalizationService).finalizeCancel(any(), captor.capture());
         assertThat(captor.getValue().posTrx()).isEqualTo(CANCEL_POS_TRX);
         assertThat(captor.getValue().originalPosTrx()).isEqualTo(ORIGINAL_POS_TRX);
         assertThat(captor.getValue().originalAttemptSeq()).isEqualTo(ORIGINAL_ATTEMPT_SEQ);
@@ -214,7 +214,7 @@ class CancelRecoveryHandlerTest {
                 CancelStatus.UNKNOWN_TIMEOUT,
                 inquiryResponse(VanInquiryResultCode.SUCCESS, VanInquiryStatus.CANCEL_DECLINED)
         );
-        when(recoveryFinalizationService.finalizeCancel(any()))
+        when(recoveryFinalizationService.finalizeCancel(any(), any()))
                 .thenReturn(finalizeResult(
                         RecoveryFinalizeResultType.ALREADY_CONSISTENT,
                         "CANCEL_DECLINED",
@@ -226,7 +226,7 @@ class CancelRecoveryHandlerTest {
         assertThat(result.resultType()).isEqualTo(RecoveryHandlerResultType.RESOLVED);
 
         ArgumentCaptor<CancelResultUpdateParam> captor = ArgumentCaptor.forClass(CancelResultUpdateParam.class);
-        verify(recoveryFinalizationService).finalizeCancel(captor.capture());
+        verify(recoveryFinalizationService).finalizeCancel(any(), captor.capture());
         assertThat(captor.getValue().cancelStatus()).isEqualTo(CancelStatus.CANCEL_DECLINED);
         assertThat(captor.getValue().vanCancelTrxId()).isEqualTo(VAN_CANCEL_TRX_ID);
         assertThat(captor.getValue().declineCode()).isEqualTo(VanDeclineCode.DO_NOT_HONOR.code());
@@ -378,7 +378,7 @@ class CancelRecoveryHandlerTest {
                 CancelStatus.UNKNOWN_TIMEOUT,
                 inquiryResponse(VanInquiryResultCode.SUCCESS, VanInquiryStatus.CANCELLED)
         );
-        when(recoveryFinalizationService.finalizeCancel(any()))
+        when(recoveryFinalizationService.finalizeCancel(any(), any()))
                 .thenReturn(finalizeResult(resultType, intendedStatus, dbStatus));
     }
 

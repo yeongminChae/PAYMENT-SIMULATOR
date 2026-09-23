@@ -207,6 +207,9 @@ public class RecoveryWorker {
                         "TARGET_NOT_FOUND"
                 );
 
+            case OWNERSHIP_LOST:
+                return RecoveryWorkerResultType.OWNERSHIP_LOST;
+
             default: throw new IllegalStateException("Unexpected handler result: " + handlerResult.resultType());
         }
 

@@ -27,6 +27,12 @@ public interface RecoveryTaskRepository {
     Optional<RecoveryTask> findById(Long taskId);
 
     /**
+     * 관리자 상세 조회를 위해 task ID로 한 건을 조회한다.
+     * 조회하면서 이 row를 현재 transaction이 끝날 때까지 잠금
+     */
+    Optional<RecoveryTask> findByIdForUpdate(Long taskId);
+
+    /**
      * 동일 복구 target의 task가 없을 때만 PENDING task를 생성한다.
      *
      * @return 1이면 신규 생성, 0이면 이미 같은 target의 task가 존재함

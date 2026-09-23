@@ -116,6 +116,28 @@
         T.UPDATED_AT
     </select>
 
+
+    <select id="findByIdForUpdate"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.RecoveryTask">
+        SELECT
+        ID,
+        TARGET_TYPE,
+        TARGET_TRX_NO,
+        TARGET_ATTEMPT_SEQ,
+        ORIGINAL_POS_TRX,
+        ORIGINAL_ATTEMPT_SEQ,
+        RECOVERY_STATUS,
+        RETRY_COUNT,
+        NEXT_RETRY_AT,
+        CLAIM_TOKEN,
+        LEASE_EXPIRES_AT,
+        CREATED_AT,
+        UPDATED_AT
+        FROM PAYMENT_RECOVERY_TASK
+        WHERE ID = #{taskId}
+        FOR UPDATE
+    </select>
+
     <!-- claim token이 같고 lease가 남아 있는 현재 owner만 완료할 수 있다. -->
     <update id="markResolved">
         UPDATE PAYMENT_RECOVERY_TASK

@@ -77,9 +77,9 @@ class PostgresRecoveryFinalizationIntegrationTest {
         );
 
         // first: PROCESSING(null) row가 recoverable 조건에 걸려 APPROVED로 실제 UPDATE 되어야 한다.
-        RecoveryFinalizeResult first = service.finalizeApproval(intended);
+        RecoveryFinalizeResult first = service.finalizeApproval(null, intended);
         // second: 이미 APPROVED terminal이므로 UPDATE는 miss되고, reread 결과가 intended와 같아야 한다.
-        RecoveryFinalizeResult second = service.finalizeApproval(intended);
+        RecoveryFinalizeResult second = service.finalizeApproval(null, intended);
 
         // 첫 호출은 DB를 바꾼 주체라 APPLIED, 두 번째 호출은 같은 terminal 재확인이라 ALREADY_CONSISTENT를 기대한다.
         assertThat(first.resultType()).isEqualTo(RecoveryFinalizeResultType.APPLIED);
@@ -102,7 +102,7 @@ class PostgresRecoveryFinalizationIntegrationTest {
         );
 
         // result: UNKNOWN_TIMEOUT approval row가 DECLINED terminal로 실제 UPDATE 되어야 한다.
-        RecoveryFinalizeResult result = service.finalizeApproval(intended);
+        RecoveryFinalizeResult result = service.finalizeApproval(null, intended);
 
         // recovery finalization이 성공했으므로 APPLIED이고, DB에도 DECLINED가 남아야 한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.APPLIED);
@@ -123,7 +123,7 @@ class PostgresRecoveryFinalizationIntegrationTest {
         );
 
         // result: 이미 APPROVED라 conditional UPDATE는 miss되고, reread에서 APPROVED를 확인해야 한다.
-        RecoveryFinalizeResult result = service.finalizeApproval(intended);
+        RecoveryFinalizeResult result = service.finalizeApproval(null, intended);
 
         // intended DECLINED와 DB APPROVED가 충돌하므로 TERMINAL_CONFLICT를 기대한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.TERMINAL_CONFLICT);
@@ -136,7 +136,7 @@ class PostgresRecoveryFinalizationIntegrationTest {
     void approval_missing_row_returns_TARGET_NOT_FOUND() {
         // finalizeApproval(): conditional update 대상도 없고 reread 대상도 없으면 missing target으로 판정한다.
         // result: 대상 attempt row가 없으므로 UPDATE도 miss되고 reread도 empty가 되어야 한다.
-        RecoveryFinalizeResult result = service.finalizeApproval(AttemptResultUpdateParam.approved(
+        RecoveryFinalizeResult result = service.finalizeApproval(null, AttemptResultUpdateParam.approved(
                 "R6P6-APP-MISSING",
                 1,
                 "APPROVAL-MISSING",
@@ -164,9 +164,9 @@ class PostgresRecoveryFinalizationIntegrationTest {
         );
 
         // first: PENDING cancel row가 recoverable 조건에 걸려 CANCELLED로 실제 UPDATE 되어야 한다.
-        RecoveryFinalizeResult first = service.finalizeCancel(intended);
+        RecoveryFinalizeResult first = service.finalizeCancel(null, intended);
         // second: 이미 CANCELLED terminal이므로 UPDATE는 miss되고, reread 결과가 intended와 같아야 한다.
-        RecoveryFinalizeResult second = service.finalizeCancel(intended);
+        RecoveryFinalizeResult second = service.finalizeCancel(null, intended);
 
         // 첫 호출은 APPLIED, 반복 호출은 같은 terminal을 재확인한 ALREADY_CONSISTENT를 기대한다.
         assertThat(first.resultType()).isEqualTo(RecoveryFinalizeResultType.APPLIED);
@@ -190,7 +190,7 @@ class PostgresRecoveryFinalizationIntegrationTest {
         );
 
         // result: UNKNOWN_TIMEOUT cancel row가 CANCEL_DECLINED terminal로 실제 UPDATE 되어야 한다.
-        RecoveryFinalizeResult result = service.finalizeCancel(intended);
+        RecoveryFinalizeResult result = service.finalizeCancel(null, intended);
 
         // recovery finalization이 성공했으므로 APPLIED이고, DB에도 CANCEL_DECLINED가 남아야 한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.APPLIED);
@@ -213,7 +213,7 @@ class PostgresRecoveryFinalizationIntegrationTest {
         );
 
         // result: 이미 CANCELLED라 conditional UPDATE는 miss되고, reread에서 CANCELLED를 확인해야 한다.
-        RecoveryFinalizeResult result = service.finalizeCancel(intended);
+        RecoveryFinalizeResult result = service.finalizeCancel(null, intended);
 
         // intended CANCEL_DECLINED와 DB CANCELLED가 충돌하므로 TERMINAL_CONFLICT를 기대한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.TERMINAL_CONFLICT);
@@ -226,7 +226,7 @@ class PostgresRecoveryFinalizationIntegrationTest {
     void cancel_missing_row_returns_TARGET_NOT_FOUND() {
         // finalizeCancel(): CURRENT_TRX_NO 기준 update/reread가 모두 실패하면 recovery 대상 없음으로 판정한다.
         // result: 대상 cancel row가 없으므로 UPDATE도 miss되고 CURRENT_TRX_NO reread도 empty가 되어야 한다.
-        RecoveryFinalizeResult result = service.finalizeCancel(CancelResultUpdateParam.cancelled(
+        RecoveryFinalizeResult result = service.finalizeCancel(null, CancelResultUpdateParam.cancelled(
                 "R6P6-CAN-MISSING",
                 "R6P6-CAN-ORIGINAL-MISSING",
                 1,
@@ -255,9 +255,9 @@ class PostgresRecoveryFinalizationIntegrationTest {
         );
 
         // first: PENDING reversal row가 recoverable 조건에 걸려 REVERSED로 실제 UPDATE 되어야 한다.
-        RecoveryFinalizeResult first = service.finalizeReversal(intended);
+        RecoveryFinalizeResult first = service.finalizeReversal(null, intended);
         // second: 이미 REVERSED terminal이므로 UPDATE는 miss되고, reread 결과가 intended와 같아야 한다.
-        RecoveryFinalizeResult second = service.finalizeReversal(intended);
+        RecoveryFinalizeResult second = service.finalizeReversal(null, intended);
 
         // 첫 호출은 APPLIED, 반복 호출은 같은 terminal을 재확인한 ALREADY_CONSISTENT를 기대한다.
         assertThat(first.resultType()).isEqualTo(RecoveryFinalizeResultType.APPLIED);
@@ -281,7 +281,7 @@ class PostgresRecoveryFinalizationIntegrationTest {
         );
 
         // result: PENDING reversal row가 REVERSAL_DECLINED terminal로 실제 UPDATE 되어야 한다.
-        RecoveryFinalizeResult result = service.finalizeReversal(intended);
+        RecoveryFinalizeResult result = service.finalizeReversal(null, intended);
 
         // recovery finalization이 성공했으므로 APPLIED이고, DB에도 REVERSAL_DECLINED가 남아야 한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.APPLIED);
@@ -304,7 +304,7 @@ class PostgresRecoveryFinalizationIntegrationTest {
         );
 
         // result: 이미 REVERSED라 conditional UPDATE는 miss되고, reread에서 REVERSED를 확인해야 한다.
-        RecoveryFinalizeResult result = service.finalizeReversal(intended);
+        RecoveryFinalizeResult result = service.finalizeReversal(null, intended);
 
         // intended REVERSAL_DECLINED와 DB REVERSED가 충돌하므로 TERMINAL_CONFLICT를 기대한다.
         assertThat(result.resultType()).isEqualTo(RecoveryFinalizeResultType.TERMINAL_CONFLICT);
@@ -317,7 +317,7 @@ class PostgresRecoveryFinalizationIntegrationTest {
     void reversal_missing_row_returns_TARGET_NOT_FOUND() {
         // finalizeReversal(): CURRENT_TRX_NO 기준 update/reread가 모두 실패하면 recovery 대상 없음으로 판정한다.
         // result: 대상 reversal row가 없으므로 UPDATE도 miss되고 CURRENT_TRX_NO reread도 empty가 되어야 한다.
-        RecoveryFinalizeResult result = service.finalizeReversal(ReversalResultUpdateParam.reversed(
+        RecoveryFinalizeResult result = service.finalizeReversal(null, ReversalResultUpdateParam.reversed(
                 "R6P6-REV-MISSING",
                 "R6P6-REV-ORIGINAL-MISSING",
                 1,

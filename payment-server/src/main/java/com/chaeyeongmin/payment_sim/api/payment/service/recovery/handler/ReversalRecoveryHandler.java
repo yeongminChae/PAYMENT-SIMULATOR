@@ -160,7 +160,7 @@ public class ReversalRecoveryHandler implements RecoveryHandler {
          * 실제 conditional update와 경합 후 DB 재확인은 finalizer의 짧은 transaction에서 수행한다.
          * Handler는 외부 I/O 전후를 하나의 transaction으로 묶지 않는다.
          */
-        RecoveryFinalizeResult finalizeResult = recoveryFinalizationService.finalizeReversal(intended);
+        RecoveryFinalizeResult finalizeResult = recoveryFinalizationService.finalizeReversal(task, intended);
 
         /*
          * finalizer의 APPLIED와 ALREADY_CONSISTENT는 처리 주체만 다를 뿐 Worker 관점에서는 모두
@@ -213,6 +213,13 @@ public class ReversalRecoveryHandler implements RecoveryHandler {
             case TARGET_NOT_FOUND ->
                     new RecoveryHandlerResult(
                             RecoveryHandlerResultType.TARGET_NOT_FOUND,
+                            finalizeResult.intendedStatus(),
+                            finalizeResult.dbStatus()
+                    );
+
+            case OWNERSHIP_LOST ->
+                    new RecoveryHandlerResult(
+                            RecoveryHandlerResultType.OWNERSHIP_LOST,
                             finalizeResult.intendedStatus(),
                             finalizeResult.dbStatus()
                     );

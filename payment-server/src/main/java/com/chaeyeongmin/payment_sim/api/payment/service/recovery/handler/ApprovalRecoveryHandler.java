@@ -152,7 +152,7 @@ public class ApprovalRecoveryHandler implements RecoveryHandler {
                         task.targetAttemptSeq()
                 );
 
-        RecoveryFinalizeResult finalizeResult = recoveryFinalizationService.finalizeApproval(intended);
+        RecoveryFinalizeResult finalizeResult = recoveryFinalizationService.finalizeApproval(task, intended);
 
         /*
          * finalizer의 APPLIED와 ALREADY_CONSISTENT는 처리 주체만 다를 뿐 Worker 관점에서는 모두
@@ -199,6 +199,12 @@ public class ApprovalRecoveryHandler implements RecoveryHandler {
 
             case TARGET_NOT_FOUND -> new RecoveryHandlerResult(
                     RecoveryHandlerResultType.TARGET_NOT_FOUND,
+                    finalizeResult.intendedStatus(),
+                    finalizeResult.dbStatus()
+            );
+
+            case OWNERSHIP_LOST -> new RecoveryHandlerResult(
+                    RecoveryHandlerResultType.OWNERSHIP_LOST,
                     finalizeResult.intendedStatus(),
                     finalizeResult.dbStatus()
             );
