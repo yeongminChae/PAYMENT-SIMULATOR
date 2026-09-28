@@ -8,16 +8,20 @@ import com.chaeyeongmin.payment_sim.van.factory.VanCancelResponseFactory;
 import com.chaeyeongmin.payment_sim.van.factory.VanInquiryResponseFactory;
 import com.chaeyeongmin.payment_sim.van.validate.VanApproveRequestValidator;
 import lombok.RequiredArgsConstructor;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 
-@Component
-@ConditionalOnProperty(
-        name = "payment.van.mode",
-        havingValue = "simulated",
-        matchIfMissing = true
+/**
+ * Release 6부터 Payment Server는 별도 VAN Simulator와 TCP로 통신한다.
+ *
+ * <p>이 in-process simulator는 legacy 구현 참고 목적으로만 남겨두며,
+ * Spring Bean으로 등록하지 않는다. 이후 제거 예정이다.
+ *
+ * @deprecated Release 6부터 {@link TcpVanGateway}와 별도 VAN Simulator를 사용한다.
+ */
+@Deprecated(
+        since = "Release 6",
+        forRemoval = true
 )
 @RequiredArgsConstructor
 public class SimulatedVanGateway implements VanGateway {

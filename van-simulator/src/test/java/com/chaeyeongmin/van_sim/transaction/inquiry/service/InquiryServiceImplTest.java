@@ -6,9 +6,13 @@ import com.chaeyeongmin.van_sim.ledger.approval.status.VanApprovalStatus;
 import com.chaeyeongmin.van_sim.ledger.cancel.entity.VanCancel;
 import com.chaeyeongmin.van_sim.ledger.cancel.repository.VanCancelRepository;
 import com.chaeyeongmin.van_sim.ledger.cancel.status.VanCancelStatus;
+import com.chaeyeongmin.van_sim.ledger.reversal.entity.VanReversal;
+import com.chaeyeongmin.van_sim.ledger.reversal.repository.VanReversalRepository;
+import com.chaeyeongmin.van_sim.ledger.reversal.status.VanReversalStatus;
 import com.chaeyeongmin.van_sim.transaction.inquiry.service.impl.InquiryServiceImpl;
 import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.ApprovalInquiryResult;
 import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.CancelInquiryResult;
+import com.chaeyeongmin.van_sim.transaction.inquiry.service.result.ReversalInquiryResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -32,6 +36,7 @@ class InquiryServiceImplTest {
 
     private static final String POS_TRX = "2301-20260808-9999-0001";
     private static final String CANCEL_POS_TRX = "2301-20260808-9999-0002";
+    private static final String REVERSAL_POS_TRX = "2301-20260808-9999-0003";
     private static final int ATTEMPT_SEQ = 1;
     private static final LocalDateTime PROCESSED_AT =
             LocalDateTime.of(2026, 8, 27, 10, 0);
@@ -41,6 +46,9 @@ class InquiryServiceImplTest {
 
     @Mock
     private VanCancelRepository cancelRepository;
+
+    @Mock
+    private VanReversalRepository reversalRepository;
 
     @InjectMocks
     private InquiryServiceImpl inquiryService;
@@ -149,6 +157,59 @@ class InquiryServiceImplTest {
         assertThat(result).isEmpty();
     }
 
+    @Test
+    void REVERSED_원장이_있으면_저장된_reversal_사실만_반환한다() {
+        VanReversal reversal = reversal(
+                VanReversalStatus.REVERSED,
+                "REVERSAL-APPROVAL-TEST-001",
+                null
+        );
+        when(reversalRepository.findByReversalPosTrx(REVERSAL_POS_TRX))
+                .thenReturn(Optional.of(reversal));
+
+        ReversalInquiryResult result = inquiryService.inquireReversal(REVERSAL_POS_TRX)
+                .orElseThrow();
+
+        assertThat(result.reversalPosTrx()).isEqualTo(REVERSAL_POS_TRX);
+        assertThat(result.status()).isEqualTo(VanReversalStatus.REVERSED);
+        assertThat(result.vanReversalTrxId()).isEqualTo("VAN-REVERSAL-TEST-001");
+        assertThat(result.reversalApprovalNo()).isEqualTo("REVERSAL-APPROVAL-TEST-001");
+        assertThat(result.declineCode()).isNull();
+        assertThat(result.processedAt()).isEqualTo(PROCESSED_AT);
+        verifyNoSave();
+    }
+
+    @Test
+    void REVERSAL_DECLINED_원장이_있으면_저장된_reversal_거절_사실만_반환한다() {
+        VanReversal reversal = reversal(
+                VanReversalStatus.REVERSAL_DECLINED,
+                null,
+                "R001"
+        );
+        when(reversalRepository.findByReversalPosTrx(REVERSAL_POS_TRX))
+                .thenReturn(Optional.of(reversal));
+
+        ReversalInquiryResult result = inquiryService.inquireReversal(REVERSAL_POS_TRX)
+                .orElseThrow();
+
+        assertThat(result.status()).isEqualTo(VanReversalStatus.REVERSAL_DECLINED);
+        assertThat(result.vanReversalTrxId()).isEqualTo("VAN-REVERSAL-TEST-001");
+        assertThat(result.reversalApprovalNo()).isNull();
+        assertThat(result.declineCode()).isEqualTo("R001");
+        verifyNoSave();
+    }
+
+    @Test
+    void reversal_원장이_없으면_empty이고_새_원장을_저장하지_않는다() {
+        when(reversalRepository.findByReversalPosTrx(REVERSAL_POS_TRX))
+                .thenReturn(Optional.empty());
+
+        Optional<ReversalInquiryResult> result = inquiryService.inquireReversal(REVERSAL_POS_TRX);
+
+        assertThat(result).isEmpty();
+        verify(reversalRepository, never()).save(any(VanReversal.class));
+    }
+
     private static VanApproval approval(
             VanApprovalStatus status,
             String vanTrxId,
@@ -192,6 +253,24 @@ class InquiryServiceImplTest {
                 .build();
     }
 
+    private static VanReversal reversal(
+            VanReversalStatus status,
+            String reversalApprovalNo,
+            String declineCode
+    ) {
+        return VanReversal.builder()
+                .vanReversalTrxId("VAN-REVERSAL-TEST-001")
+                .reversalPosTrx(REVERSAL_POS_TRX)
+                .originalPosTrx(POS_TRX)
+                .originalAttemptSeq(ATTEMPT_SEQ)
+                .amount(10_000)
+                .reversalStatus(status)
+                .reversalApprovalNo(reversalApprovalNo)
+                .declineCode(declineCode)
+                .processedAt(PROCESSED_AT)
+                .build();
+    }
+
     private static void assertStoredFields(ApprovalInquiryResult result) {
         assertThat(result.posTrx()).isEqualTo(POS_TRX);
         assertThat(result.attemptSeq()).isEqualTo(ATTEMPT_SEQ);
@@ -201,5 +280,6 @@ class InquiryServiceImplTest {
     private void verifyNoSave() {
         verify(approvalRepository, never()).save(any(VanApproval.class));
         verify(cancelRepository, never()).save(any(VanCancel.class));
+        verify(reversalRepository, never()).save(any(VanReversal.class));
     }
 }

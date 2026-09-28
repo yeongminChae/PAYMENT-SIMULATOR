@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.chaeyeongmin.payment_sim.infra.mybatis.mapper.RecoveryTaskMapper">
+    <!-- 관리자 목록에서 선택한 상태의 Task를 최근 변경된 순서로 조회한다. -->
+    <select id="findByStatus"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.RecoveryTask">
+        SELECT
+        ID,
+        TARGET_TYPE,
+        TARGET_TRX_NO,
+        TARGET_ATTEMPT_SEQ,
+        ORIGINAL_POS_TRX,
+        ORIGINAL_ATTEMPT_SEQ,
+        RECOVERY_STATUS,
+        RETRY_COUNT,
+        NEXT_RETRY_AT,
+        CLAIM_TOKEN,
+        LEASE_EXPIRES_AT,
+        CREATED_AT,
+        UPDATED_AT
+        FROM PAYMENT_RECOVERY_TASK
+        WHERE RECOVERY_STATUS = #{status}
+        ORDER BY UPDATED_AT DESC, ID DESC
+    </select>
+
+    <!-- 관리자 상세 조회와 requeue 결과 확인에 사용할 Task 한 건을 조회한다. -->
+    <select id="findById"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.RecoveryTask">
+        SELECT
+        ID,
+        TARGET_TYPE,
+        TARGET_TRX_NO,
+        TARGET_ATTEMPT_SEQ,
+        ORIGINAL_POS_TRX,
+        ORIGINAL_ATTEMPT_SEQ,
+        RECOVERY_STATUS,
+        RETRY_COUNT,
+        NEXT_RETRY_AT,
+        CLAIM_TOKEN,
+        LEASE_EXPIRES_AT,
+        CREATED_AT,
+        UPDATED_AT
+        FROM PAYMENT_RECOVERY_TASK
+        WHERE ID = #{taskId}
+    </select>
+
+    <insert id="insertIfAbsent">
+        INSERT INTO PAYMENT_RECOVERY_TASK (
+        TARGET_TYPE,
+        TARGET_TRX_NO,
+        TARGET_ATTEMPT_SEQ,
+        ORIGINAL_POS_TRX,
+        ORIGINAL_ATTEMPT_SEQ,
+        RECOVERY_STATUS
+        )
+        VALUES (
+        #{candidate.targetType},
+        #{candidate.targetTrxNo},
+        #{candidate.targetAttemptSeq},
+        #{candidate.originalPosTrx},
+        #{candidate.originalAttemptSeq},
+        'PENDING'
+        )
+        ON CONFLICT DO NOTHING
+    </insert>
+
+    <!--
+        실행 가능한 task 중 가장 오래된 한 건을 claim한다.
+        SKIP LOCKED로 다른 Worker가 처리 중인 행을 기다리지 않고 다음 후보를 찾는다.
+    -->
+    <select id="claimNext"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.RecoveryTask">
+        WITH candidate AS (
+        SELECT ID
+        FROM PAYMENT_RECOVERY_TASK
+        WHERE (
+        RECOVERY_STATUS = 'PENDING'
+        OR (
+        RECOVERY_STATUS = 'RETRY_WAIT'
+        AND NEXT_RETRY_AT &lt;= #{now}
+        )
+        OR (
+        RECOVERY_STATUS = 'RUNNING'
+        AND LEASE_EXPIRES_AT &lt;= #{now}
+        )
+        )
+        ORDER BY CREATED_AT, ID
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+        )
+        UPDATE PAYMENT_RECOVERY_TASK T
+        SET
+        RECOVERY_STATUS = 'RUNNING',
+        CLAIM_TOKEN = #{claimToken},
+        LEASE_EXPIRES_AT = #{leaseExpiresAt},
+        NEXT_RETRY_AT = NULL,
+        UPDATED_AT = CURRENT_TIMESTAMP
+        FROM candidate C
+        WHERE T.ID = C.ID
+        RETURNING
+        T.ID,
+        T.TARGET_TYPE,
+        T.TARGET_TRX_NO,
+        T.TARGET_ATTEMPT_SEQ,
+        T.ORIGINAL_POS_TRX,
+        T.ORIGINAL_ATTEMPT_SEQ,
+        T.RECOVERY_STATUS,
+        T.RETRY_COUNT,
+        T.NEXT_RETRY_AT,
+        T.CLAIM_TOKEN,
+        T.LEASE_EXPIRES_AT,
+        T.CREATED_AT,
+        T.UPDATED_AT
+    </select>
+
+    <!-- 원장 갱신 전에 현재 Worker의 소유권을 확인하고, 확인 중 재선점되지 않도록 Task 행을 잠근다. -->
+    <select id="findByIdForUpdate"
+            resultType="com.chaeyeongmin.payment_sim.domain.model.RecoveryTask">
+        SELECT
+        ID,
+        TARGET_TYPE,
+        TARGET_TRX_NO,
+        TARGET_ATTEMPT_SEQ,
+        ORIGINAL_POS_TRX,
+        ORIGINAL_ATTEMPT_SEQ,
+        RECOVERY_STATUS,
+        RETRY_COUNT,
+        NEXT_RETRY_AT,
+        CLAIM_TOKEN,
+        LEASE_EXPIRES_AT,
+        CREATED_AT,
+        UPDATED_AT
+        FROM PAYMENT_RECOVERY_TASK
+        WHERE ID = #{taskId}
+        FOR UPDATE
+    </select>
+
+    <!-- claim token이 같고 lease가 남아 있는 현재 owner만 완료할 수 있다. -->
+    <update id="markResolved">
+        UPDATE PAYMENT_RECOVERY_TASK
+        SET
+        RECOVERY_STATUS = 'RESOLVED',
+        CLAIM_TOKEN = NULL,
+        LEASE_EXPIRES_AT = NULL,
+        NEXT_RETRY_AT = NULL,
+        UPDATED_AT = CURRENT_TIMESTAMP
+        WHERE ID = #{taskId}
+        AND RECOVERY_STATUS = 'RUNNING'
+        AND CLAIM_TOKEN = #{claimToken}
+        AND LEASE_EXPIRES_AT > #{now}
+    </update>
+
+    <!-- 다음 실행 시각을 저장하고 소유권을 반납한다. retryCount는 RETRY_WAIT 전이 횟수다. -->
+    <update id="markRetryWait">
+        UPDATE PAYMENT_RECOVERY_TASK
+        SET RECOVERY_STATUS = 'RETRY_WAIT',
+        RETRY_COUNT = RETRY_COUNT + 1,
+        NEXT_RETRY_AT = #{nextRetryAt},
+        CLAIM_TOKEN = NULL,
+        LEASE_EXPIRES_AT = NULL,
+        UPDATED_AT = CURRENT_TIMESTAMP
+        WHERE ID = #{taskId}
+        AND RECOVERY_STATUS = 'RUNNING'
+        AND CLAIM_TOKEN = #{claimToken}
+        AND LEASE_EXPIRES_AT > #{now}
+    </update>
+
+    <!-- 자동 실행을 끝내고 운영자 확인 대상으로 넘기면서 소유권을 반납한다. -->
+    <update id="markManualReview">
+        UPDATE PAYMENT_RECOVERY_TASK
+        SET RECOVERY_STATUS = 'MANUAL_REVIEW',
+        NEXT_RETRY_AT = NULL,
+        CLAIM_TOKEN = NULL,
+        LEASE_EXPIRES_AT = NULL,
+        UPDATED_AT = CURRENT_TIMESTAMP
+        WHERE ID = #{taskId}
+        AND RECOVERY_STATUS = 'RUNNING'
+        AND CLAIM_TOKEN = #{claimToken}
+        AND LEASE_EXPIRES_AT > #{now}
+    </update>
+
+    <!--
+        운영자가 다시 자동 복구하기로 한 MANUAL_REVIEW Task만 PENDING으로 되돌린다.
+        이전 실행의 retry 예약과 Worker 소유권 정보는 새 실행에 남지 않도록 모두 초기화한다.
+    -->
+    <update id="requeueManualReview">
+        UPDATE PAYMENT_RECOVERY_TASK
+        SET RECOVERY_STATUS = 'PENDING',
+            RETRY_COUNT = 0,
+            NEXT_RETRY_AT = NULL,
+            CLAIM_TOKEN = NULL,
+            LEASE_EXPIRES_AT = NULL,
+            UPDATED_AT = #{now}
+        WHERE ID = #{taskId}
+          AND RECOVERY_STATUS = 'MANUAL_REVIEW'
+    </update>
+
+</mapper>

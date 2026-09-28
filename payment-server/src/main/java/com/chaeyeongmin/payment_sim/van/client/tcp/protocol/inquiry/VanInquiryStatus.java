@@ -12,5 +12,7 @@ public enum VanInquiryStatus {
     DECLINED,
     UNKNOWN,
     CANCELLED,
-    CANCEL_DECLINED
+    CANCEL_DECLINED,
+    REVERSED,
+    REVERSAL_DECLINED
 }

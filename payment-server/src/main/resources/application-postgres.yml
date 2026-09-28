@@ -5,6 +5,11 @@ spring:
     password: ${POSTGRES_PASSWORD}
     driver-class-name: org.postgresql.Driver
 
+  batch:
+    jdbc:
+      # PostgreSQL에서도 Job과 Step 실행 이력을 저장할 Batch 전용 테이블을 준비한다.
+      initialize-schema: always
+
   sql:
     init:
       mode: always

@@ -1,6 +1,7 @@
 package com.chaeyeongmin.payment_sim.api.payment.integration;
 
 import com.chaeyeongmin.payment_sim.domain.policy.card.CardFingerprintPolicy;
+import com.chaeyeongmin.payment_sim.van.gateway.SimulatedVanGateway;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -10,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
@@ -35,9 +37,27 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * - 기존 PaymentFlowIntegrationTest와 분리된 SQLite 파일을 사용한다.
  * - 각 테스트 전후로 이 클래스가 사용하는 posTrx만 삭제해 반복 실행과 실행 순서 변경 영향을 줄인다.
  */
+// @SuppressWarnings
+// - SimulatedVanGateway는 Release 6부터 deprecated + forRemoval=true 상태다.
+// - 이 테스트는 과거 in-process VAN 시뮬레이터 동작을 회귀 검증하기 위해
+//   의도적으로 legacy 클래스를 사용하므로 deprecation/removal 경고만 억제한다.
+@SuppressWarnings({"deprecation", "removal"})
+
 @SpringBootTest
 @AutoConfigureMockMvc
-@TestPropertySource(properties = "spring.datasource.url=jdbc:sqlite:./build/mvp2-payment-flow-integration-test.db")
+// @Import(SimulatedVanGateway.class)
+// - Release 6부터 SimulatedVanGateway는 @Component가 제거되어 production Bean으로 자동 등록되지 않는다.
+// - 이 legacy 통합 테스트에서만 과거 시뮬레이터를 명시적으로 Spring Bean으로 등록한다.
+@Import(SimulatedVanGateway.class)
+// @TestPropertySource
+// - 이 테스트 전용 설정으로 application.yml 값을 덮어쓴다.
+// - datasource는 테스트 전용 SQLite 파일을 사용한다.
+// - payment.van.mode=simulated로 설정해 기본값 tcp인 TcpVanGateway가 활성화되지 않도록 하고,
+//   위에서 @Import한 SimulatedVanGateway만 VanGateway 구현체로 사용하게 한다.
+@TestPropertySource(properties = {
+        "spring.datasource.url=jdbc:sqlite:./build/mvp2-payment-flow-integration-test.db",
+        "payment.van.mode=simulated"
+})
 class Mvp2PaymentFlowIntegrationTest {
 
     private static final String APPROVE_POS_TRX_IT_2_API_DECLINED = "2376-20260601-9991-1101";
@@ -411,15 +431,15 @@ class Mvp2PaymentFlowIntegrationTest {
         return postJson(
                 "/api/v1/payments/approve",
                 """
-                {
-                  "posTrx": "%s",
-                  "amount": 10000,
-                  "card": {
-                    "pan": "4242424242424242",
-                    "expiryYyMm": "2812"
-                  }
-                }
-                """.formatted(posTrx)
+                        {
+                          "posTrx": "%s",
+                          "amount": 10000,
+                          "card": {
+                            "pan": "4242424242424242",
+                            "expiryYyMm": "2812"
+                          }
+                        }
+                        """.formatted(posTrx)
         );
     }
 
@@ -427,15 +447,15 @@ class Mvp2PaymentFlowIntegrationTest {
         return postJson(
                 "/api/v1/payments/approve",
                 """
-                {
-                  "posTrx": "%s",
-                  "amount": 10000,
-                  "card": {
-                    "pan": "4111111111111111",
-                    "expiryYyMm": "2812"
-                  }
-                }
-                """.formatted(posTrx)
+                        {
+                          "posTrx": "%s",
+                          "amount": 10000,
+                          "card": {
+                            "pan": "4111111111111111",
+                            "expiryYyMm": "2812"
+                          }
+                        }
+                        """.formatted(posTrx)
         );
     }
 
@@ -443,15 +463,15 @@ class Mvp2PaymentFlowIntegrationTest {
         return postJson(
                 "/api/v1/payments/approve",
                 """
-                {
-                  "posTrx": "%s",
-                  "amount": 10000,
-                  "card": {
-                    "pan": "4111111100087777",
-                    "expiryYyMm": "2812"
-                  }
-                }
-                """.formatted(posTrx)
+                        {
+                          "posTrx": "%s",
+                          "amount": 10000,
+                          "card": {
+                            "pan": "4111111100087777",
+                            "expiryYyMm": "2812"
+                          }
+                        }
+                        """.formatted(posTrx)
         );
     }
 
@@ -459,11 +479,11 @@ class Mvp2PaymentFlowIntegrationTest {
         return postJson(
                 "/api/v1/payments/inquiry",
                 """
-                {
-                  "posTrx": "%s",
-                  "attemptSeq": %d
-                }
-                """.formatted(posTrx, attemptSeq)
+                        {
+                          "posTrx": "%s",
+                          "attemptSeq": %d
+                        }
+                        """.formatted(posTrx, attemptSeq)
         );
     }
 
@@ -476,13 +496,13 @@ class Mvp2PaymentFlowIntegrationTest {
         return postJson(
                 "/api/v1/payments/cancel",
                 """
-                {
-                  "posTrx": "%s",
-                  "originalPosTrx": "%s",
-                  "originalAttemptSeq": %d,
-                  "cardNo": "%s"
-                }
-                """.formatted(posTrx, originalPosTrx, originalAttemptSeq, cardNo)
+                        {
+                          "posTrx": "%s",
+                          "originalPosTrx": "%s",
+                          "originalAttemptSeq": %d,
+                          "cardNo": "%s"
+                        }
+                        """.formatted(posTrx, originalPosTrx, originalAttemptSeq, cardNo)
         );
     }
 
@@ -510,11 +530,11 @@ class Mvp2PaymentFlowIntegrationTest {
     private int countPaymentAttempt(String posTrx, int attemptSeq) {
         return Objects.requireNonNull(jdbcTemplate.queryForObject(
                 """
-                SELECT COUNT(*)
-                FROM PAYMENT_ATTEMPT
-                WHERE POS_TRX = ?
-                  AND ATTEMPT_SEQ = ?
-                """,
+                        SELECT COUNT(*)
+                        FROM PAYMENT_ATTEMPT
+                        WHERE POS_TRX = ?
+                          AND ATTEMPT_SEQ = ?
+                        """,
                 Integer.class,
                 posTrx,
                 attemptSeq
@@ -524,11 +544,11 @@ class Mvp2PaymentFlowIntegrationTest {
     private int countPaymentCancelByOriginal(String originalPosTrx, int originalAttemptSeq) {
         return Objects.requireNonNull(jdbcTemplate.queryForObject(
                 """
-                SELECT COUNT(*)
-                FROM PAYMENT_CANCEL
-                WHERE ORIGINAL_TRX_NO = ?
-                  AND ORIGINAL_ATTEMPT_SEQ = ?
-                """,
+                        SELECT COUNT(*)
+                        FROM PAYMENT_CANCEL
+                        WHERE ORIGINAL_TRX_NO = ?
+                          AND ORIGINAL_ATTEMPT_SEQ = ?
+                        """,
                 Integer.class,
                 originalPosTrx,
                 originalAttemptSeq
@@ -538,19 +558,19 @@ class Mvp2PaymentFlowIntegrationTest {
     private Map<String, Object> findPaymentAttempt(String posTrx, int attemptSeq) {
         return jdbcTemplate.queryForMap(
                 """
-                SELECT
-                    POS_TRX,
-                    ATTEMPT_SEQ,
-                    CARD_BIN,
-                    CARD_LAST4,
-                    FINAL_STATUS,
-                    APPROVAL_NO,
-                    DECLINE_CODE,
-                    VAN_TRX_ID
-                FROM PAYMENT_ATTEMPT
-                WHERE POS_TRX = ?
-                  AND ATTEMPT_SEQ = ?
-                """,
+                        SELECT
+                            POS_TRX,
+                            ATTEMPT_SEQ,
+                            CARD_BIN,
+                            CARD_LAST4,
+                            FINAL_STATUS,
+                            APPROVAL_NO,
+                            DECLINE_CODE,
+                            VAN_TRX_ID
+                        FROM PAYMENT_ATTEMPT
+                        WHERE POS_TRX = ?
+                          AND ATTEMPT_SEQ = ?
+                        """,
                 posTrx,
                 attemptSeq
         );
@@ -559,20 +579,20 @@ class Mvp2PaymentFlowIntegrationTest {
     private Map<String, Object> findPaymentExternalInfo(String posTrx, int attemptSeq) {
         return jdbcTemplate.queryForMap(
                 """
-                SELECT
-                    POS_TRX,
-                    ATTEMPT_SEQ,
-                    CARD_BIN,
-                    CARD_LAST4,
-                    MASKED_CARD_NO,
-                    CARD_BRAND,
-                    CARD_ISSUER,
-                    CARD_COUNTRY,
-                    VAN_PROVIDER
-                FROM PAYMENT_EXTERNAL_INFO
-                WHERE POS_TRX = ?
-                  AND ATTEMPT_SEQ = ?
-                """,
+                        SELECT
+                            POS_TRX,
+                            ATTEMPT_SEQ,
+                            CARD_BIN,
+                            CARD_LAST4,
+                            MASKED_CARD_NO,
+                            CARD_BRAND,
+                            CARD_ISSUER,
+                            CARD_COUNTRY,
+                            VAN_PROVIDER
+                        FROM PAYMENT_EXTERNAL_INFO
+                        WHERE POS_TRX = ?
+                          AND ATTEMPT_SEQ = ?
+                        """,
                 posTrx,
                 attemptSeq
         );
@@ -581,17 +601,17 @@ class Mvp2PaymentFlowIntegrationTest {
     private Map<String, Object> findPaymentCancel(String originalPosTrx, int originalAttemptSeq) {
         return jdbcTemplate.queryForMap(
                 """
-                SELECT
-                    CURRENT_TRX_NO,
-                    ORIGINAL_TRX_NO,
-                    ORIGINAL_ATTEMPT_SEQ,
-                    CANCEL_STATUS,
-                    CANCEL_APPROVAL_NO,
-                    DECLINE_CODE
-                FROM PAYMENT_CANCEL
-                WHERE ORIGINAL_TRX_NO = ?
-                  AND ORIGINAL_ATTEMPT_SEQ = ?
-                """,
+                        SELECT
+                            CURRENT_TRX_NO,
+                            ORIGINAL_TRX_NO,
+                            ORIGINAL_ATTEMPT_SEQ,
+                            CANCEL_STATUS,
+                            CANCEL_APPROVAL_NO,
+                            DECLINE_CODE
+                        FROM PAYMENT_CANCEL
+                        WHERE ORIGINAL_TRX_NO = ?
+                          AND ORIGINAL_ATTEMPT_SEQ = ?
+                        """,
                 originalPosTrx,
                 originalAttemptSeq
         );
@@ -612,34 +632,34 @@ class Mvp2PaymentFlowIntegrationTest {
         // 승인 API로 만든 원거래에는 이 row가 항상 있으므로, 수동 fixture도 같은 정합성 조건을 맞춘다.
         jdbcTemplate.update(
                 """
-                INSERT INTO PAYMENT_ATTEMPT_SEQ (
-                    POS_TRX,
-                    LAST_SEQ
-                )
-                VALUES (?, ?)
-                ON CONFLICT(POS_TRX)
-                DO UPDATE SET LAST_SEQ = excluded.LAST_SEQ
-                """,
+                        INSERT INTO PAYMENT_ATTEMPT_SEQ (
+                            POS_TRX,
+                            LAST_SEQ
+                        )
+                        VALUES (?, ?)
+                        ON CONFLICT(POS_TRX)
+                        DO UPDATE SET LAST_SEQ = excluded.LAST_SEQ
+                        """,
                 posTrx,
                 attemptSeq
         );
 
         jdbcTemplate.update(
                 """
-                INSERT INTO PAYMENT_ATTEMPT (
-                    POS_TRX,
-                    ATTEMPT_SEQ,
-                    AMOUNT,
-                    CARD_BIN,
-                    CARD_LAST4,
-                    CARD_FINGERPRINT,
-                    FINAL_STATUS,
-                    APPROVAL_NO,
-                    DECLINE_CODE,
-                    VAN_TRX_ID
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+                        INSERT INTO PAYMENT_ATTEMPT (
+                            POS_TRX,
+                            ATTEMPT_SEQ,
+                            AMOUNT,
+                            CARD_BIN,
+                            CARD_LAST4,
+                            CARD_FINGERPRINT,
+                            FINAL_STATUS,
+                            APPROVAL_NO,
+                            DECLINE_CODE,
+                            VAN_TRX_ID
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
                 posTrx,
                 attemptSeq,
                 10000,
@@ -656,14 +676,14 @@ class Mvp2PaymentFlowIntegrationTest {
     private void insertPendingCancel(String currentPosTrx, String originalPosTrx, int originalAttemptSeq) {
         jdbcTemplate.update(
                 """
-                INSERT INTO PAYMENT_CANCEL (
-                    CURRENT_TRX_NO,
-                    ORIGINAL_TRX_NO,
-                    ORIGINAL_ATTEMPT_SEQ,
-                    CANCEL_STATUS
-                )
-                VALUES (?, ?, ?, ?)
-                """,
+                        INSERT INTO PAYMENT_CANCEL (
+                            CURRENT_TRX_NO,
+                            ORIGINAL_TRX_NO,
+                            ORIGINAL_ATTEMPT_SEQ,
+                            CANCEL_STATUS
+                        )
+                        VALUES (?, ?, ?, ?)
+                        """,
                 currentPosTrx,
                 originalPosTrx,
                 originalAttemptSeq,

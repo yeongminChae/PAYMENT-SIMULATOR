@@ -39,4 +39,17 @@ class VanInquiryAssemblerTest {
         assertThat(request.vanTrxId()).isNull();
         assertThat(request.cardLast4()).isNull();
     }
+
+    @Test
+    void 망취소_조회_요청은_REVERSAL_target_계약으로_생성하고_승인_전용값은_비운다() {
+        VanInquiryRequest request = assembler.getReversalInquiryRequest(
+                "REVERSAL-TRX-001"
+        );
+
+        assertThat(request.targetType()).isEqualTo(VanInquiryTargetType.REVERSAL);
+        assertThat(request.targetTrxNo()).isEqualTo("REVERSAL-TRX-001");
+        assertThat(request.targetAttemptSeq()).isNull();
+        assertThat(request.vanTrxId()).isNull();
+        assertThat(request.cardLast4()).isNull();
+    }
 }
