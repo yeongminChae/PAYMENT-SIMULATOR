@@ -6,7 +6,7 @@
 <mapper namespace="com.chaeyeongmin.payment_sim.infra.mybatis.mapper.RecoveryHistoryMapper">
     <!-- 관리자 상세 화면에서 보여줄 실행 이력을 오래된 실행부터 조회한다. -->
     <select id="findByRecoveryTaskId"
-            resultType="com.chaeyeongmin.payment_sim.domain.model.RecoveryHistory">
+            resultType="com.chaeyeongmin.payment_sim.recovery.domain.RecoveryHistory">
         SELECT
             ID,
             RECOVERY_TASK_ID,
@@ -29,7 +29,7 @@
 
     <!-- 실행 시작 시점에는 결과가 아직 없으므로 완료 관련 컬럼은 null로 둔다. -->
     <select id="insertStarted"
-            resultType="com.chaeyeongmin.payment_sim.domain.model.RecoveryHistory"
+            resultType="com.chaeyeongmin.payment_sim.recovery.domain.RecoveryHistory"
             affectData="true"
             flushCache="true">
         INSERT INTO PAYMENT_RECOVERY_HISTORY (
@@ -60,7 +60,7 @@
 
     <!-- History 종료 update가 0건일 때 현재 저장 결과를 확인한다. -->
     <select id="findById"
-            resultType="com.chaeyeongmin.payment_sim.domain.model.RecoveryHistory">
+            resultType="com.chaeyeongmin.payment_sim.recovery.domain.RecoveryHistory">
         SELECT
         ID,
         RECOVERY_TASK_ID,

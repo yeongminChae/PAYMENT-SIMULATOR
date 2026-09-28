@@ -1,7 +1,7 @@
 package com.chaeyeongmin.payment_sim.infra.repository.impl;
 
-import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
-import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
+import com.chaeyeongmin.payment_sim.payment.domain.cancel.PaymentCancel;
+import com.chaeyeongmin.payment_sim.payment.domain.cancel.CancelStatus;
 import com.chaeyeongmin.payment_sim.infra.mybatis.mapper.PaymentCancelMapper;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
 import org.junit.jupiter.api.Test;

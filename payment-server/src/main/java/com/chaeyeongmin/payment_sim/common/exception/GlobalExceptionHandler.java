@@ -1,7 +1,7 @@
 package com.chaeyeongmin.payment_sim.common.exception;
 
-import com.chaeyeongmin.payment_sim.api.payment.recovery.exception.RecoveryTaskNotFoundException;
-import com.chaeyeongmin.payment_sim.api.payment.recovery.exception.RecoveryTaskRequeueConflictException;
+import com.chaeyeongmin.payment_sim.recovery.api.exception.RecoveryTaskNotFoundException;
+import com.chaeyeongmin.payment_sim.recovery.api.exception.RecoveryTaskRequeueConflictException;
 import com.chaeyeongmin.payment_sim.common.api.ApiResponse;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import lombok.extern.slf4j.Slf4j;

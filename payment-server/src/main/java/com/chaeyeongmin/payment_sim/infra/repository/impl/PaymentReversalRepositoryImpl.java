@@ -1,6 +1,6 @@
 package com.chaeyeongmin.payment_sim.infra.repository.impl;
 
-import com.chaeyeongmin.payment_sim.domain.model.PaymentReversal;
+import com.chaeyeongmin.payment_sim.payment.domain.reversal.PaymentReversal;
 import com.chaeyeongmin.payment_sim.infra.mybatis.mapper.PaymentReversalMapper;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentReversalRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.ReversalInsertParam;

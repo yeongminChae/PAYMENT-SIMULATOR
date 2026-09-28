@@ -1,6 +1,6 @@
 package com.chaeyeongmin.payment_sim.infra.repository.dto;
 
-import com.chaeyeongmin.payment_sim.domain.policy.ReversalStatus;
+import com.chaeyeongmin.payment_sim.payment.domain.reversal.ReversalStatus;
 
 public record ReversalInsertParam(
         String reversalPosTrx,

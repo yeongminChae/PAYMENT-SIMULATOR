@@ -1,9 +1,9 @@
 package com.chaeyeongmin.payment_sim.common.exception;
 
-import com.chaeyeongmin.payment_sim.api.payment.recovery.exception.RecoveryTaskRequeueConflictException;
+import com.chaeyeongmin.payment_sim.recovery.api.exception.RecoveryTaskRequeueConflictException;
 import com.chaeyeongmin.payment_sim.common.api.ApiResponse;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
-import com.chaeyeongmin.payment_sim.domain.policy.RecoveryStatus;
+import com.chaeyeongmin.payment_sim.recovery.domain.RecoveryStatus;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

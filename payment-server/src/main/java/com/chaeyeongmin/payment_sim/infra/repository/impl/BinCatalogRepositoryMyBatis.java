@@ -1,6 +1,6 @@
 package com.chaeyeongmin.payment_sim.infra.repository.impl;
 
-import com.chaeyeongmin.payment_sim.domain.model.BinCatalog;
+import com.chaeyeongmin.payment_sim.payment.domain.card.BinCatalog;
 import com.chaeyeongmin.payment_sim.infra.mybatis.mapper.BinCatalogMapper;
 import com.chaeyeongmin.payment_sim.infra.repository.BinCatalogRepository;
 import lombok.RequiredArgsConstructor;

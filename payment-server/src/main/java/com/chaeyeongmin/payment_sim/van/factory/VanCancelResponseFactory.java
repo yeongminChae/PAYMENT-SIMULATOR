@@ -1,6 +1,6 @@
 package com.chaeyeongmin.payment_sim.van.factory;
 
-import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
+import com.chaeyeongmin.payment_sim.payment.domain.cancel.CancelStatus;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelResponse;
 import com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode;
 import org.springframework.stereotype.Component;

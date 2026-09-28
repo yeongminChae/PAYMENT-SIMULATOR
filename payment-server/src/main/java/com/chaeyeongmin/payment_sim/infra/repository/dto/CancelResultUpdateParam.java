@@ -1,6 +1,6 @@
 package com.chaeyeongmin.payment_sim.infra.repository.dto;
 
-import com.chaeyeongmin.payment_sim.domain.policy.CancelStatus;
+import com.chaeyeongmin.payment_sim.payment.domain.cancel.CancelStatus;
 
 /**
  * PAYMENT_CANCEL PENDING row를 최종 취소 결과로 확정할 때 사용하는 update 파라미터.
