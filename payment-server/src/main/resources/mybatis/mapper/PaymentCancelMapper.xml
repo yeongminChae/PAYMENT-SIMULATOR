@@ -15,7 +15,7 @@
         - INSERT 성공 시 생성된 cancel row를 RETURNING으로 반환한다.
     -->
     <select id="insertPendingCancel"
-            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentCancel">
+            resultType="com.chaeyeongmin.payment_sim.payment.domain.cancel.PaymentCancel">
         INSERT INTO PAYMENT_CANCEL (
         CURRENT_TRX_NO,
         ORIGINAL_TRX_NO,
@@ -46,7 +46,7 @@
         - update된 row를 RETURNING으로 받아 DB 저장값 기준으로 API 응답을 만든다.
     -->
     <select id="updateCancelResult"
-            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentCancel">
+            resultType="com.chaeyeongmin.payment_sim.payment.domain.cancel.PaymentCancel">
         UPDATE PAYMENT_CANCEL
         SET
         CANCEL_STATUS = #{cancel.cancelStatusValue},
@@ -74,7 +74,7 @@
         recovery는 PENDING/UNKNOWN_TIMEOUT row만 CANCELLED/CANCEL_DECLINED로 전환한다.
     -->
     <select id="updateRecoverableToFinal"
-            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentCancel">
+            resultType="com.chaeyeongmin.payment_sim.payment.domain.cancel.PaymentCancel">
         UPDATE PAYMENT_CANCEL
         SET
         CANCEL_STATUS = #{cancel.cancelStatusValue},
@@ -105,7 +105,7 @@
         동시 inquiry로 이미 다른 요청이 확정했다면 0 row가 반환되고 service가 재조회로 수렴한다.
     -->
     <select id="updateUnknownTimeoutToFinal"
-            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentCancel">
+            resultType="com.chaeyeongmin.payment_sim.payment.domain.cancel.PaymentCancel">
         UPDATE PAYMENT_CANCEL
         SET
         CANCEL_STATUS = #{cancel.cancelStatusValue},
@@ -133,7 +133,7 @@
         - C5 insert unique 충돌이나 C7 update miss 이후에도 같은 조회를 재사용할 수 있다.
     -->
     <select id="findByOriginalPosTrxAndOriginalAttemptSeq"
-            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentCancel">
+            resultType="com.chaeyeongmin.payment_sim.payment.domain.cancel.PaymentCancel">
         SELECT
         C.CURRENT_TRX_NO AS posTrx,
         C.ORIGINAL_TRX_NO AS originalPosTrx,
@@ -156,7 +156,7 @@
         - PAYMENT_CANCEL의 실제 컬럼명은 CURRENT_TRX_NO이므로 이 컬럼으로 조회한다.
     -->
     <select id="findByPosTrx"
-            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentCancel">
+            resultType="com.chaeyeongmin.payment_sim.payment.domain.cancel.PaymentCancel">
         SELECT
         C.CURRENT_TRX_NO AS posTrx,
         C.ORIGINAL_TRX_NO AS originalPosTrx,

@@ -1,6 +1,6 @@
 package com.chaeyeongmin.payment_sim.infra.repository;
 
-import com.chaeyeongmin.payment_sim.domain.model.BinCatalog;
+import com.chaeyeongmin.payment_sim.payment.domain.card.BinCatalog;
 
 import java.util.Optional;
 

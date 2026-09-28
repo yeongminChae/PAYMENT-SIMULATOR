@@ -6,7 +6,7 @@
 <mapper namespace="com.chaeyeongmin.payment_sim.infra.mybatis.mapper.PaymentReversalMapper">
 
     <select id="insertPendingReversal"
-            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentReversal">
+            resultType="com.chaeyeongmin.payment_sim.payment.domain.reversal.PaymentReversal">
         INSERT INTO PAYMENT_REVERSAL (
         CURRENT_TRX_NO,
         ORIGINAL_TRX_NO,
@@ -33,7 +33,7 @@
     </select>
 
     <select id="updateReversalResult"
-            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentReversal">
+            resultType="com.chaeyeongmin.payment_sim.payment.domain.reversal.PaymentReversal">
         UPDATE PAYMENT_REVERSAL
         SET
         REVERSAL_STATUS = #{reversal.reversalStatusValue},
@@ -57,7 +57,7 @@
     </select>
 
     <select id="updateRecoverableToFinal"
-            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentReversal">
+            resultType="com.chaeyeongmin.payment_sim.payment.domain.reversal.PaymentReversal">
         UPDATE PAYMENT_REVERSAL
         SET
         REVERSAL_STATUS = #{reversal.reversalStatusValue},
@@ -90,7 +90,7 @@
     </delete>
 
     <select id="findByReversalPosTrx"
-            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentReversal">
+            resultType="com.chaeyeongmin.payment_sim.payment.domain.reversal.PaymentReversal">
         SELECT
         R.CURRENT_TRX_NO AS reversalPosTrx,
         R.ORIGINAL_TRX_NO AS originalPosTrx,
@@ -106,7 +106,7 @@
     </select>
 
     <select id="findByOriginalPosTrxAndOriginalAttemptSeq"
-            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentReversal">
+            resultType="com.chaeyeongmin.payment_sim.payment.domain.reversal.PaymentReversal">
         SELECT
         R.CURRENT_TRX_NO AS reversalPosTrx,
         R.ORIGINAL_TRX_NO AS originalPosTrx,

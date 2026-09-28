@@ -1,6 +1,6 @@
 package com.chaeyeongmin.payment_sim.infra.mybatis.mapper;
 
-import com.chaeyeongmin.payment_sim.domain.model.RecoveryCandidate;
+import com.chaeyeongmin.payment_sim.recovery.domain.RecoveryCandidate;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 

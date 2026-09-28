@@ -1,6 +1,6 @@
 package com.chaeyeongmin.payment_sim.van.client.assembler;
 
-import com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt;
+import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanReversalRequest;
 import org.springframework.stereotype.Component;
 

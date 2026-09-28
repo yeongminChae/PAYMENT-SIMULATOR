@@ -1,6 +1,6 @@
 package com.chaeyeongmin.payment_sim.infra.mybatis.mapper;
 
-import com.chaeyeongmin.payment_sim.domain.model.PaymentCancel;
+import com.chaeyeongmin.payment_sim.payment.domain.cancel.PaymentCancel;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
 import org.apache.ibatis.annotations.Mapper;

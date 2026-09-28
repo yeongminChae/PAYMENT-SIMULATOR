@@ -92,7 +92,7 @@
         → 동일 posTrx로 attempt가 여러 건 쌓일 수 있으니
         "최신 1건"이 보장되지 않으므로 반드시 정렬 + 1건 제한을 추가해야 한다.
     -->
-    <select id="findLatestByPosTrx" resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt">
+    <select id="findLatestByPosTrx" resultType="com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentAttempt">
         SELECT
                 A.FINAL_STATUS AS finalStatus,
                 A.APPROVAL_NO AS approvalNo,
@@ -119,7 +119,7 @@
         - POS_TRX + ATTEMPT_SEQ 조합은 결제 시도를 식별하는 키이므로 최대 1건만 반환한다.
     -->
     <select id="findByPosTrxAndAttemptSeq"
-            resultType="com.chaeyeongmin.payment_sim.domain.model.PaymentAttempt">
+            resultType="com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentAttempt">
         SELECT
             A.FINAL_STATUS AS finalStatus,
             A.APPROVAL_NO AS approvalNo,

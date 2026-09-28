@@ -1,6 +1,6 @@
 package com.chaeyeongmin.payment_sim.infra.repository.impl;
 
-import com.chaeyeongmin.payment_sim.domain.model.RecoveryCandidate;
+import com.chaeyeongmin.payment_sim.recovery.domain.RecoveryCandidate;
 import com.chaeyeongmin.payment_sim.infra.mybatis.mapper.RecoveryCandidateMapper;
 import com.chaeyeongmin.payment_sim.infra.repository.RecoveryCandidateRepository;
 import lombok.RequiredArgsConstructor;

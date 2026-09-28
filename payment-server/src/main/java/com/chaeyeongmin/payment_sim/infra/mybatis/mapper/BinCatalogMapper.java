@@ -1,6 +1,6 @@
 package com.chaeyeongmin.payment_sim.infra.mybatis.mapper;
 
-import com.chaeyeongmin.payment_sim.domain.model.BinCatalog;
+import com.chaeyeongmin.payment_sim.payment.domain.card.BinCatalog;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 

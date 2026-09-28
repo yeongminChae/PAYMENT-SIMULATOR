@@ -1,7 +1,7 @@
 package com.chaeyeongmin.payment_sim.infra.repository.impl;
 
-import com.chaeyeongmin.payment_sim.api.payment.service.recovery.transaction.RecoveryHistoryResult;
-import com.chaeyeongmin.payment_sim.domain.model.RecoveryHistory;
+import com.chaeyeongmin.payment_sim.recovery.application.transaction.RecoveryHistoryResult;
+import com.chaeyeongmin.payment_sim.recovery.domain.RecoveryHistory;
 import com.chaeyeongmin.payment_sim.infra.mybatis.mapper.RecoveryHistoryMapper;
 import com.chaeyeongmin.payment_sim.infra.repository.RecoveryHistoryRepository;
 import lombok.RequiredArgsConstructor;

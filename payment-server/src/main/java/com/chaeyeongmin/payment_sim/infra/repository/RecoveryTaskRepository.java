@@ -1,8 +1,8 @@
 package com.chaeyeongmin.payment_sim.infra.repository;
 
-import com.chaeyeongmin.payment_sim.domain.model.RecoveryCandidate;
-import com.chaeyeongmin.payment_sim.domain.model.RecoveryTask;
-import com.chaeyeongmin.payment_sim.domain.policy.RecoveryStatus;
+import com.chaeyeongmin.payment_sim.recovery.domain.RecoveryCandidate;
+import com.chaeyeongmin.payment_sim.recovery.domain.RecoveryTask;
+import com.chaeyeongmin.payment_sim.recovery.domain.RecoveryStatus;
 
 import java.time.LocalDateTime;
 import java.util.List;

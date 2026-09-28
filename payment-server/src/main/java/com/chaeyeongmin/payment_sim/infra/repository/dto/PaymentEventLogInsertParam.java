@@ -1,6 +1,6 @@
 package com.chaeyeongmin.payment_sim.infra.repository.dto;
 
-import com.chaeyeongmin.payment_sim.domain.policy.PaymentEventType;
+import com.chaeyeongmin.payment_sim.payment.domain.event.PaymentEventType;
 
 /**
  * PAYMENT_EVENT_LOG insert 전용 파라미터.
