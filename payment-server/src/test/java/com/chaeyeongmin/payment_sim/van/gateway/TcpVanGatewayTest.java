@@ -351,6 +351,66 @@ class TcpVanGatewayTest {
     }
 
     @Test
+    void TCP_CANCEL_ALREADY_REVERSED_조회응답의_declineCode를_보존한다() throws Exception {
+        VanInquiryRequest request = cancelInquiryRequest("2301-20260928-9999-0101");
+        VanInquiryTcpResponse tcpResponse = new VanInquiryTcpResponse(
+                "1",
+                "INQUIRY_RESPONSE",
+                inquiryRequestId(request),
+                VanInquiryTargetType.CANCEL,
+                request.targetTrxNo(),
+                null,
+                VanInquiryResultCode.SUCCESS,
+                "VAN-CANCEL-INQ-ALREADY-REVERSED",
+                VanInquiryStatus.CANCEL_DECLINED,
+                null,
+                null,
+                "ALREADY_REVERSED",
+                LocalDateTime.of(2026, 9, 28, 10, 0)
+        );
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        VanInquiryResponse response = tcpVanGateway.inquiry(request);
+
+        assertThat(response.targetType()).isEqualTo(VanInquiryTargetType.CANCEL);
+        assertThat(response.status()).isEqualTo(VanInquiryStatus.CANCEL_DECLINED);
+        assertThat(response.cancelApprovalNo()).isNull();
+        assertThat(response.declineCode()).isEqualTo(VanDeclineCode.ALREADY_REVERSED);
+    }
+
+    @Test
+    void TCP_CANCEL_ORIGINAL_NOT_APPROVED_조회응답의_declineCode를_보존한다() throws Exception {
+        VanInquiryRequest request = cancelInquiryRequest("2301-20260928-9999-0102");
+        VanInquiryTcpResponse tcpResponse = new VanInquiryTcpResponse(
+                "1",
+                "INQUIRY_RESPONSE",
+                inquiryRequestId(request),
+                VanInquiryTargetType.CANCEL,
+                request.targetTrxNo(),
+                null,
+                VanInquiryResultCode.SUCCESS,
+                "VAN-CANCEL-INQ-ORIGINAL-NOT-APPROVED",
+                VanInquiryStatus.CANCEL_DECLINED,
+                null,
+                null,
+                "ORIGINAL_NOT_APPROVED",
+                LocalDateTime.of(2026, 9, 28, 10, 1)
+        );
+
+        when(vanTcpClient.send(any(byte[].class)))
+                .thenReturn(objectMapper.writeValueAsBytes(tcpResponse));
+
+        VanInquiryResponse response = tcpVanGateway.inquiry(request);
+
+        assertThat(response.targetType()).isEqualTo(VanInquiryTargetType.CANCEL);
+        assertThat(response.status()).isEqualTo(VanInquiryStatus.CANCEL_DECLINED);
+        assertThat(response.cancelApprovalNo()).isNull();
+        assertThat(response.declineCode()).isEqualTo(VanDeclineCode.ORIGINAL_NOT_APPROVED);
+    }
+
+    @Test
     void TCP_조회응답의_correlation이_다르면_gateway_예외를_던진다() throws Exception {
         // given
         VanInquiryRequest request = inquiryRequest("2301-20260808-9999-0104", 1);

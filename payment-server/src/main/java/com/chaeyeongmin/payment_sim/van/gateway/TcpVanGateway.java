@@ -825,7 +825,11 @@ public class TcpVanGateway implements VanGateway {
 
         if ("ALREADY_CANCELLED".equals(response.declineCode())) return VanDeclineCode.ALREADY_CANCELLED;
 
+        if ("ALREADY_REVERSED".equals(response.declineCode())) return VanDeclineCode.ALREADY_REVERSED;
+
         if ("ORIGINAL_NOT_FOUND".equals(response.declineCode())) return VanDeclineCode.ORIGINAL_NOT_FOUND;
+
+        if ("ORIGINAL_NOT_APPROVED".equals(response.declineCode())) return VanDeclineCode.ORIGINAL_NOT_APPROVED;
 
         if ("ORIGINAL_NOT_REVERSIBLE".equals(response.declineCode())) return VanDeclineCode.ORIGINAL_NOT_REVERSIBLE;
 
