@@ -26,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.batch.jdbc.initialize-schema=always",
         "payment.card.secret-key=postgres-testcontainers-card-secret-key"
 })
-
+@ActiveProfiles("postgres")
 class RecoveryBatchJobSmokeTest {
 
     @Container

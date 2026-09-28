@@ -5,6 +5,7 @@ import org.springframework.batch.core.*;
 import org.springframework.batch.core.launch.JobLauncher;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -17,6 +18,7 @@ import java.time.Clock;
  * 기본값은 {@code false}이므로 운영자가 명시적으로 켜기 전에는 복구 배치를 실행하지 않는다.
  */
 @Component
+@Profile("postgres")
 @ConditionalOnProperty(
         prefix = "payment.recovery.schedule",
         name = "enabled",

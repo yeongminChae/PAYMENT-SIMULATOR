@@ -7,12 +7,14 @@ import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.interceptor.DefaultTransactionAttribute;
 
 /** Recovery 배치의 실행 순서와 각 Step의 트랜잭션 방식을 설정한다. */
 @Configuration
+@Profile("postgres")
 public class RecoveryBatchConfig {
 
     /** 후보 등록 Step을 먼저 실행하고, 성공하면 Task 처리 Step을 실행하는 Job을 만든다. */
