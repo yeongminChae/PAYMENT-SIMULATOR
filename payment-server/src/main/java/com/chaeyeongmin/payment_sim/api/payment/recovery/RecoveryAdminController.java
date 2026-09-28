@@ -7,6 +7,7 @@ import com.chaeyeongmin.payment_sim.api.payment.service.recovery.admin.RecoveryA
 import com.chaeyeongmin.payment_sim.common.api.ApiResponse;
 import com.chaeyeongmin.payment_sim.domain.policy.RecoveryStatus;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Profile;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -18,6 +19,7 @@ import java.util.List;
 
 /** 운영자가 Recovery Task를 조회하고 MANUAL_REVIEW Task를 다시 실행하도록 요청하는 API다. */
 @RestController
+@Profile("postgres")
 @RequiredArgsConstructor
 @RequestMapping("/api/admin/recovery/tasks")
 public class RecoveryAdminController {
