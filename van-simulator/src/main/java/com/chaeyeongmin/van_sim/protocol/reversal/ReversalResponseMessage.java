@@ -1,7 +1,7 @@
 package com.chaeyeongmin.van_sim.protocol.reversal;
 
-import com.chaeyeongmin.van_sim.ledger.reversal.status.ReversalResultCode;
-import com.chaeyeongmin.van_sim.ledger.reversal.status.VanReversalStatus;
+import com.chaeyeongmin.van_sim.transaction.domain.reversal.ReversalResultCode;
+import com.chaeyeongmin.van_sim.transaction.domain.reversal.VanReversalStatus;
 
 /**
  * VAN 시뮬레이터가 결제 서버로 반환하는 reversal 응답 전문 모델이다.

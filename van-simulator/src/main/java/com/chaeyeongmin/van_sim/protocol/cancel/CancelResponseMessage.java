@@ -1,7 +1,7 @@
 package com.chaeyeongmin.van_sim.protocol.cancel;
 
-import com.chaeyeongmin.van_sim.ledger.cancel.status.CancelResultCode;
-import com.chaeyeongmin.van_sim.ledger.cancel.status.VanCancelStatus;
+import com.chaeyeongmin.van_sim.transaction.domain.cancel.CancelResultCode;
+import com.chaeyeongmin.van_sim.transaction.domain.cancel.VanCancelStatus;
 
 /**
  * VAN 시뮬레이터가 결제 서버로 반환하는 취소 응답 전문 모델이다.
