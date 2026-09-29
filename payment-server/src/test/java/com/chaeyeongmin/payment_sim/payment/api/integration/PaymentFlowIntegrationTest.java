@@ -3,7 +3,7 @@ package com.chaeyeongmin.payment_sim.payment.api.integration;
 import com.chaeyeongmin.payment_sim.payment.domain.cancel.PaymentCancel;
 import com.chaeyeongmin.payment_sim.payment.domain.cancel.CancelStatus;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
-import com.chaeyeongmin.payment_sim.van.gateway.impl.SimulatedVanGateway;
+import com.chaeyeongmin.payment_sim.van.gateway.impl.TestVanGateway;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -34,10 +34,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 테스트 전용 SQLite 파일을 사용하고, 각 테스트가 사용하는 고유 거래번호를
  * FK 순서에 맞춰 정리해 반복 실행과 테스트 순서 변경에도 영향을 받지 않게 한다.
  */
-@SuppressWarnings({"deprecation", "removal"})
 @SpringBootTest
 @AutoConfigureMockMvc
-@Import(SimulatedVanGateway.class)
+@Import(TestVanGateway.class)
 @TestPropertySource(properties = {
         "spring.datasource.url=jdbc:sqlite:./build/payment-flow-integration-test.db",
         "payment.van.mode=simulated"
