@@ -1,6 +1,6 @@
 package com.chaeyeongmin.payment_sim.payment.api.integration.postgres;
 
-import com.chaeyeongmin.payment_sim.van.gateway.impl.SimulatedVanGateway;
+import com.chaeyeongmin.payment_sim.van.gateway.impl.TestVanGateway;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -39,13 +39,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Testcontainers가 테스트 실행 중 임시 PostgreSQL 컨테이너를 만들고, Spring Boot가 그 컨테이너의
  * JDBC 접속 정보를 테스트 ApplicationContext에 주입한다.
  */
-// @SuppressWarnings → deprecated를 의도적으로 쓰는 테스트라는 경고 억제
-@SuppressWarnings({"deprecation", "removal"})
 @Testcontainers
 @SpringBootTest
 @AutoConfigureMockMvc
-// @Import(SimulatedVanGateway.class)→ Component에서 빠진 legacy gateway를 테스트에서만 Bean 등록
-@Import(SimulatedVanGateway.class)
+// @Import(TestVanGateway.class) -> deterministic fake VAN을 테스트에서만 Bean 등록
+@Import(TestVanGateway.class)
 @TestPropertySource(properties = {
         // 운영 application-postgres.yml을 활성화하지 않고, 테스트에서 필요한 datasource/초기화만 명시한다.
         // 이렇게 해야 localhost:5432의 로컬 DB나 POSTGRES_PASSWORD 환경변수가 테스트에 개입하지 않는다.
@@ -60,8 +58,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         // Testcontainers 내부 DB와 함께 쓰는 테스트 전용 값이며 운영 비밀값이 아니다.
         "payment.card.secret-key=postgres-testcontainers-card-secret-key",
         // Release 6부터 production 기본 VAN mode는 tcp다.
-        // 이 기존 통합 테스트는 legacy SimulatedVanGateway의 결정적 규칙을 검증하므로
-        // 이 테스트에서만 TcpVanGateway를 비활성화하고 legacy gateway를 사용한다.
+        // 이 테스트에서만 TcpVanGateway를 비활성화하고 deterministic fake VAN을 사용한다.
         "payment.van.mode=simulated",
         "logging.file.name=./build/logs/postgres-core-flow-it.log"
 })
