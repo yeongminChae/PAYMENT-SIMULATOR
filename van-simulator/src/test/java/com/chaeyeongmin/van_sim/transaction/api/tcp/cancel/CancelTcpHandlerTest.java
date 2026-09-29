@@ -1,17 +1,18 @@
 package com.chaeyeongmin.van_sim.transaction.api.tcp.cancel;
 
-import com.chaeyeongmin.van_sim.scenario.domain.cancel.CancelScenario;
-import com.chaeyeongmin.van_sim.scenario.domain.cancel.CancelTransportBehavior;
-import com.chaeyeongmin.van_sim.scenario.application.cancel.CancelScenarioRegistry;
-import com.chaeyeongmin.van_sim.scenario.application.cancel.CancelScenarioRegistryImpl;
-import com.chaeyeongmin.van_sim.transaction.domain.cancel.CancelResultCode;
-import com.chaeyeongmin.van_sim.transaction.domain.cancel.VanCancelStatus;
 import com.chaeyeongmin.van_sim.protocol.cancel.CancelRequestMessage;
 import com.chaeyeongmin.van_sim.protocol.cancel.CancelResponseMessage;
-import com.chaeyeongmin.van_sim.transaction.application.cancel.service.CancelService;
+import com.chaeyeongmin.van_sim.scenario.application.cancel.CancelScenarioRegistry;
+import com.chaeyeongmin.van_sim.scenario.application.cancel.CancelScenarioRegistryImpl;
+import com.chaeyeongmin.van_sim.scenario.domain.cancel.CancelScenario;
+import com.chaeyeongmin.van_sim.scenario.domain.cancel.CancelTransportBehavior;
+import com.chaeyeongmin.van_sim.transaction.api.tcp.cancel.exception.CancelTcpMessageException;
+import com.chaeyeongmin.van_sim.transaction.api.tcp.support.PosTrxProtocolValidator;
 import com.chaeyeongmin.van_sim.transaction.application.cancel.command.CancelCommand;
 import com.chaeyeongmin.van_sim.transaction.application.cancel.result.CancelResult;
-import com.chaeyeongmin.van_sim.transaction.api.tcp.cancel.exception.CancelTcpMessageException;
+import com.chaeyeongmin.van_sim.transaction.application.cancel.service.CancelService;
+import com.chaeyeongmin.van_sim.transaction.domain.cancel.CancelResultCode;
+import com.chaeyeongmin.van_sim.transaction.domain.cancel.VanCancelStatus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
@@ -64,7 +65,8 @@ class CancelTcpHandlerTest {
                 objectMapper,
                 mapper,
                 cancelService,
-                registry
+                registry,
+                new PosTrxProtocolValidator()
         );
     }
 
@@ -189,7 +191,8 @@ class CancelTcpHandlerTest {
                 objectMapper,
                 mapper,
                 cancelService,
-                realRegistry
+                realRegistry,
+                new PosTrxProtocolValidator()
         );
         CancelRequestMessage request = validRequest();
         CancelResult result = successResult(request);
@@ -217,7 +220,8 @@ class CancelTcpHandlerTest {
                 objectMapper,
                 mapper,
                 cancelService,
-                realRegistry
+                realRegistry,
+                new PosTrxProtocolValidator()
         );
 
         realRegistry.register(
@@ -247,7 +251,8 @@ class CancelTcpHandlerTest {
                 objectMapper,
                 mapper,
                 cancelService,
-                realRegistry
+                realRegistry,
+                new PosTrxProtocolValidator()
         );
 
         realRegistry.register(
@@ -292,8 +297,8 @@ class CancelTcpHandlerTest {
         assertThatThrownBy(() -> {
             handler.handle(payload);
         })
-            .isInstanceOf(CancelTcpMessageException.class)
-            .hasMessage("CANCEL_TCP_REQUEST_INVALID");
+                .isInstanceOf(CancelTcpMessageException.class)
+                .hasMessage("CANCEL_TCP_REQUEST_INVALID");
         verifyNoInteractions(cancelService);
     }
 

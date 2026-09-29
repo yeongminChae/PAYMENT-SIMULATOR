@@ -1,13 +1,14 @@
 package com.chaeyeongmin.van_sim.transaction.api.tcp.reversal;
 
-import com.chaeyeongmin.van_sim.transaction.domain.reversal.ReversalResultCode;
-import com.chaeyeongmin.van_sim.transaction.domain.reversal.VanReversalStatus;
 import com.chaeyeongmin.van_sim.protocol.reversal.ReversalRequestMessage;
 import com.chaeyeongmin.van_sim.protocol.reversal.ReversalResponseMessage;
-import com.chaeyeongmin.van_sim.transaction.application.reversal.service.ReversalService;
+import com.chaeyeongmin.van_sim.transaction.api.tcp.reversal.exception.ReversalTcpMessageException;
+import com.chaeyeongmin.van_sim.transaction.api.tcp.support.PosTrxProtocolValidator;
 import com.chaeyeongmin.van_sim.transaction.application.reversal.command.ReversalCommand;
 import com.chaeyeongmin.van_sim.transaction.application.reversal.result.ReversalResult;
-import com.chaeyeongmin.van_sim.transaction.api.tcp.reversal.exception.ReversalTcpMessageException;
+import com.chaeyeongmin.van_sim.transaction.application.reversal.service.ReversalService;
+import com.chaeyeongmin.van_sim.transaction.domain.reversal.ReversalResultCode;
+import com.chaeyeongmin.van_sim.transaction.domain.reversal.VanReversalStatus;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -29,10 +30,7 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class ReversalTcpHandlerTest {
@@ -53,7 +51,8 @@ class ReversalTcpHandlerTest {
         handler = new ReversalTcpHandler(
                 objectMapper,
                 new ReversalTcpMessageMapper(),
-                reversalService
+                reversalService,
+                new PosTrxProtocolValidator()
         );
     }
 

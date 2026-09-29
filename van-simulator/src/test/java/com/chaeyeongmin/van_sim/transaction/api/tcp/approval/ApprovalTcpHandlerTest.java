@@ -1,14 +1,15 @@
 package com.chaeyeongmin.van_sim.transaction.api.tcp.approval;
 
-import com.chaeyeongmin.van_sim.scenario.application.approval.ApprovalScenarioRegistry;
-import com.chaeyeongmin.van_sim.transaction.domain.approval.VanApprovalStatus;
 import com.chaeyeongmin.van_sim.protocol.approval.ApprovalRequestMessage;
 import com.chaeyeongmin.van_sim.protocol.approval.ApprovalResponseMessage;
 import com.chaeyeongmin.van_sim.protocol.approval.ApprovalResponseStatus;
-import com.chaeyeongmin.van_sim.transaction.application.approval.service.ApprovalService;
+import com.chaeyeongmin.van_sim.scenario.application.approval.ApprovalScenarioRegistry;
+import com.chaeyeongmin.van_sim.transaction.api.tcp.approval.exception.ApprovalTcpMessageException;
+import com.chaeyeongmin.van_sim.transaction.api.tcp.support.PosTrxProtocolValidator;
 import com.chaeyeongmin.van_sim.transaction.application.approval.command.ApprovalCommand;
 import com.chaeyeongmin.van_sim.transaction.application.approval.result.ApprovalResult;
-import com.chaeyeongmin.van_sim.transaction.api.tcp.approval.exception.ApprovalTcpMessageException;
+import com.chaeyeongmin.van_sim.transaction.application.approval.service.ApprovalService;
+import com.chaeyeongmin.van_sim.transaction.domain.approval.VanApprovalStatus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
@@ -28,7 +29,7 @@ import java.util.Optional;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -59,7 +60,8 @@ class ApprovalTcpHandlerTest {
                 objectMapper,
                 mapper,
                 approvalService,
-                scenarioRegistry
+                scenarioRegistry,
+                new PosTrxProtocolValidator()
         );
     }
 
