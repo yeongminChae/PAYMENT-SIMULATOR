@@ -679,7 +679,7 @@ class RecoveryFinalizationServiceImplTest {
         // result: CURRENT_TRX_NO는 같지만 원거래 identity가 다르므로 정상적인 idempotent/conflict 결과가 아니다.
         assertThatThrownBy(() -> service.finalizeReversal(reversalTask, intended))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessage("RECOVERY_CANCEL_TARGET_IDENTITY_MISMATCH");
+                .hasMessage("RECOVERY_REVERSAL_TARGET_IDENTITY_MISMATCH");
     }
 
     private PaymentAttemptUpdatedRow updatedAttempt(
