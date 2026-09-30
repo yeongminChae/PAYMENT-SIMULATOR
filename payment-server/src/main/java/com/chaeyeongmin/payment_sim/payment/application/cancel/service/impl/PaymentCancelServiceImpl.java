@@ -3,7 +3,7 @@ package com.chaeyeongmin.payment_sim.payment.application.cancel.service.impl;
 import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelRequest;
 import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelResponse;
 import com.chaeyeongmin.payment_sim.payment.application.cancel.service.PaymentCancelService;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.CancelEventRecorder;
+import com.chaeyeongmin.payment_sim.payment.application.cancel.support.CancelEventRecorder;
 import com.chaeyeongmin.payment_sim.payment.application.common.PaymentResultCodeMapper;
 import com.chaeyeongmin.payment_sim.payment.application.common.VanDeclineCodeMapper;
 import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.PaymentCancelTransactionService;

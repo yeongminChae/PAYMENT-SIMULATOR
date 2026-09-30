@@ -1,4 +1,4 @@
-package com.chaeyeongmin.payment_sim.payment.application.cancel;
+package com.chaeyeongmin.payment_sim.payment.application.cancel.support;
 
 import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelRequest;
 import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelResponse;

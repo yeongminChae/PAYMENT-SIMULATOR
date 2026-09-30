@@ -1,4 +1,4 @@
-package com.chaeyeongmin.payment_sim.payment.application.card;
+package com.chaeyeongmin.payment_sim.payment.application.card.support;
 
 import com.chaeyeongmin.payment_sim.payment.api.common.CardSummary;
 

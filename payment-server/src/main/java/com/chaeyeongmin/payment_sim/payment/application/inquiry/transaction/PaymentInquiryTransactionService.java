@@ -6,8 +6,8 @@ import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdatePara
 import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentAttemptUpdatedRow;
 import com.chaeyeongmin.payment_sim.payment.api.common.CardSummary;
 import com.chaeyeongmin.payment_sim.payment.api.inquiry.InquiryResponse;
-import com.chaeyeongmin.payment_sim.payment.application.approval.AttemptResultUpdateParamFactory;
-import com.chaeyeongmin.payment_sim.payment.application.card.CardSummaryFactory;
+import com.chaeyeongmin.payment_sim.payment.application.approval.support.AttemptResultUpdateParamFactory;
+import com.chaeyeongmin.payment_sim.payment.application.card.support.CardSummaryFactory;
 import com.chaeyeongmin.payment_sim.payment.application.common.VanDeclineCodeMapper;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentFinalStatus;

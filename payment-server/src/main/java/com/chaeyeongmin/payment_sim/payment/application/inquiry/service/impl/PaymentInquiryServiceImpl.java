@@ -6,7 +6,7 @@ import com.chaeyeongmin.payment_sim.payment.api.inquiry.InquiryRequest;
 import com.chaeyeongmin.payment_sim.payment.api.inquiry.InquiryResponse;
 import com.chaeyeongmin.payment_sim.payment.application.inquiry.service.PaymentInquiryService;
 import com.chaeyeongmin.payment_sim.payment.application.inquiry.transaction.PaymentInquiryTransactionService;
-import com.chaeyeongmin.payment_sim.payment.application.card.CardSummaryFactory;
+import com.chaeyeongmin.payment_sim.payment.application.card.support.CardSummaryFactory;
 import com.chaeyeongmin.payment_sim.payment.application.common.VanDeclineCodeMapper;
 import com.chaeyeongmin.payment_sim.payment.api.inquiry.InquiryRequestValidator;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
