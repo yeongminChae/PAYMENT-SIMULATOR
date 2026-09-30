@@ -6,7 +6,7 @@ import com.chaeyeongmin.payment_sim.payment.api.approval.ApproveResponse;
 import com.chaeyeongmin.payment_sim.payment.application.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.payment.application.card.service.BinCatalogService;
 import com.chaeyeongmin.payment_sim.payment.application.approval.service.PaymentApprovalService;
-import com.chaeyeongmin.payment_sim.payment.application.card.CardSummaryFactory;
+import com.chaeyeongmin.payment_sim.payment.application.card.support.CardSummaryFactory;
 import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.PaymentApprovalTransactionService;
 import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.model.PaymentApprovalPrepareResult;
 import com.chaeyeongmin.payment_sim.payment.api.approval.ApproveRequestValidator;

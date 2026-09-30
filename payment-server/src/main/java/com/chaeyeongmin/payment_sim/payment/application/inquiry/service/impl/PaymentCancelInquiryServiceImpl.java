@@ -3,7 +3,7 @@ package com.chaeyeongmin.payment_sim.payment.application.inquiry.service.impl;
 import com.chaeyeongmin.payment_sim.payment.api.inquiry.CancelInquiryRequest;
 import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelResponse;
 import com.chaeyeongmin.payment_sim.payment.application.inquiry.service.PaymentCancelInquiryService;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.PaymentCancelTransactionService;
+import com.chaeyeongmin.payment_sim.payment.application.inquiry.transaction.PaymentCancelInquiryTransactionService;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.payment.domain.cancel.PaymentCancel;
@@ -21,7 +21,7 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class PaymentCancelInquiryServiceImpl implements PaymentCancelInquiryService {
 
-    private final PaymentCancelTransactionService transactionService;
+    private final PaymentCancelInquiryTransactionService transactionService;
     private final PaymentCancelRepository cancelRepository;
     private final VanInquiryAssembler assembler;
     private final VanGateway gateway;
@@ -94,7 +94,7 @@ public class PaymentCancelInquiryServiceImpl implements PaymentCancelInquiryServ
         if (response.resultCode() == VanInquiryResultCode.NOT_FOUND) return retryLater(cancel);
 
         // DB 상태 전이는 transaction service에 맡겨 네트워크 I/O와 DB transaction 경계를 분리한다.
-        return transactionService.finalizeCancelInquiry(cancel, response);
+        return transactionService.finalizeResolvedInquiry(cancel, response);
     }
 
 }

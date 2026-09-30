@@ -3,17 +3,12 @@ package com.chaeyeongmin.payment_sim.payment.application.inquiry.service.impl;
 import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelResultStatus;
 import com.chaeyeongmin.payment_sim.payment.api.inquiry.CancelInquiryRequest;
 import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelResponse;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.CancelEventRecorder;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.CancelResponseFactory;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.PaymentCancelTransactionService;
+import com.chaeyeongmin.payment_sim.payment.application.inquiry.transaction.PaymentCancelInquiryTransactionService;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.payment.domain.cancel.PaymentCancel;
 import com.chaeyeongmin.payment_sim.payment.domain.cancel.CancelStatus;
-import com.chaeyeongmin.payment_sim.payment.domain.cancel.CancelCardVerificationPolicy;
-import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
-import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanInquiryAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResponse;
@@ -26,7 +21,6 @@ import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutExcep
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -59,20 +53,14 @@ class PaymentCancelInquiryServiceImplTest {
     private PaymentCancelRepository cancelRepository;
     private VanInquiryAssembler assembler;
     private VanGateway gateway;
+    private PaymentCancelInquiryTransactionService transactionService;
 
     @BeforeEach
     void setUp() {
         cancelRepository = mock(PaymentCancelRepository.class);
         assembler = mock(VanInquiryAssembler.class);
         gateway = mock(VanGateway.class);
-
-        PaymentCancelTransactionService transactionService = new PaymentCancelTransactionService(
-                cancelRepository,
-                mock(PaymentAttemptRepository.class),
-                mock(CancelCardVerificationPolicy.class),
-                new CancelResponseFactory(),
-                mock(CancelEventRecorder.class)
-        );
+        transactionService = mock(PaymentCancelInquiryTransactionService.class);
 
         service = new PaymentCancelInquiryServiceImpl(
                 transactionService,
@@ -94,6 +82,7 @@ class PaymentCancelInquiryServiceImplTest {
 
         assertEquals(ResultCode.NOT_FOUND, exception.getResultCode());
         verifyNoInteractions(assembler, gateway);
+        verifyNoInteractions(transactionService);
         verify(cancelRepository, never()).updateUnknownTimeoutToFinal(any());
     }
 
@@ -107,6 +96,7 @@ class PaymentCancelInquiryServiceImplTest {
 
         assertEquals(CancelResultStatus.RETRY_LATER, response.cancelStatus());
         verifyNoInteractions(assembler, gateway);
+        verifyNoInteractions(transactionService);
         verify(cancelRepository, never()).updateUnknownTimeoutToFinal(any());
     }
 
@@ -121,6 +111,22 @@ class PaymentCancelInquiryServiceImplTest {
         assertEquals(CancelResultStatus.CANCELLED, response.cancelStatus());
         assertEquals(CANCEL_APPROVAL_NO, response.cancelApprovalNo());
         verifyNoInteractions(assembler, gateway);
+        verifyNoInteractions(transactionService);
+        verify(cancelRepository, never()).updateUnknownTimeoutToFinal(any());
+    }
+
+    @Test
+    @DisplayName("이미 CANCEL_DECLINED이면 저장된 CANCEL_DECLINED 결과를 반환하고 VAN을 호출하지 않는다")
+    void inquiry_cancelDeclined_shouldReturnStoredDeclined_withoutVanCall() {
+        when(cancelRepository.findByPosTrx(CANCEL_POS_TRX))
+                .thenReturn(Optional.of(cancel(CancelStatus.CANCEL_DECLINED, null, VanDeclineCode.DO_NOT_HONOR.code())));
+
+        CancelResponse response = service.inquiry(new CancelInquiryRequest(CANCEL_POS_TRX));
+
+        assertEquals(CancelResultStatus.CANCEL_DECLINED, response.cancelStatus());
+        assertEquals(VanDeclineCode.DO_NOT_HONOR.code(), response.declineCode());
+        verifyNoInteractions(assembler, gateway);
+        verifyNoInteractions(transactionService);
         verify(cancelRepository, never()).updateUnknownTimeoutToFinal(any());
     }
 
@@ -138,6 +144,7 @@ class PaymentCancelInquiryServiceImplTest {
 
         assertEquals(CancelResultStatus.RETRY_LATER, response.cancelStatus());
         verify(gateway).inquiry(request);
+        verifyNoInteractions(transactionService);
         verify(cancelRepository, never()).updateUnknownTimeoutToFinal(any());
     }
 
@@ -157,59 +164,64 @@ class PaymentCancelInquiryServiceImplTest {
 
         assertEquals(CancelResultStatus.RETRY_LATER, response.cancelStatus());
         verify(gateway).inquiry(request);
+        verifyNoInteractions(transactionService);
         verify(cancelRepository, never()).updateUnknownTimeoutToFinal(any());
     }
 
     @Test
-    @DisplayName("UNKNOWN_TIMEOUT이고 VAN CANCELLED면 DB를 CANCELLED로 갱신하고 취소 승인번호를 반환한다")
-    void inquiry_unknownTimeoutAndVanCancelled_shouldUpdateDbAndReturnCancelled() {
+    @DisplayName("UNKNOWN_TIMEOUT이고 VAN CANCELLED면 transaction service에 위임한다")
+    void inquiry_unknownTimeoutAndVanCancelled_shouldDelegateToTransactionService() {
         VanInquiryRequest request = vanInquiryRequest();
-        PaymentCancel updated = cancel(CancelStatus.CANCELLED, CANCEL_APPROVAL_NO, null);
+        PaymentCancel unknownTimeout = cancel(CancelStatus.UNKNOWN_TIMEOUT, null, "TIMEOUT");
+        VanInquiryResponse vanResponse = vanCancelledResponse();
+        CancelResponse finalized = CancelResponse.cancelled(
+                CANCEL_POS_TRX,
+                ORIGINAL_POS_TRX,
+                ORIGINAL_ATTEMPT_SEQ,
+                CANCEL_APPROVAL_NO
+        );
 
         when(cancelRepository.findByPosTrx(CANCEL_POS_TRX))
-                .thenReturn(Optional.of(cancel(CancelStatus.UNKNOWN_TIMEOUT, null, "TIMEOUT")));
+                .thenReturn(Optional.of(unknownTimeout));
         when(assembler.getCancelInquiryRequest(CANCEL_POS_TRX)).thenReturn(request);
-        when(gateway.inquiry(request)).thenReturn(vanCancelledResponse());
-        when(cancelRepository.updateUnknownTimeoutToFinal(any()))
-                .thenReturn(Optional.of(updated));
+        when(gateway.inquiry(request)).thenReturn(vanResponse);
+        when(transactionService.finalizeResolvedInquiry(unknownTimeout, vanResponse))
+                .thenReturn(finalized);
 
         CancelResponse response = service.inquiry(new CancelInquiryRequest(CANCEL_POS_TRX));
 
         assertEquals(CancelResultStatus.CANCELLED, response.cancelStatus());
         assertEquals(CANCEL_APPROVAL_NO, response.cancelApprovalNo());
-
-        ArgumentCaptor<CancelResultUpdateParam> captor =
-                ArgumentCaptor.forClass(CancelResultUpdateParam.class);
-        verify(cancelRepository).updateUnknownTimeoutToFinal(captor.capture());
-        assertEquals(CancelStatus.CANCELLED, captor.getValue().cancelStatus());
-        assertEquals(VAN_CANCEL_TRX_ID, captor.getValue().vanCancelTrxId());
-        assertEquals(CANCEL_APPROVAL_NO, captor.getValue().cancelApprovalNo());
+        verify(transactionService).finalizeResolvedInquiry(unknownTimeout, vanResponse);
+        verify(cancelRepository, never()).updateUnknownTimeoutToFinal(any());
     }
 
     @Test
-    @DisplayName("UNKNOWN_TIMEOUT이고 VAN CANCEL_DECLINED면 DB를 CANCEL_DECLINED로 갱신하고 거절코드를 반환한다")
-    void inquiry_unknownTimeoutAndVanCancelDeclined_shouldUpdateDbAndReturnDeclined() {
+    @DisplayName("UNKNOWN_TIMEOUT이고 VAN CANCEL_DECLINED면 transaction service에 위임한다")
+    void inquiry_unknownTimeoutAndVanCancelDeclined_shouldDelegateToTransactionService() {
         VanInquiryRequest request = vanInquiryRequest();
-        PaymentCancel updated = cancel(CancelStatus.CANCEL_DECLINED, null, VanDeclineCode.DO_NOT_HONOR.code());
+        PaymentCancel unknownTimeout = cancel(CancelStatus.UNKNOWN_TIMEOUT, null, "TIMEOUT");
+        VanInquiryResponse vanResponse = vanCancelDeclinedResponse();
+        CancelResponse finalized = CancelResponse.declined(
+                CANCEL_POS_TRX,
+                ORIGINAL_POS_TRX,
+                ORIGINAL_ATTEMPT_SEQ,
+                VanDeclineCode.DO_NOT_HONOR.code()
+        );
 
         when(cancelRepository.findByPosTrx(CANCEL_POS_TRX))
-                .thenReturn(Optional.of(cancel(CancelStatus.UNKNOWN_TIMEOUT, null, "TIMEOUT")));
+                .thenReturn(Optional.of(unknownTimeout));
         when(assembler.getCancelInquiryRequest(CANCEL_POS_TRX)).thenReturn(request);
-        when(gateway.inquiry(request)).thenReturn(vanCancelDeclinedResponse());
-        when(cancelRepository.updateUnknownTimeoutToFinal(any()))
-                .thenReturn(Optional.of(updated));
+        when(gateway.inquiry(request)).thenReturn(vanResponse);
+        when(transactionService.finalizeResolvedInquiry(unknownTimeout, vanResponse))
+                .thenReturn(finalized);
 
         CancelResponse response = service.inquiry(new CancelInquiryRequest(CANCEL_POS_TRX));
 
         assertEquals(CancelResultStatus.CANCEL_DECLINED, response.cancelStatus());
         assertEquals(VanDeclineCode.DO_NOT_HONOR.code(), response.declineCode());
-
-        ArgumentCaptor<CancelResultUpdateParam> captor =
-                ArgumentCaptor.forClass(CancelResultUpdateParam.class);
-        verify(cancelRepository).updateUnknownTimeoutToFinal(captor.capture());
-        assertEquals(CancelStatus.CANCEL_DECLINED, captor.getValue().cancelStatus());
-        assertEquals(VAN_CANCEL_TRX_ID, captor.getValue().vanCancelTrxId());
-        assertEquals(VanDeclineCode.DO_NOT_HONOR.code(), captor.getValue().declineCode());
+        verify(transactionService).finalizeResolvedInquiry(unknownTimeout, vanResponse);
+        verify(cancelRepository, never()).updateUnknownTimeoutToFinal(any());
     }
 
     private PaymentCancel cancel(

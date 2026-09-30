@@ -1,4 +1,4 @@
-package com.chaeyeongmin.payment_sim.payment.application.approval;
+package com.chaeyeongmin.payment_sim.payment.application.approval.support;
 
 import com.chaeyeongmin.payment_sim.payment.application.common.VanDeclineCodeMapper;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentFinalStatus;

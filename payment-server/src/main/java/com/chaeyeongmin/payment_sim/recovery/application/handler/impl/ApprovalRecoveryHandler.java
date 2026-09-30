@@ -5,7 +5,7 @@ import com.chaeyeongmin.payment_sim.recovery.application.handler.RecoveryHandler
 import com.chaeyeongmin.payment_sim.recovery.application.handler.RecoveryHandlerResultType;
 import com.chaeyeongmin.payment_sim.recovery.application.service.RecoveryFinalizationService;
 import com.chaeyeongmin.payment_sim.recovery.application.exception.RecoveryInvariantViolationException;
-import com.chaeyeongmin.payment_sim.payment.application.approval.AttemptResultUpdateParamFactory;
+import com.chaeyeongmin.payment_sim.payment.application.approval.support.AttemptResultUpdateParamFactory;
 import com.chaeyeongmin.payment_sim.recovery.application.transaction.model.RecoveryFinalizeResult;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.recovery.domain.RecoveryTask;
