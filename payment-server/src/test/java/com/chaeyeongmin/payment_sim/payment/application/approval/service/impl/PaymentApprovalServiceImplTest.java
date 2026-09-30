@@ -3,6 +3,8 @@ package com.chaeyeongmin.payment_sim.payment.application.approval.service.impl;
 import com.chaeyeongmin.payment_sim.payment.api.common.CardInput;
 import com.chaeyeongmin.payment_sim.payment.api.approval.ApproveRequest;
 import com.chaeyeongmin.payment_sim.payment.api.approval.ApproveResponse;
+import com.chaeyeongmin.payment_sim.payment.application.approval.support.ApprovalEventRecorder;
+import com.chaeyeongmin.payment_sim.payment.application.approval.support.ApprovalResponseFactory;
 import com.chaeyeongmin.payment_sim.payment.application.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.payment.application.card.service.BinCatalogService;
 import com.chaeyeongmin.payment_sim.payment.application.approval.service.PaymentApprovalService;
@@ -61,6 +63,7 @@ class PaymentApprovalServiceImplTest {
     private ApproveRequestValidator validator;
     private VanApproveAssembler assembler;
     private PaymentEventLogRecorder paymentEventLogRecorder;
+    private ApprovalEventRecorder approvalEventRecorder;
     private BinCatalogService binCatalogService;
     private PaymentExternalInfoRepository paymentExternalInfoRepository;
     private CardFingerprintPolicy cardFingerprintPolicy;
@@ -76,6 +79,7 @@ class PaymentApprovalServiceImplTest {
         validator = mock(ApproveRequestValidator.class);
         assembler = mock(VanApproveAssembler.class);
         paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
+        approvalEventRecorder = new ApprovalEventRecorder(paymentEventLogRecorder);
         binCatalogService = mock(BinCatalogService.class);
         paymentExternalInfoRepository = mock(PaymentExternalInfoRepository.class);
         cardFingerprintPolicy = mock(CardFingerprintPolicy.class);
@@ -84,7 +88,8 @@ class PaymentApprovalServiceImplTest {
                 repository,
                 paymentExternalInfoRepository,
                 cardFingerprintPolicy,
-                paymentEventLogRecorder
+                approvalEventRecorder,
+                new ApprovalResponseFactory()
         );
 
         service = new PaymentApprovalServiceImpl(
@@ -92,7 +97,7 @@ class PaymentApprovalServiceImplTest {
                 gateway,
                 assembler,
                 validator,
-                paymentEventLogRecorder
+                approvalEventRecorder
         );
 
         when(binCatalogService.identify(anyString(), anyString())).thenAnswer(invocation ->
@@ -647,7 +652,7 @@ class PaymentApprovalServiceImplTest {
                         gateway,
                         assembler,
                         validator,
-                        paymentEventLogRecorder
+                        approvalEventRecorder
                 );
 
         CardIdentity cardIdentity = CardIdentity.unknown("41111111", "1111");
@@ -710,7 +715,7 @@ class PaymentApprovalServiceImplTest {
                 gateway,
                 assembler,
                 validator,
-                paymentEventLogRecorder
+                approvalEventRecorder
         );
         CardIdentity cardIdentity = CardIdentity.unknown("41111111", "1111");
         PaymentApprovalPrepareResult prepared = PaymentApprovalPrepareResult.created(trx, 1, cardIdentity);

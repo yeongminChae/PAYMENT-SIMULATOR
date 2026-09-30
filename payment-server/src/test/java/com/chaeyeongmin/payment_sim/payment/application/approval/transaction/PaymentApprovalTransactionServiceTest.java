@@ -5,6 +5,8 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.chaeyeongmin.payment_sim.payment.api.approval.ApproveResponse;
+import com.chaeyeongmin.payment_sim.payment.application.approval.support.ApprovalEventRecorder;
+import com.chaeyeongmin.payment_sim.payment.application.approval.support.ApprovalResponseFactory;
 import com.chaeyeongmin.payment_sim.payment.application.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.payment.application.card.service.BinCatalogService;
 import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.model.PaymentApprovalPrepareResult;
@@ -30,19 +32,22 @@ class PaymentApprovalTransactionServiceTest {
     private PaymentExternalInfoRepository infoRepository;
     private PaymentApprovalTransactionService transactionService;
     private PaymentEventLogRecorder paymentEventLogRecorder;
+    private ApprovalEventRecorder approvalEventRecorder;
 
     @BeforeEach
     void setUp() {
         repository = mock(PaymentAttemptRepository.class);
         infoRepository = mock(PaymentExternalInfoRepository.class);
         paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
+        approvalEventRecorder = new ApprovalEventRecorder(paymentEventLogRecorder);
 
         transactionService = new PaymentApprovalTransactionService(
                 mock(BinCatalogService.class),
                 repository,
                 infoRepository,
                 mock(CardFingerprintPolicy.class),
-                paymentEventLogRecorder
+                approvalEventRecorder,
+                new ApprovalResponseFactory()
         );
     }
 

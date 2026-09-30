@@ -2,16 +2,11 @@ package com.chaeyeongmin.payment_sim.payment.application.approval.service.impl;
 
 import com.chaeyeongmin.payment_sim.payment.api.approval.ApproveRequest;
 import com.chaeyeongmin.payment_sim.payment.api.approval.ApproveResponse;
-import com.chaeyeongmin.payment_sim.payment.application.event.PaymentEventLogRecorder;
+import com.chaeyeongmin.payment_sim.payment.application.approval.support.ApprovalEventRecorder;
 import com.chaeyeongmin.payment_sim.payment.application.approval.service.PaymentApprovalService;
-import com.chaeyeongmin.payment_sim.payment.application.common.PaymentResultCodeMapper;
-import com.chaeyeongmin.payment_sim.payment.application.common.VanDeclineCodeMapper;
 import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.PaymentApprovalTransactionService;
 import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.model.PaymentApprovalPrepareResult;
 import com.chaeyeongmin.payment_sim.payment.api.approval.ApproveRequestValidator;
-import com.chaeyeongmin.payment_sim.payment.domain.event.PaymentEventType;
-import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentFinalStatus;
-import com.chaeyeongmin.payment_sim.infra.repository.dto.*;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanApproveAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveResponse;
@@ -51,7 +46,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
     private final VanGateway vanGateway;
     private final VanApproveAssembler vanApproveAssembler;
     private final ApproveRequestValidator validator;
-    private final PaymentEventLogRecorder paymentEventLogRecorder;
+    private final ApprovalEventRecorder eventRecorder;
 
     @Override
     public ApproveResponse approve(ApproveRequest request) {
@@ -85,7 +80,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
                         prepared.cardIdentity().cardLast4()
                 );
 
-        recordVanApproveRequested(prepared);
+        eventRecorder.recordVanApproveRequested(prepared);
 
         final VanApproveResponse vanResponse;
         try {
@@ -106,81 +101,12 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         }
 
         // 이 이벤트는 실제 VanApproveResponse를 받은 경우에만 기록한다.
-        recordVanApproveResultReceived(prepared, vanResponse);
+        eventRecorder.recordVanApproveResultReceived(prepared, vanResponse);
 
         // TX2: VAN 결과 확정 트랜잭션.
         // - FINAL_STATUS IS NULL 조건부 update로 최초 확정 요청만 저장한다.
         // - update miss가 나면 DB를 다시 읽어 저장된 값을 우선 응답한다.
         return transactionService.finalizeApproval(prepared, vanResponse);
-    }
-
-    private void recordVanApproveRequested(PaymentApprovalPrepareResult prepared) {
-        insertApproveEvent(
-                PaymentEventType.APPROVE_VAN_REQUESTED,
-                prepared.posTrx(),
-                prepared.attemptSeq(),
-                null,
-                PaymentFinalStatus.PROCESSING.name(),
-                null,
-                null,
-                null,
-                "VAN approve requested"
-        );
-    }
-
-    private void recordVanApproveResultReceived(
-            PaymentApprovalPrepareResult prepared,
-            VanApproveResponse vanResponse
-    ) {
-        insertApproveEvent(
-                PaymentEventType.APPROVE_VAN_RESULT_RECEIVED,
-                prepared.posTrx(),
-                prepared.attemptSeq(),
-                PaymentResultCodeMapper.codeName(vanResponse.finalStatus()),
-                vanResponse.finalStatus().name(),
-                vanResponse.vanTrxId(),
-                vanResponse.approvalNo(),
-                VanDeclineCodeMapper.toCode(vanResponse.declineCode()),
-                "VAN approve result received"
-        );
-    }
-
-    /**
-     * 승인 이벤트 로그를 구조화 컬럼만으로 저장한다.
-     *
-     * <p>
-     * PAN/CVC/전문 원문은 파라미터에 포함하지 않는다.
-     */
-    private void insertApproveEvent(
-            PaymentEventType eventType,
-            String posTrx,
-            int attemptSeq,
-            String resultCode,
-            String statusSnapshot,
-            String vanTrxId,
-            String approvalNo,
-            String declineCode,
-            String note
-    ) {
-        PaymentEventLogInsertParam event = PaymentEventLogInsertParam.approval(
-                eventType,
-                posTrx,
-                attemptSeq,
-                resultCode,
-                statusSnapshot,
-                vanTrxId,
-                approvalNo,
-                declineCode,
-                note
-        );
-
-        if (eventType == PaymentEventType.APPROVE_CONFLICT) {
-            // 충돌 이벤트는 이 메서드가 BusinessException으로 rollback된 뒤 listener가 기록한다.
-            paymentEventLogRecorder.recordAfterRollback(event);
-            return;
-        }
-
-        paymentEventLogRecorder.record(event);
     }
 
 }
