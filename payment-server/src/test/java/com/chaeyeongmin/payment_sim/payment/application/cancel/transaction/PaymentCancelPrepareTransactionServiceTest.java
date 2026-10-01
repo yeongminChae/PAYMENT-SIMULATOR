@@ -1,24 +1,24 @@
 package com.chaeyeongmin.payment_sim.payment.application.cancel.transaction;
 
-import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelResultStatus;
-import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelRequest;
-import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelResponse;
-import com.chaeyeongmin.payment_sim.payment.application.event.PaymentEventLogRecorder;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.support.CancelEventRecorder;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.support.CancelResponseFactory;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.model.PaymentCancelPrepareResult;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
-import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentAttempt;
-import com.chaeyeongmin.payment_sim.payment.domain.cancel.PaymentCancel;
-import com.chaeyeongmin.payment_sim.payment.domain.cancel.CancelStatus;
-import com.chaeyeongmin.payment_sim.payment.domain.event.PaymentEventType;
-import com.chaeyeongmin.payment_sim.payment.domain.cancel.CancelCardVerificationPolicy;
-import com.chaeyeongmin.payment_sim.payment.domain.card.CardFingerprintPolicy;
-import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
+import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelRequest;
+import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelResultStatus;
+import com.chaeyeongmin.payment_sim.payment.application.cancel.support.CancelEventRecorder;
+import com.chaeyeongmin.payment_sim.payment.application.cancel.support.CancelReservationHandler;
+import com.chaeyeongmin.payment_sim.payment.application.cancel.support.CancelResponseFactory;
+import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.model.PaymentCancelPrepareResult;
+import com.chaeyeongmin.payment_sim.payment.application.event.PaymentEventLogRecorder;
+import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentAttempt;
+import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentFinalStatus;
+import com.chaeyeongmin.payment_sim.payment.domain.cancel.CancelCardVerificationPolicy;
+import com.chaeyeongmin.payment_sim.payment.domain.cancel.CancelStatus;
+import com.chaeyeongmin.payment_sim.payment.domain.cancel.PaymentCancel;
+import com.chaeyeongmin.payment_sim.payment.domain.card.CardFingerprintPolicy;
+import com.chaeyeongmin.payment_sim.payment.domain.event.PaymentEventType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -30,8 +30,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class PaymentCancelPrepareTransactionServiceTest {
 
@@ -41,23 +48,28 @@ class PaymentCancelPrepareTransactionServiceTest {
             new CancelCardVerificationPolicy(CARD_FINGERPRINT_POLICY);
 
     private PaymentCancelPrepareTransactionService transactionService;
-    private PaymentCancelRepository repository;
+    private PaymentCancelRepository cancelRepository;
     private PaymentAttemptRepository paymentAttemptRepository;
+    private CancelReservationHandler cancelReservationHandler;
     private PaymentEventLogRecorder paymentEventLogRecorder;
 
     private CancelRequest baseReq;
 
     @BeforeEach
     void setUp() {
-        repository = mock(PaymentCancelRepository.class);
+        cancelRepository = mock(PaymentCancelRepository.class);
         paymentAttemptRepository = mock(PaymentAttemptRepository.class);
         paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
-
+        cancelReservationHandler = new CancelReservationHandler(
+                cancelRepository,
+                new CancelResponseFactory(),
+                new CancelEventRecorder(paymentEventLogRecorder)
+        );
         transactionService = new PaymentCancelPrepareTransactionService(
-                repository,
+                cancelRepository,
                 paymentAttemptRepository,
                 CANCEL_CARD_VERIFICATION_POLICY,
-                new CancelResponseFactory(),
+                cancelReservationHandler,
                 new CancelEventRecorder(paymentEventLogRecorder)
         );
 
@@ -89,8 +101,8 @@ class PaymentCancelPrepareTransactionServiceTest {
 
         assertEquals(ResultCode.NOT_FOUND, exception.getResultCode());
         verify(paymentAttemptRepository).findByPosTrxAndAttemptSeq(originalPosTrx, originalAttemptSeq);
-        verify(repository, never()).findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq);
-        verify(repository, never()).insertPendingCancel(any());
+        verify(cancelRepository, never()).findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq);
+        verify(cancelRepository, never()).insertPendingCancel(any());
     }
 
     /**
@@ -111,8 +123,8 @@ class PaymentCancelPrepareTransactionServiceTest {
         assertEquals(CancelResultStatus.CANCEL_NOT_ALLOWED, prepared.completedResponse().cancelStatus());
         assertEquals("ORIGINAL_NOT_APPROVED", prepared.completedResponse().declineCode());
 
-        verify(repository, never()).findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq);
-        verify(repository, never()).insertPendingCancel(any());
+        verify(cancelRepository, never()).findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq);
+        verify(cancelRepository, never()).insertPendingCancel(any());
     }
 
     @Test
@@ -155,13 +167,13 @@ class PaymentCancelPrepareTransactionServiceTest {
 
         when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.of(originalApprovedAttempt()));
-        when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))
+        when(cancelRepository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.of(pendingCancel()));
 
         PaymentCancelPrepareResult prepared = transactionService.prepare(baseReq);
 
         assertEquals(CancelResultStatus.RETRY_LATER, prepared.completedResponse().cancelStatus());
-        verify(repository, never()).insertPendingCancel(any());
+        verify(cancelRepository, never()).insertPendingCancel(any());
     }
 
     /**
@@ -175,14 +187,14 @@ class PaymentCancelPrepareTransactionServiceTest {
 
         when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.of(originalApprovedAttempt()));
-        when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))
+        when(cancelRepository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.of(cancelledCancel()));
 
         PaymentCancelPrepareResult prepared = transactionService.prepare(baseReq);
 
         assertEquals(CancelResultStatus.ALREADY_CANCELLED, prepared.completedResponse().cancelStatus());
         assertEquals("A137515458", prepared.completedResponse().cancelApprovalNo());
-        verify(repository, never()).insertPendingCancel(any());
+        verify(cancelRepository, never()).insertPendingCancel(any());
     }
 
     /**
@@ -196,14 +208,14 @@ class PaymentCancelPrepareTransactionServiceTest {
 
         when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.of(originalApprovedAttempt()));
-        when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))
+        when(cancelRepository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.of(cancelDeclinedCancel()));
 
         PaymentCancelPrepareResult prepared = transactionService.prepare(baseReq);
 
         assertEquals(CancelResultStatus.CANCEL_DECLINED, prepared.completedResponse().cancelStatus());
         assertEquals("05", prepared.completedResponse().declineCode());
-        verify(repository, never()).insertPendingCancel(any());
+        verify(cancelRepository, never()).insertPendingCancel(any());
     }
 
     /**
@@ -218,10 +230,10 @@ class PaymentCancelPrepareTransactionServiceTest {
 
         when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.of(originalApprovedAttempt()));
-        when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))
+        when(cancelRepository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(rereadCancel));
-        when(repository.insertPendingCancel(any(CancelInsertParam.class)))
+        when(cancelRepository.insertPendingCancel(any(CancelInsertParam.class)))
                 .thenReturn(Optional.empty());
 
         PaymentCancelPrepareResult prepared = transactionService.prepare(baseReq);
@@ -229,9 +241,9 @@ class PaymentCancelPrepareTransactionServiceTest {
         assertEquals(CancelResultStatus.ALREADY_CANCELLED, prepared.completedResponse().cancelStatus());
         assertEquals(rereadCancel.cancelApprovalNo(), prepared.completedResponse().cancelApprovalNo());
 
-        verify(repository, times(2))
+        verify(cancelRepository, times(2))
                 .findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq);
-        verify(repository).insertPendingCancel(any(CancelInsertParam.class));
+        verify(cancelRepository).insertPendingCancel(any(CancelInsertParam.class));
     }
 
     @Test
@@ -308,7 +320,7 @@ class PaymentCancelPrepareTransactionServiceTest {
                 null
         );
 
-        when(repository.findByPosTrx(request.posTrx())).thenReturn(Optional.of(existing));
+        when(cancelRepository.findByPosTrx(request.posTrx())).thenReturn(Optional.of(existing));
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
@@ -347,7 +359,7 @@ class PaymentCancelPrepareTransactionServiceTest {
                 null
         );
 
-        when(repository.findByPosTrx(request.posTrx())).thenReturn(Optional.of(existing));
+        when(cancelRepository.findByPosTrx(request.posTrx())).thenReturn(Optional.of(existing));
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
@@ -378,7 +390,7 @@ class PaymentCancelPrepareTransactionServiceTest {
                 null
         );
 
-        when(repository.findByPosTrx(request.posTrx())).thenReturn(Optional.of(existing));
+        when(cancelRepository.findByPosTrx(request.posTrx())).thenReturn(Optional.of(existing));
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
@@ -425,8 +437,8 @@ class PaymentCancelPrepareTransactionServiceTest {
         assertThat(exception.getResultCode()).isEqualTo(ResultCode.CANCEL_NOT_ALLOWED);
         assertThat(exception.getMessage()).isEqualTo("CARD_MISMATCH");
 
-        verify(repository, never()).findByOriginalPosTrxAndOriginalAttemptSeq(anyString(), anyInt());
-        verify(repository, never()).insertPendingCancel(any());
+        verify(cancelRepository, never()).findByOriginalPosTrxAndOriginalAttemptSeq(anyString(), anyInt());
+        verify(cancelRepository, never()).insertPendingCancel(any());
     }
 
     /**
@@ -469,9 +481,9 @@ class PaymentCancelPrepareTransactionServiceTest {
 
         when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(baseReq.originalPosTrx(), baseReq.originalAttemptSeq()))
                 .thenReturn(Optional.of(legacyOriginalAttempt));
-        when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(baseReq.originalPosTrx(), baseReq.originalAttemptSeq()))
+        when(cancelRepository.findByOriginalPosTrxAndOriginalAttemptSeq(baseReq.originalPosTrx(), baseReq.originalAttemptSeq()))
                 .thenReturn(Optional.empty());
-        when(repository.insertPendingCancel(any()))
+        when(cancelRepository.insertPendingCancel(any()))
                 .thenReturn(Optional.of(pendingCancel()));
 
         PaymentCancelPrepareResult prepared = transactionService.prepare(baseReq);
@@ -481,7 +493,7 @@ class PaymentCancelPrepareTransactionServiceTest {
         assertEquals(baseReq.originalPosTrx(), prepared.originalPosTrx());
         assertEquals(baseReq.originalAttemptSeq(), prepared.originalAttemptSeq());
         assertThat(prepared.originalAttempt()).isEqualTo(legacyOriginalAttempt);
-        verify(repository).insertPendingCancel(any());
+        verify(cancelRepository).insertPendingCancel(any());
     }
 
     @Test
@@ -505,7 +517,7 @@ class PaymentCancelPrepareTransactionServiceTest {
 
         assertThat(exception.getResultCode()).isEqualTo(ResultCode.CANCEL_NOT_ALLOWED);
         assertThat(exception.getMessage()).isEqualTo("CARD_MISMATCH");
-        verify(repository, never()).insertPendingCancel(any());
+        verify(cancelRepository, never()).insertPendingCancel(any());
     }
 
     /**
@@ -520,9 +532,9 @@ class PaymentCancelPrepareTransactionServiceTest {
 
         when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.of(originalAttempt));
-        when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))
+        when(cancelRepository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.empty());
-        when(repository.insertPendingCancel(any()))
+        when(cancelRepository.insertPendingCancel(any()))
                 .thenReturn(Optional.of(pendingCancel()));
 
         PaymentCancelPrepareResult prepared = transactionService.prepare(baseReq);
@@ -532,7 +544,7 @@ class PaymentCancelPrepareTransactionServiceTest {
         assertEquals(baseReq.originalPosTrx(), prepared.originalPosTrx());
         assertEquals(baseReq.originalAttemptSeq(), prepared.originalAttemptSeq());
         assertThat(prepared.originalAttempt()).isEqualTo(originalAttempt);
-        verify(repository).insertPendingCancel(any());
+        verify(cancelRepository).insertPendingCancel(any());
     }
 
     @Test
@@ -546,11 +558,11 @@ class PaymentCancelPrepareTransactionServiceTest {
         );
 
         givenNoCurrentCancelAndApprovedOriginal(request);
-        when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(
+        when(cancelRepository.findByOriginalPosTrxAndOriginalAttemptSeq(
                 request.originalPosTrx(),
                 request.originalAttemptSeq()
         )).thenReturn(Optional.empty());
-        when(repository.insertPendingCancel(any(CancelInsertParam.class)))
+        when(cancelRepository.insertPendingCancel(any(CancelInsertParam.class)))
                 .thenReturn(Optional.of(paymentCancel(
                         request,
                         CancelStatus.PENDING,
@@ -579,12 +591,12 @@ class PaymentCancelPrepareTransactionServiceTest {
     }
 
     private void givenNoCurrentCancelAndApprovedOriginal(CancelRequest request) {
-        when(repository.findByPosTrx(request.posTrx())).thenReturn(Optional.empty());
+        when(cancelRepository.findByPosTrx(request.posTrx())).thenReturn(Optional.empty());
         givenApprovedOriginal(request);
     }
 
     private void givenNoExistingCancelThenReread(Optional<PaymentCancel> rereadCancel) {
-        when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(
+        when(cancelRepository.findByOriginalPosTrxAndOriginalAttemptSeq(
                 baseReq.originalPosTrx(),
                 baseReq.originalAttemptSeq()
         ))
@@ -593,23 +605,23 @@ class PaymentCancelPrepareTransactionServiceTest {
     }
 
     private void givenInsertPendingConflict() {
-        when(repository.insertPendingCancel(any(CancelInsertParam.class)))
+        when(cancelRepository.insertPendingCancel(any(CancelInsertParam.class)))
                 .thenThrow(new DataIntegrityViolationException("unique constraint"));
     }
 
     private void verifyC5ConflictRecoveryTried(CancelRequest request) {
-        verify(repository, times(2)).findByOriginalPosTrxAndOriginalAttemptSeq(
+        verify(cancelRepository, times(2)).findByOriginalPosTrxAndOriginalAttemptSeq(
                 request.originalPosTrx(),
                 request.originalAttemptSeq()
         );
-        verify(repository).insertPendingCancel(any(CancelInsertParam.class));
+        verify(cancelRepository).insertPendingCancel(any(CancelInsertParam.class));
     }
 
     private void verifySameCancelPosTrxConflictBlocked(CancelRequest request) {
-        verify(repository).findByPosTrx(request.posTrx());
+        verify(cancelRepository).findByPosTrx(request.posTrx());
         verify(paymentAttemptRepository, never()).findByPosTrxAndAttemptSeq(anyString(), anyInt());
-        verify(repository, never()).findByOriginalPosTrxAndOriginalAttemptSeq(anyString(), anyInt());
-        verify(repository, never()).insertPendingCancel(any(CancelInsertParam.class));
+        verify(cancelRepository, never()).findByOriginalPosTrxAndOriginalAttemptSeq(anyString(), anyInt());
+        verify(cancelRepository, never()).insertPendingCancel(any(CancelInsertParam.class));
     }
 
     private CancelRequest cancelRequest(

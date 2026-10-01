@@ -1,25 +1,21 @@
 package com.chaeyeongmin.payment_sim.payment.application.cancel.transaction;
 
+import com.chaeyeongmin.payment_sim.common.api.ResultCode;
+import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
+import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
+import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
 import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelRequest;
 import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelResponse;
 import com.chaeyeongmin.payment_sim.payment.application.cancel.support.CancelEventRecorder;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.support.CancelResponseFactory;
-import com.chaeyeongmin.payment_sim.payment.application.common.PaymentResultCodeMapper;
+import com.chaeyeongmin.payment_sim.payment.application.cancel.support.CancelReservationHandler;
 import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.model.PaymentCancelPrepareResult;
-import com.chaeyeongmin.payment_sim.common.api.ResultCode;
-import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentAttempt;
-import com.chaeyeongmin.payment_sim.payment.domain.cancel.PaymentCancel;
-import com.chaeyeongmin.payment_sim.payment.domain.cancel.CancelStatus;
-import com.chaeyeongmin.payment_sim.payment.domain.event.PaymentEventType;
-import com.chaeyeongmin.payment_sim.payment.domain.cancel.CancelCardVerificationPolicy;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentFinalStatus;
-import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
-import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
-import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
+import com.chaeyeongmin.payment_sim.payment.domain.cancel.CancelCardVerificationPolicy;
+import com.chaeyeongmin.payment_sim.payment.domain.cancel.PaymentCancel;
+import com.chaeyeongmin.payment_sim.payment.domain.event.PaymentEventType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,7 +35,7 @@ public class PaymentCancelPrepareTransactionService {
     private final PaymentCancelRepository cancelRepository;
     private final PaymentAttemptRepository attemptRepository;
     private final CancelCardVerificationPolicy policy;
-    private final CancelResponseFactory factory;
+    private final CancelReservationHandler reservationHandler;
     private final CancelEventRecorder recorder;
 
     /**
@@ -82,10 +78,15 @@ public class PaymentCancelPrepareTransactionService {
         assertCardMatches(request, posTrx, originalPosTrx, originalAttemptSeq, originalAttempt);
 
         Optional<PaymentCancelPrepareResult> existingCancelResult =
-                completeIfExistingCancelByOriginal(request, posTrx, originalPosTrx, originalAttemptSeq);
+                reservationHandler.completeIfExistingCancelByOriginal(
+                        request,
+                        posTrx,
+                        originalPosTrx,
+                        originalAttemptSeq);
+
         if (existingCancelResult.isPresent()) return existingCancelResult.get();
 
-        return insertPendingCancelOrRecover(
+        return reservationHandler.insertPendingCancelOrRecover(
                 request,
                 posTrx,
                 originalPosTrx,
@@ -255,164 +256,6 @@ public class PaymentCancelPrepareTransactionService {
         }
     }
 
-    /**
-     * 원거래 기준 기존 취소 row가 있으면 현재 요청에서는 VAN을 재호출하지 않고 기존 상태로 재응답한다.
-     */
-    private Optional<PaymentCancelPrepareResult> completeIfExistingCancelByOriginal(
-            CancelRequest request,
-            String posTrx,
-            String originalPosTrx,
-            int originalAttemptSeq
-    ) {
-        // C4-3: 기존 취소 row 확인.
-        // - 원거래가 APPROVED여도 이미 취소 요청이 있었으면 VAN을 다시 호출하면 안 된다.
-        // - 원거래 기준 unique 제약과 함께 "원승인 1건당 취소 1건" 정책을 보장한다.
-        Optional<PaymentCancel> existingCancelByOriginalOpt =
-                findCancelByOriginal(
-                        "C4-existing-cancel-check",
-                        posTrx,
-                        originalPosTrx,
-                        originalAttemptSeq
-                );
-
-        if (existingCancelByOriginalOpt.isPresent()) {
-            PaymentCancel existingCancelByOriginal = existingCancelByOriginalOpt.get();
-
-            log.info("[cancel][C4] existing cancel row found. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, cancelStatus={}",
-                    posTrx,
-                    originalPosTrx,
-                    originalAttemptSeq,
-                    existingCancelByOriginal.cancelStatus()
-            );
-
-            // C4-3-1: 기존 cancel row 재응답.
-            // - 기존 row가 있으면 현재 요청의 posTrx가 달라도 원거래 기준 기존 취소 상태를 우선한다.
-            // - 이 분기에서는 외부 VAN 취소를 절대 다시 호출하지 않는다.
-            CancelResponse response = factory.fromExistingCancel(request, existingCancelByOriginal);
-            recorder.recordCancelEvent(
-                    PaymentEventType.CANCEL_REUSED_BY_ORIGINAL,
-                    posTrx,
-                    originalPosTrx,
-                    originalAttemptSeq,
-                    PaymentResultCodeMapper.codeName(response.cancelStatus()),
-                    response.cancelStatus().name(),
-                    null,
-                    existingCancelByOriginal.cancelApprovalNo(),
-                    existingCancelByOriginal.declineCode(),
-                    "cancel result reused by original"
-            );
-
-            return Optional.of(PaymentCancelPrepareResult.completed(response));
-        }
-
-        return Optional.empty();
-    }
-
-    /**
-     * VAN cancel을 호출해도 되는 요청인지 DB row 생성 결과로 결정한다.
-     *
-     * <p>
-     * 이 메서드는 먼저 PAYMENT_CANCEL에 PENDING row를 insert한다.
-     * insert에 성공하면 이 요청이 VAN cancel을 호출해도 되는 대표 요청이므로 created 결과를 반환한다.
-     *
-     * <p>
-     * insert에 실패하면 누군가 같은 원거래로 cancel row를 먼저 만든 상황일 수 있다.
-     * 그래서 바로 오류로 끝내지 않고 DB를 다시 조회한다.
-     * - 같은 원거래 row가 있으면 이미 취소 요청이 접수된 것이므로 그 row 상태를 응답한다.
-     * - 그래도 row가 없으면 판단 근거가 없으므로 retryLater로 방어한다.
-     *
-     * <p>
-     * 결과적으로 이 메서드가 created를 반환한 요청만 VAN을 호출하고,
-     * completed를 반환한 요청은 VAN을 호출하지 않는다.
-     */
-    private PaymentCancelPrepareResult insertPendingCancelOrRecover(
-            CancelRequest request,
-            String posTrx,
-            String originalPosTrx,
-            int originalAttemptSeq,
-            PaymentAttempt originalAttempt
-    ) {
-        // C4-3-2: 기존 cancel row가 없는 경우.
-        // - 원거래는 APPROVED이고, 기존 취소 row도 없으므로 신규 취소 진행 가능 상태다.
-        // - 여기까지 통과하면 C5에서 먼저 PENDING row를 만든다.
-        // - PENDING 선저장은 외부 VAN 호출 전에 "취소 시도 중"이라는 내부 락/흔적을 남기는 역할이다.
-        CancelInsertParam insertParam = CancelInsertParam.pending(
-                posTrx,
-                originalPosTrx,
-                originalAttemptSeq
-        );
-
-        // C5: PENDING cancel row 생성.
-        // - insertParam은 PAYMENT_CANCEL insert 전용 명령 객체다.
-        // - CURRENT_TRX_NO에는 이번 취소 거래번호를, ORIGINAL_*에는 취소 대상 원거래 식별자를 담는다.
-        // - insert가 성공한 요청만 VAN cancel 호출 권한을 얻는다.
-        // - unique 충돌은 동일 원거래 취소가 먼저 접수된 경합으로 보고 original 기준 재조회 복구로 넘긴다.
-        Optional<PaymentCancel> pendingCancelOpt;
-        try {
-            pendingCancelOpt = cancelRepository.insertPendingCancel(insertParam);
-
-        } catch (DataIntegrityViolationException e) {
-            // SQLite/MyBatis 조합에서는 unique 충돌이 Optional.empty가 아니라
-            // DataIntegrityViolationException 계열 예외로 올라올 수 있다.
-            // 이 경로에서는 VAN cancel을 호출하지 않고, 이미 생성된 PAYMENT_CANCEL row를 재조회해 재응답한다.
-            log.warn("[cancel][C5-conflict] pending cancel insert conflict. posTrx={}, originalPosTrx={}, originalAttemptSeq={}",
-                    posTrx,
-                    originalPosTrx,
-                    originalAttemptSeq,
-                    e
-            );
-
-            return PaymentCancelPrepareResult.completed(
-                    handleInsertPendingMiss(
-                            request,
-                            posTrx,
-                            originalPosTrx,
-                            originalAttemptSeq
-                    )
-            );
-        }
-
-        if (pendingCancelOpt.isPresent()) {
-            PaymentCancel pendingCancel = pendingCancelOpt.get();
-
-            log.info("[cancel][C5] pending cancel row created. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, cancelStatus={}",
-                    posTrx,
-                    originalPosTrx,
-                    originalAttemptSeq,
-                    pendingCancel.cancelStatus()
-            );
-
-            recorder.recordCancelEvent(
-                    PaymentEventType.CANCEL_PENDING_CREATED,
-                    posTrx,
-                    originalPosTrx,
-                    originalAttemptSeq,
-                    null,
-                    CancelStatus.PENDING.name(),
-                    null,
-                    null,
-                    null,
-                    "cancel pending created"
-            );
-
-            return PaymentCancelPrepareResult.created(
-                    posTrx,
-                    originalPosTrx,
-                    originalAttemptSeq,
-                    originalAttempt
-            );
-
-        }
-
-        return PaymentCancelPrepareResult.completed(
-                handleInsertPendingMiss(
-                        request,
-                        posTrx,
-                        originalPosTrx,
-                        originalAttemptSeq
-                )
-        );
-    }
 
     /**
      * 취소 거래번호(posTrx)가 이미 사용됐는지 검사한다.
@@ -455,71 +298,4 @@ public class PaymentCancelPrepareTransactionService {
 
     }
 
-    /**
-     * 원거래 식별자 기준으로 PAYMENT_CANCEL row를 조회한다.
-     */
-    private Optional<PaymentCancel> findCancelByOriginal(
-            String phase,
-            String posTrx,
-            String originalPosTrx,
-            int originalAttemptSeq
-    ) {
-        Optional<PaymentCancel> cancelByOriginalOpt =
-                cancelRepository.findByOriginalPosTrxAndOriginalAttemptSeq(
-                        originalPosTrx,
-                        originalAttemptSeq
-                );
-
-        cancelByOriginalOpt.ifPresent(cancel ->
-                log.info("[cancel][{}] cancel row found. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, cancelStatus={}",
-                        phase,
-                        posTrx,
-                        originalPosTrx,
-                        originalAttemptSeq,
-                        cancel.cancelStatus()
-                )
-        );
-
-        return cancelByOriginalOpt;
-    }
-
-    /**
-     * PENDING cancel row insert가 실패했을 때의 경합/방어 처리.
-     * <p>
-     * 이 함수의 역할:
-     * - insert 실패를 즉시 장애로 보지 않고, unique 제약 경합으로 기존 row가 생겼는지 재조회한다.
-     * - 기존 row가 있으면 그 row의 상태를 기준으로 재응답한다.
-     * - 기존 row도 없으면 정상 흐름이 아니므로 로그를 남기고 retryLater로 방어한다.
-     */
-    private CancelResponse handleInsertPendingMiss(
-            CancelRequest request,
-            String posTrx,
-            String originalPosTrx,
-            int originalAttemptSeq
-    ) {
-        Optional<PaymentCancel> rereadCancelByOriginalOpt =
-                findCancelByOriginal(
-                        "C5-insert-miss",
-                        posTrx,
-                        originalPosTrx,
-                        originalAttemptSeq
-                );
-
-        // UNIQUE 제약 경합으로 insert가 실패했으면 먼저 생성된 row를 응답 소스로 사용한다.
-        // - 예: 같은 원거래 취소 요청 2개가 거의 동시에 들어온 경우.
-        // - 한쪽 insert만 성공하고 다른 쪽은 여기로 내려온 뒤 기존 row를 재응답한다.
-        if (rereadCancelByOriginalOpt.isPresent())
-            return factory.fromExistingCancel(request, rereadCancelByOriginalOpt.get());
-
-        // insert도 실패했고 재조회도 실패한 경우.
-        // - 정상적인 unique 경합이라면 row가 보여야 하므로, 이 로그는 DB 반영/트랜잭션/매퍼 쪽 확인 신호다.
-        log.error("[cancel][C5-insert-miss][CRITICAL_CANCEL_ROW_NOT_FOUND] pending insert failed but cancel row not found. posTrx={}, originalPosTrx={}, originalAttemptSeq={}",
-                posTrx, originalPosTrx, originalAttemptSeq);
-
-        return CancelResponse.retryLater(
-                posTrx,
-                originalPosTrx,
-                originalAttemptSeq
-        );
-    }
 }
