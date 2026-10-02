@@ -3,7 +3,7 @@ package com.chaeyeongmin.payment_sim.payment.application.reversal.transaction.mo
 import com.chaeyeongmin.payment_sim.payment.api.reversal.ReversalResponse;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentAttempt;
 
-public record PaymentReversalPrepareResult(
+public record ReversalPrepareResult(
         boolean completed,
         ReversalResponse completedResponse,
         String reversalPosTrx,
@@ -12,8 +12,8 @@ public record PaymentReversalPrepareResult(
         PaymentAttempt originalAttempt
 ) {
 
-    public static PaymentReversalPrepareResult completed(ReversalResponse response) {
-        return new PaymentReversalPrepareResult(
+    public static ReversalPrepareResult completed(ReversalResponse response) {
+        return new ReversalPrepareResult(
                 true,
                 response,
                 response.reversalPosTrx(),
@@ -23,13 +23,13 @@ public record PaymentReversalPrepareResult(
         );
     }
 
-    public static PaymentReversalPrepareResult created(
+    public static ReversalPrepareResult created(
             String reversalPosTrx,
             String originalPosTrx,
             int originalAttemptSeq,
             PaymentAttempt originalAttempt
     ) {
-        return new PaymentReversalPrepareResult(
+        return new ReversalPrepareResult(
                 false,
                 null,
                 reversalPosTrx,
