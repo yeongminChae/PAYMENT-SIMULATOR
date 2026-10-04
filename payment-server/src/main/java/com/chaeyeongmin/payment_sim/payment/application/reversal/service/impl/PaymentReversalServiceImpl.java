@@ -3,8 +3,9 @@ package com.chaeyeongmin.payment_sim.payment.application.reversal.service.impl;
 import com.chaeyeongmin.payment_sim.payment.api.reversal.ReversalRequest;
 import com.chaeyeongmin.payment_sim.payment.api.reversal.ReversalResponse;
 import com.chaeyeongmin.payment_sim.payment.application.reversal.service.PaymentReversalService;
-import com.chaeyeongmin.payment_sim.payment.application.reversal.transaction.PaymentReversalTransactionService;
-import com.chaeyeongmin.payment_sim.payment.application.reversal.transaction.model.PaymentReversalPrepareResult;
+import com.chaeyeongmin.payment_sim.payment.application.reversal.transaction.ReversalFinalizeTxService;
+import com.chaeyeongmin.payment_sim.payment.application.reversal.transaction.ReversalPrepareTxService;
+import com.chaeyeongmin.payment_sim.payment.application.reversal.transaction.model.ReversalPrepareResult;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanReversalAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanReversalRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanReversalResponse;
@@ -33,7 +34,8 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class PaymentReversalServiceImpl implements PaymentReversalService {
 
-    private final PaymentReversalTransactionService transactionService;
+    private final ReversalPrepareTxService prepareTxService;
+    private final ReversalFinalizeTxService finalizeTxService;
     private final VanGateway vanGateway;
     private final VanReversalAssembler vanReversalAssembler;
 
@@ -50,7 +52,7 @@ public class PaymentReversalServiceImpl implements PaymentReversalService {
         // - reversalPosTrx payload 충돌 검증, 원승인 lock, 원승인 상태 확인, 기존 reversal 재응답을 담당한다.
         // - UNKNOWN_TIMEOUT 원승인만 reversal 대상이며, 신규 요청은 PENDING row를 먼저 만든다.
         // - completed=true면 이미 DB 기준으로 응답이 확정된 경로라 VAN을 호출하지 않는다.
-        PaymentReversalPrepareResult prepared = transactionService.prepare(request);
+        ReversalPrepareResult prepared = prepareTxService.prepare(request);
         if (prepared.isCompleted()) return prepared.completedResponse();
 
         // R5: VAN reversal 요청 DTO 구성.
@@ -73,7 +75,7 @@ public class PaymentReversalServiceImpl implements PaymentReversalService {
         } catch (VanGatewayRequestNotSentException e) {
             // Socket.connect 단계에서 실패해 request bytes가 전송되지 않은 경우다.
             // - VAN에 reversal이 전달되지 않았으므로 방금 만든 PENDING row를 정리해 동일 요청 재시도를 허용한다.
-            return transactionService.cleanupPendingAndRetryLater(prepared);
+            return prepareTxService.cleanupRequestNotSent(prepared);
 
         } catch (VanGatewayTimeoutException e) {
             // 요청은 VAN에 전달됐을 수 있지만 응답을 받지 못했다.
@@ -88,6 +90,6 @@ public class PaymentReversalServiceImpl implements PaymentReversalService {
         // R7: VAN 응답 확정 트랜잭션.
         // - PENDING row를 선점한 요청만 여기까지 내려온다.
         // - VAN 결과를 DB에 먼저 저장하고, 실제 저장된 값을 기준으로 최종 응답을 만든다.
-        return transactionService.finalizeReversal(prepared, vanResponse);
+        return finalizeTxService.applyVanResult(prepared, vanResponse);
     }
 }
