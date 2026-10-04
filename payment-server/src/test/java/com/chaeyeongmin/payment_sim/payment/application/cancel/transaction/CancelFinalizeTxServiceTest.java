@@ -6,7 +6,7 @@ import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelResponse;
 import com.chaeyeongmin.payment_sim.payment.application.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.payment.application.cancel.support.CancelEventRecorder;
 import com.chaeyeongmin.payment_sim.payment.application.cancel.support.CancelResponseFactory;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.model.PaymentCancelPrepareResult;
+import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.model.CancelPrepareResult;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.payment.domain.cancel.PaymentCancel;
@@ -38,11 +38,11 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-class PaymentCancelFinalizeTransactionServiceTest {
+class CancelFinalizeTxServiceTest {
 
     private static final CardFingerprintPolicy CARD_FINGERPRINT_POLICY =
             new CardFingerprintPolicy("card-fingerprint-test-secret-key");
-    private PaymentCancelFinalizeTransactionService transactionService;
+    private CancelFinalizeTxService transactionService;
     private PaymentCancelRepository repository;
     private PaymentEventLogRecorder paymentEventLogRecorder;
 
@@ -53,7 +53,7 @@ class PaymentCancelFinalizeTransactionServiceTest {
         repository = mock(PaymentCancelRepository.class);
         paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
 
-        transactionService = new PaymentCancelFinalizeTransactionService(
+        transactionService = new CancelFinalizeTxService(
                 repository,
                 new CancelResponseFactory(),
                 new CancelEventRecorder(paymentEventLogRecorder)
@@ -71,13 +71,13 @@ class PaymentCancelFinalizeTransactionServiceTest {
      */
     @Test
     @DisplayName("VAN 취소 성공 결과를 받으면 CANCELLED 결과를 저장하고 반환한다")
-    void finalizeCancel_vanCancelled_updateSuccess_shouldReturnCancelled_C8() {
-        PaymentCancelPrepareResult prepared = createdPrepareResult();
+    void applyVanResult_vanCancelled_updateSuccess_shouldReturnCancelled_C8() {
+        CancelPrepareResult prepared = createdPrepareResult();
 
         when(repository.updateCancelResult(any(CancelResultUpdateParam.class)))
                 .thenReturn(Optional.of(cancelledCancel()));
 
-        CancelResponse response = transactionService.finalizeCancel(prepared, vanCancelResCancelled());
+        CancelResponse response = transactionService.applyVanResult(prepared, vanCancelResCancelled());
 
         assertEquals(CancelResultStatus.CANCELLED, response.cancelStatus());
         assertEquals(cancelledCancel().cancelApprovalNo(), response.cancelApprovalNo());
@@ -94,14 +94,14 @@ class PaymentCancelFinalizeTransactionServiceTest {
      */
     @Test
     @DisplayName("VAN 취소 거절 결과를 받으면 CANCEL_DECLINED 결과를 저장하고 반환한다")
-    void finalizeCancel_vanDeclined_updateSuccess_shouldReturnDeclined_C8() {
-        PaymentCancelPrepareResult prepared = createdPrepareResult();
+    void applyVanResult_vanDeclined_updateSuccess_shouldReturnDeclined_C8() {
+        CancelPrepareResult prepared = createdPrepareResult();
         PaymentCancel updatedCancel = cancelDeclinedCancel();
 
         when(repository.updateCancelResult(any(CancelResultUpdateParam.class)))
                 .thenReturn(Optional.of(updatedCancel));
 
-        CancelResponse response = transactionService.finalizeCancel(prepared, vanCancelResDeclined());
+        CancelResponse response = transactionService.applyVanResult(prepared, vanCancelResDeclined());
 
         assertEquals(CancelResultStatus.CANCEL_DECLINED, response.cancelStatus());
         assertEquals(updatedCancel.declineCode(), response.declineCode());
@@ -118,8 +118,8 @@ class PaymentCancelFinalizeTransactionServiceTest {
      */
     @Test
     @DisplayName("VAN 취소 결과가 PENDING이면 결과를 확정하지 않고 재시도 응답을 반환한다")
-    void finalizeCancel_vanPending_shouldReturnRetryLater_withoutUpdate_C8() {
-        CancelResponse response = transactionService.finalizeCancel(createdPrepareResult(), vanCancelResPending());
+    void applyVanResult_vanPending_shouldReturnRetryLater_withoutUpdate_C8() {
+        CancelResponse response = transactionService.applyVanResult(createdPrepareResult(), vanCancelResPending());
 
         assertEquals(CancelResultStatus.RETRY_LATER, response.cancelStatus());
         verify(repository, never()).updateCancelResult(any());
@@ -127,7 +127,7 @@ class PaymentCancelFinalizeTransactionServiceTest {
 
     @Test
     @DisplayName("C7 update miss면 original 기준 재조회 결과로 복구 응답을 반환한다")
-    void finalizeCancel_C7_updateMiss_thenRereadExistingCancel_shouldReturnRecoveredDbResponse() {
+    void applyVanResult_C7_updateMiss_thenRereadExistingCancel_shouldReturnRecoveredDbResponse() {
         String originalPosTrx = baseReq.originalPosTrx();
         int originalAttemptSeq = baseReq.originalAttemptSeq();
         PaymentCancel rereadCancel = cancelledCancel();
@@ -137,7 +137,7 @@ class PaymentCancelFinalizeTransactionServiceTest {
         when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.of(rereadCancel));
 
-        CancelResponse response = transactionService.finalizeCancel(createdPrepareResult(), vanCancelResCancelled());
+        CancelResponse response = transactionService.applyVanResult(createdPrepareResult(), vanCancelResCancelled());
 
         assertEquals(CancelResultStatus.CANCELLED, response.cancelStatus());
         assertEquals(rereadCancel.cancelApprovalNo(), response.cancelApprovalNo());
@@ -148,13 +148,13 @@ class PaymentCancelFinalizeTransactionServiceTest {
 
     @Test
     @DisplayName("C7 update miss 후 재조회 결과가 PENDING이면 RETRY_LATER를 반환한다")
-    void finalizeCancel_C7_updateMiss_rereadPending_shouldReturnRetryLater() {
+    void applyVanResult_C7_updateMiss_rereadPending_shouldReturnRetryLater() {
         when(repository.updateCancelResult(any(CancelResultUpdateParam.class)))
                 .thenReturn(Optional.empty());
         when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(baseReq.originalPosTrx(), baseReq.originalAttemptSeq()))
                 .thenReturn(Optional.of(pendingCancel()));
 
-        CancelResponse response = transactionService.finalizeCancel(createdPrepareResult(), vanCancelResCancelled());
+        CancelResponse response = transactionService.applyVanResult(createdPrepareResult(), vanCancelResCancelled());
 
         assertEquals(CancelResultStatus.RETRY_LATER, response.cancelStatus());
         assertThat(response.cancelApprovalNo()).isNull();
@@ -165,7 +165,7 @@ class PaymentCancelFinalizeTransactionServiceTest {
 
     @Test
     @DisplayName("C7 update miss 후 재조회 결과가 CANCEL_DECLINED이면 CANCEL_DECLINED를 반환한다")
-    void finalizeCancel_C7_updateMiss_rereadDeclined_shouldReturnCancelDeclined() {
+    void applyVanResult_C7_updateMiss_rereadDeclined_shouldReturnCancelDeclined() {
         PaymentCancel recoveredCancel = cancelDeclinedCancel();
 
         when(repository.updateCancelResult(any(CancelResultUpdateParam.class)))
@@ -173,7 +173,7 @@ class PaymentCancelFinalizeTransactionServiceTest {
         when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(baseReq.originalPosTrx(), baseReq.originalAttemptSeq()))
                 .thenReturn(Optional.of(recoveredCancel));
 
-        CancelResponse response = transactionService.finalizeCancel(createdPrepareResult(), vanCancelResDeclined());
+        CancelResponse response = transactionService.applyVanResult(createdPrepareResult(), vanCancelResDeclined());
 
         assertEquals(CancelResultStatus.CANCEL_DECLINED, response.cancelStatus());
         assertEquals(recoveredCancel.declineCode(), response.declineCode());
@@ -183,13 +183,13 @@ class PaymentCancelFinalizeTransactionServiceTest {
 
     @Test
     @DisplayName("C7 update miss 후 재조회도 empty면 RETRY_LATER를 반환한다")
-    void finalizeCancel_C7_updateMiss_rereadEmpty_shouldReturnRetryLater() {
+    void applyVanResult_C7_updateMiss_rereadEmpty_shouldReturnRetryLater() {
         when(repository.updateCancelResult(any(CancelResultUpdateParam.class)))
                 .thenReturn(Optional.empty());
         when(repository.findByOriginalPosTrxAndOriginalAttemptSeq(baseReq.originalPosTrx(), baseReq.originalAttemptSeq()))
                 .thenReturn(Optional.empty());
 
-        CancelResponse response = transactionService.finalizeCancel(createdPrepareResult(), vanCancelResCancelled());
+        CancelResponse response = transactionService.applyVanResult(createdPrepareResult(), vanCancelResCancelled());
 
         assertEquals(CancelResultStatus.RETRY_LATER, response.cancelStatus());
         assertThat(response.cancelApprovalNo()).isNull();
@@ -200,14 +200,14 @@ class PaymentCancelFinalizeTransactionServiceTest {
 
     @Test
     @DisplayName("취소 성공 확정 시 CANCEL_FINALIZED 이벤트를 기록한다")
-    void finalizeCancel_vanCancelled_shouldLogFinalizedEvent() {
+    void applyVanResult_vanCancelled_shouldLogFinalizedEvent() {
         CancelRequest request = cancelRequest(
                 "2376-20260521-9991-3004",
                 "2376-20260521-9991-1004",
                 1,
                 "4242424242424242"
         );
-        PaymentCancelPrepareResult prepared = PaymentCancelPrepareResult.created(
+        CancelPrepareResult prepared = CancelPrepareResult.created(
                 request.posTrx(),
                 request.originalPosTrx(),
                 request.originalAttemptSeq(),
@@ -223,7 +223,7 @@ class PaymentCancelFinalizeTransactionServiceTest {
         when(repository.updateCancelResult(any(CancelResultUpdateParam.class)))
                 .thenReturn(Optional.of(cancelledCancel));
 
-        CancelResponse response = transactionService.finalizeCancel(
+        CancelResponse response = transactionService.applyVanResult(
                 prepared,
                 vanCancelResCancelled(request, "C777777777")
         );
@@ -244,11 +244,11 @@ class PaymentCancelFinalizeTransactionServiceTest {
 
     @Test
     @DisplayName("VAN timeout이면 PENDING 취소 row를 UNKNOWN_TIMEOUT으로 확정하고 RETRY_LATER를 반환한다")
-    void finalizeUnknownTimeout_updateSuccess_shouldReturnRetryLater() {
+    void markUnknownTimeout_updateSuccess_shouldReturnRetryLater() {
         when(repository.updateCancelResult(any(CancelResultUpdateParam.class)))
                 .thenReturn(Optional.of(unknownTimeoutCancel()));
 
-        CancelResponse response = transactionService.finalizeUnknownTimeout(createdPrepareResult());
+        CancelResponse response = transactionService.markUnknownTimeout(createdPrepareResult());
 
         assertEquals(CancelResultStatus.RETRY_LATER, response.cancelStatus());
 
@@ -259,8 +259,8 @@ class PaymentCancelFinalizeTransactionServiceTest {
         verify(repository, never()).findByOriginalPosTrxAndOriginalAttemptSeq(anyString(), anyInt());
     }
 
-    private PaymentCancelPrepareResult createdPrepareResult() {
-        return PaymentCancelPrepareResult.created(
+    private CancelPrepareResult createdPrepareResult() {
+        return CancelPrepareResult.created(
                 baseReq.posTrx(),
                 baseReq.originalPosTrx(),
                 baseReq.originalAttemptSeq(),

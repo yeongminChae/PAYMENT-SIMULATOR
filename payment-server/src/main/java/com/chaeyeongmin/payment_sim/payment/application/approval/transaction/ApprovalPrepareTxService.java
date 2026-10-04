@@ -11,7 +11,7 @@ import com.chaeyeongmin.payment_sim.payment.api.approval.ApproveResponse;
 import com.chaeyeongmin.payment_sim.payment.api.common.CardInput;
 import com.chaeyeongmin.payment_sim.payment.application.approval.support.ApprovalEventRecorder;
 import com.chaeyeongmin.payment_sim.payment.application.approval.support.ApprovalResponseFactory;
-import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.model.PaymentApprovalPrepareResult;
+import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.model.ApprovalPrepareResult;
 import com.chaeyeongmin.payment_sim.payment.application.card.service.BinCatalogService;
 import com.chaeyeongmin.payment_sim.payment.application.card.support.CardSummaryFactory;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentAttempt;
@@ -38,7 +38,7 @@ import java.util.Optional;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class PaymentApprovalPrepareTransactionService {
+public class ApprovalPrepareTxService {
 
     private final BinCatalogService binCatalogService;
     private final PaymentAttemptRepository repository;
@@ -67,7 +67,7 @@ public class PaymentApprovalPrepareTransactionService {
      * - existing: 이미 DB에 응답할 수 있는 attempt가 있다. 호출자는 existingResponse를 그대로 반환한다.
      */
     @Transactional
-    public PaymentApprovalPrepareResult prepare(ApproveRequest request) {
+    public ApprovalPrepareResult prepare(ApproveRequest request) {
         String trx = request.getPosTrx();
 
         // A3-0: posTrx 단위 승인 처리 직렬화. (“직렬화” = “동시에 못 들어오게 줄 세움”.)
@@ -115,7 +115,7 @@ public class PaymentApprovalPrepareTransactionService {
                             CardSummaryFactory.fromStoredCard(latest.cardBin(), latest.cardLast4(), latest.cardBrand())
                     );
 
-                    return PaymentApprovalPrepareResult.fromExistingResponse(approveResponse);
+                    return ApprovalPrepareResult.fromExistingResponse(approveResponse);
                 }
 
                 log.warn("[approve][A4-conflict] posTrx already used with different payload. posTrx={}, attemptSeq={}, status={}",
@@ -139,7 +139,7 @@ public class PaymentApprovalPrepareTransactionService {
         // BIN_CATALOG 기반 식별은 8자리 BIN만 사용한다.
         // active BIN이면 catalog 값을, 미등록/비활성이면 UNKNOWN 값을 저장한다.
         // 이 값은 PAYMENT_ATTEMPT.CARD_BRAND와 PAYMENT_EXTERNAL_INFO 상세 컬럼의 기준이 된다.
-        CardIdentity cardIdentity = getCardIdentity(card.bin8(), card.last4());
+        CardIdentity cardIdentity = resolveCardIdentity(card.bin8(), card.last4());
         LocalDateTime createdAt = LocalDateTime.now();
 
         // A3-1: PAYMENT_ATTEMPT row 생성.
@@ -166,7 +166,7 @@ public class PaymentApprovalPrepareTransactionService {
                 attemptSeq,
                 cardIdentity.cardBin(),
                 cardIdentity.cardLast4(),
-                maskedCardNo(cardIdentity.cardBin(), cardIdentity.cardLast4()),
+                maskCardNo(cardIdentity.cardBin(), cardIdentity.cardLast4()),
                 cardIdentity.brand(),
                 cardIdentity.issuer(),
                 cardIdentity.country(),
@@ -176,7 +176,7 @@ public class PaymentApprovalPrepareTransactionService {
 
         eventRecorder.recordApprovalAttemptCreated(trx, attemptSeq);
 
-        return PaymentApprovalPrepareResult.created(trx, attemptSeq, cardIdentity);
+        return ApprovalPrepareResult.created(trx, attemptSeq, cardIdentity);
     }
 
     /**
@@ -188,7 +188,7 @@ public class PaymentApprovalPrepareTransactionService {
      * PAYMENT_ATTEMPT_SEQ.LAST_SEQ는 되돌리지 않는다.
      */
     @Transactional
-    public void cleanupRequestNotSent(PaymentApprovalPrepareResult prepared) {
+    public void cleanupRequestNotSent(ApprovalPrepareResult prepared) {
         String trx = prepared.posTrx();
         int attemptSeq = prepared.attemptSeq();
 
@@ -225,14 +225,14 @@ public class PaymentApprovalPrepareTransactionService {
         return cardFingerprintPolicy.matchesFingerprint(requestFingerprint, latest.cardFingerprint());
     }
 
-    private CardIdentity getCardIdentity(String cardBin, String cardLast4) {
+    private CardIdentity resolveCardIdentity(String cardBin, String cardLast4) {
         return binCatalogService.identify(cardBin, cardLast4);
     }
 
     /**
      * 저장 정책: 앞 8자리 BIN + 별표 6개 + 마지막 4자리.
      */
-    private String maskedCardNo(String cardBin, String cardLast4) {
+    private String maskCardNo(String cardBin, String cardLast4) {
         return cardBin + "******" + cardLast4;
     }
 

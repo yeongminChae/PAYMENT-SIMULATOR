@@ -48,7 +48,7 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
     private final PaymentInquiryTransactionService transactionService;
 
     @Override
-    public InquiryResponse inquiry(InquiryRequest request) {
+    public InquiryResponse inquire(InquiryRequest request) {
         // Q1: 조회 요청은 Controller에서 수신/로깅한다.
         // - Service는 HTTP 세부 정보가 아니라 조회 유스케이스의 상태 판단에 집중한다.
 

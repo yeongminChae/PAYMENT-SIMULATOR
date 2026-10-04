@@ -11,7 +11,7 @@ import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentEventLogInsertPa
 import com.chaeyeongmin.payment_sim.payment.api.approval.ApproveResponse;
 import com.chaeyeongmin.payment_sim.payment.application.approval.support.ApprovalEventRecorder;
 import com.chaeyeongmin.payment_sim.payment.application.approval.support.ApprovalResponseFactory;
-import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.model.PaymentApprovalPrepareResult;
+import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.model.ApprovalPrepareResult;
 import com.chaeyeongmin.payment_sim.payment.application.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentFinalStatus;
@@ -27,17 +27,17 @@ import org.mockito.ArgumentCaptor;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
-class PaymentApprovalFinalizeTransactionServiceTest {
+class ApprovalFinalizeTxServiceTest {
 
     private PaymentAttemptRepository repository;
     private PaymentEventLogRecorder paymentEventLogRecorder;
-    private PaymentApprovalFinalizeTransactionService transactionService;
+    private ApprovalFinalizeTxService transactionService;
 
     @BeforeEach
     void setUp() {
         repository = mock(PaymentAttemptRepository.class);
         paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
-        transactionService = new PaymentApprovalFinalizeTransactionService(
+        transactionService = new ApprovalFinalizeTxService(
                 repository,
                 new ApprovalEventRecorder(paymentEventLogRecorder),
                 new ApprovalResponseFactory()
@@ -48,7 +48,7 @@ class PaymentApprovalFinalizeTransactionServiceTest {
     void VAN_승인_응답_update_성공이면_DB_updated_row_기준_APPROVED를_응답한다() {
         String trx = "2376-20260827-9991-0001";
         int attemptSeq = 1;
-        PaymentApprovalPrepareResult prepared = prepared(trx, attemptSeq);
+        ApprovalPrepareResult prepared = prepared(trx, attemptSeq);
         VanApproveResponse vanResponse = vanApprovedResponse(trx, attemptSeq);
         PaymentAttemptUpdatedRow updatedRow = updatedRow(
                 trx,
@@ -61,7 +61,7 @@ class PaymentApprovalFinalizeTransactionServiceTest {
 
         when(repository.updateAttemptResult(any())).thenReturn(Optional.of(updatedRow));
 
-        ApproveResponse response = transactionService.finalizeApproval(prepared, vanResponse);
+        ApproveResponse response = transactionService.applyVanResult(prepared, vanResponse);
 
         assertThat(response.finalStatus()).isEqualTo(PaymentFinalStatus.APPROVED);
         assertThat(response.approvalNo()).isEqualTo("AP-DB-001");
@@ -78,7 +78,7 @@ class PaymentApprovalFinalizeTransactionServiceTest {
     void VAN_응답_update_miss후_DB가_이미_final이면_DB_상태를_정본으로_응답한다() {
         String trx = "2376-20260827-9991-0002";
         int attemptSeq = 1;
-        PaymentApprovalPrepareResult prepared = prepared(trx, attemptSeq);
+        ApprovalPrepareResult prepared = prepared(trx, attemptSeq);
 
         when(repository.updateAttemptResult(any())).thenReturn(Optional.empty());
         when(repository.findByPosTrxAndAttemptSeq(trx, attemptSeq))
@@ -89,7 +89,7 @@ class PaymentApprovalFinalizeTransactionServiceTest {
                         "VAN-DB-002"
                 )));
 
-        ApproveResponse response = transactionService.finalizeApproval(
+        ApproveResponse response = transactionService.applyVanResult(
                 prepared,
                 vanDeclinedResponse(trx, attemptSeq)
         );
@@ -104,13 +104,13 @@ class PaymentApprovalFinalizeTransactionServiceTest {
     void VAN_응답_update_miss후_DB가_PROCESSING이면_retryLater를_응답한다() {
         String trx = "2376-20260827-9991-0003";
         int attemptSeq = 1;
-        PaymentApprovalPrepareResult prepared = prepared(trx, attemptSeq);
+        ApprovalPrepareResult prepared = prepared(trx, attemptSeq);
 
         when(repository.updateAttemptResult(any())).thenReturn(Optional.empty());
         when(repository.findByPosTrxAndAttemptSeq(trx, attemptSeq))
                 .thenReturn(Optional.of(paymentAttempt(null, null, null, null)));
 
-        ApproveResponse response = transactionService.finalizeApproval(
+        ApproveResponse response = transactionService.applyVanResult(
                 prepared,
                 vanApprovedResponse(trx, attemptSeq)
         );
@@ -124,12 +124,12 @@ class PaymentApprovalFinalizeTransactionServiceTest {
     void VAN_응답_update_miss후_attempt가_없으면_UNKNOWN_AFTER_UPDATE_MISS를_응답하고_이벤트를_기록한다() {
         String trx = "2376-20260827-9991-0004";
         int attemptSeq = 1;
-        PaymentApprovalPrepareResult prepared = prepared(trx, attemptSeq);
+        ApprovalPrepareResult prepared = prepared(trx, attemptSeq);
 
         when(repository.updateAttemptResult(any())).thenReturn(Optional.empty());
         when(repository.findByPosTrxAndAttemptSeq(trx, attemptSeq)).thenReturn(Optional.empty());
 
-        ApproveResponse response = transactionService.finalizeApproval(
+        ApproveResponse response = transactionService.applyVanResult(
                 prepared,
                 vanApprovedResponse(trx, attemptSeq)
         );
@@ -147,7 +147,7 @@ class PaymentApprovalFinalizeTransactionServiceTest {
     void VAN_응답_timeout이면_PROCESSING_attempt를_UNKNOWN_TIMEOUT으로_확정한다() {
         String trx = "2376-20260827-9991-0005";
         int attemptSeq = 1;
-        PaymentApprovalPrepareResult prepared = prepared(trx, attemptSeq);
+        ApprovalPrepareResult prepared = prepared(trx, attemptSeq);
         PaymentAttemptUpdatedRow updatedRow = updatedRow(
                 trx,
                 attemptSeq,
@@ -159,7 +159,7 @@ class PaymentApprovalFinalizeTransactionServiceTest {
 
         when(repository.updateAttemptResult(any())).thenReturn(Optional.of(updatedRow));
 
-        ApproveResponse response = transactionService.finalizeUnknownTimeout(prepared);
+        ApproveResponse response = transactionService.markUnknownTimeout(prepared);
 
         ArgumentCaptor<AttemptResultUpdateParam> captor = ArgumentCaptor.forClass(AttemptResultUpdateParam.class);
         verify(repository).updateAttemptResult(captor.capture());
@@ -182,8 +182,8 @@ class PaymentApprovalFinalizeTransactionServiceTest {
         assertThat(eventCaptor.getValue().eventType()).isEqualTo(PaymentEventType.APPROVE_UNKNOWN_TIMEOUT);
     }
 
-    private PaymentApprovalPrepareResult prepared(String trx, int attemptSeq) {
-        return PaymentApprovalPrepareResult.created(
+    private ApprovalPrepareResult prepared(String trx, int attemptSeq) {
+        return ApprovalPrepareResult.created(
                 trx,
                 attemptSeq,
                 CardIdentity.unknown("41111111", "1111")

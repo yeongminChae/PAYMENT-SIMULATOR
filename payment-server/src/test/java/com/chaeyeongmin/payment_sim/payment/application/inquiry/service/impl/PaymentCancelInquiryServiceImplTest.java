@@ -77,7 +77,7 @@ class PaymentCancelInquiryServiceImplTest {
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
-                () -> service.inquiry(new CancelInquiryRequest(CANCEL_POS_TRX))
+                () -> service.inquire(new CancelInquiryRequest(CANCEL_POS_TRX))
         );
 
         assertEquals(ResultCode.NOT_FOUND, exception.getResultCode());
@@ -92,7 +92,7 @@ class PaymentCancelInquiryServiceImplTest {
         when(cancelRepository.findByPosTrx(CANCEL_POS_TRX))
                 .thenReturn(Optional.of(cancel(CancelStatus.PENDING, null, null)));
 
-        CancelResponse response = service.inquiry(new CancelInquiryRequest(CANCEL_POS_TRX));
+        CancelResponse response = service.inquire(new CancelInquiryRequest(CANCEL_POS_TRX));
 
         assertEquals(CancelResultStatus.RETRY_LATER, response.cancelStatus());
         verifyNoInteractions(assembler, gateway);
@@ -106,7 +106,7 @@ class PaymentCancelInquiryServiceImplTest {
         when(cancelRepository.findByPosTrx(CANCEL_POS_TRX))
                 .thenReturn(Optional.of(cancel(CancelStatus.CANCELLED, CANCEL_APPROVAL_NO, null)));
 
-        CancelResponse response = service.inquiry(new CancelInquiryRequest(CANCEL_POS_TRX));
+        CancelResponse response = service.inquire(new CancelInquiryRequest(CANCEL_POS_TRX));
 
         assertEquals(CancelResultStatus.CANCELLED, response.cancelStatus());
         assertEquals(CANCEL_APPROVAL_NO, response.cancelApprovalNo());
@@ -121,7 +121,7 @@ class PaymentCancelInquiryServiceImplTest {
         when(cancelRepository.findByPosTrx(CANCEL_POS_TRX))
                 .thenReturn(Optional.of(cancel(CancelStatus.CANCEL_DECLINED, null, VanDeclineCode.DO_NOT_HONOR.code())));
 
-        CancelResponse response = service.inquiry(new CancelInquiryRequest(CANCEL_POS_TRX));
+        CancelResponse response = service.inquire(new CancelInquiryRequest(CANCEL_POS_TRX));
 
         assertEquals(CancelResultStatus.CANCEL_DECLINED, response.cancelStatus());
         assertEquals(VanDeclineCode.DO_NOT_HONOR.code(), response.declineCode());
@@ -140,7 +140,7 @@ class PaymentCancelInquiryServiceImplTest {
         when(assembler.getCancelInquiryRequest(CANCEL_POS_TRX)).thenReturn(request);
         when(gateway.inquiry(request)).thenReturn(vanNotFoundResponse());
 
-        CancelResponse response = service.inquiry(new CancelInquiryRequest(CANCEL_POS_TRX));
+        CancelResponse response = service.inquire(new CancelInquiryRequest(CANCEL_POS_TRX));
 
         assertEquals(CancelResultStatus.RETRY_LATER, response.cancelStatus());
         verify(gateway).inquiry(request);
@@ -160,7 +160,7 @@ class PaymentCancelInquiryServiceImplTest {
                 new VanGatewayTimeoutException(new RuntimeException("timeout"))
         );
 
-        CancelResponse response = service.inquiry(new CancelInquiryRequest(CANCEL_POS_TRX));
+        CancelResponse response = service.inquire(new CancelInquiryRequest(CANCEL_POS_TRX));
 
         assertEquals(CancelResultStatus.RETRY_LATER, response.cancelStatus());
         verify(gateway).inquiry(request);
@@ -188,7 +188,7 @@ class PaymentCancelInquiryServiceImplTest {
         when(transactionService.finalizeResolvedInquiry(unknownTimeout, vanResponse))
                 .thenReturn(finalized);
 
-        CancelResponse response = service.inquiry(new CancelInquiryRequest(CANCEL_POS_TRX));
+        CancelResponse response = service.inquire(new CancelInquiryRequest(CANCEL_POS_TRX));
 
         assertEquals(CancelResultStatus.CANCELLED, response.cancelStatus());
         assertEquals(CANCEL_APPROVAL_NO, response.cancelApprovalNo());
@@ -216,7 +216,7 @@ class PaymentCancelInquiryServiceImplTest {
         when(transactionService.finalizeResolvedInquiry(unknownTimeout, vanResponse))
                 .thenReturn(finalized);
 
-        CancelResponse response = service.inquiry(new CancelInquiryRequest(CANCEL_POS_TRX));
+        CancelResponse response = service.inquire(new CancelInquiryRequest(CANCEL_POS_TRX));
 
         assertEquals(CancelResultStatus.CANCEL_DECLINED, response.cancelStatus());
         assertEquals(VanDeclineCode.DO_NOT_HONOR.code(), response.declineCode());

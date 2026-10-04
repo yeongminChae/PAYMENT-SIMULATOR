@@ -13,7 +13,7 @@ import com.chaeyeongmin.payment_sim.payment.api.approval.ApproveRequest;
 import com.chaeyeongmin.payment_sim.payment.api.common.CardInput;
 import com.chaeyeongmin.payment_sim.payment.application.approval.support.ApprovalEventRecorder;
 import com.chaeyeongmin.payment_sim.payment.application.approval.support.ApprovalResponseFactory;
-import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.model.PaymentApprovalPrepareResult;
+import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.model.ApprovalPrepareResult;
 import com.chaeyeongmin.payment_sim.payment.application.card.service.BinCatalogService;
 import com.chaeyeongmin.payment_sim.payment.application.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.payment.domain.card.CardFingerprintPolicy;
@@ -25,14 +25,14 @@ import org.mockito.ArgumentCaptor;
 
 import java.util.Optional;
 
-class PaymentApprovalPrepareTransactionServiceTest {
+class ApprovalPrepareTxServiceTest {
 
     private PaymentAttemptRepository repository;
     private PaymentExternalInfoRepository infoRepository;
     private PaymentEventLogRecorder paymentEventLogRecorder;
     private BinCatalogService binCatalogService;
     private CardFingerprintPolicy cardFingerprintPolicy;
-    private PaymentApprovalPrepareTransactionService transactionService;
+    private ApprovalPrepareTxService transactionService;
 
     @BeforeEach
     void setUp() {
@@ -42,7 +42,7 @@ class PaymentApprovalPrepareTransactionServiceTest {
         binCatalogService = mock(BinCatalogService.class);
         cardFingerprintPolicy = mock(CardFingerprintPolicy.class);
 
-        transactionService = new PaymentApprovalPrepareTransactionService(
+        transactionService = new ApprovalPrepareTxService(
                 binCatalogService,
                 repository,
                 infoRepository,
@@ -67,7 +67,7 @@ class PaymentApprovalPrepareTransactionServiceTest {
         when(binCatalogService.identify("41111111", "1111")).thenReturn(cardIdentity);
         when(cardFingerprintPolicy.generate(request.getCard().getPan())).thenReturn("fingerprint");
 
-        PaymentApprovalPrepareResult result = transactionService.prepare(request);
+        ApprovalPrepareResult result = transactionService.prepare(request);
 
         assertThat(result.isExisting()).isFalse();
         assertThat(result.posTrx()).isEqualTo(trx);
@@ -100,7 +100,7 @@ class PaymentApprovalPrepareTransactionServiceTest {
 
     @Test
     void request_not_sent이면_잠근_PROCESSING_attempt와_external_info를_함께_정리한다() {
-        PaymentApprovalPrepareResult prepared = PaymentApprovalPrepareResult.created(
+        ApprovalPrepareResult prepared = ApprovalPrepareResult.created(
                 "2376-20260828-9991-0001",
                 2,
                 CardIdentity.unknown("41111111", "1111")
@@ -121,7 +121,7 @@ class PaymentApprovalPrepareTransactionServiceTest {
 
     @Test
     void request_not_sent정리_시점에_더는_PROCESSING이_아니면_삭제하지_않는다() {
-        PaymentApprovalPrepareResult prepared = PaymentApprovalPrepareResult.created(
+        ApprovalPrepareResult prepared = ApprovalPrepareResult.created(
                 "2376-20260828-9991-0002",
                 1,
                 CardIdentity.unknown("41111111", "1111")

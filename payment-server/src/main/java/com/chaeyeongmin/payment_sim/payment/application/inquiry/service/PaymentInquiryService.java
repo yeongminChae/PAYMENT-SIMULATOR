@@ -4,5 +4,5 @@ import com.chaeyeongmin.payment_sim.payment.api.inquiry.InquiryRequest;
 import com.chaeyeongmin.payment_sim.payment.api.inquiry.InquiryResponse;
 
 public interface PaymentInquiryService {
-    InquiryResponse inquiry(InquiryRequest request);
+    InquiryResponse inquire(InquiryRequest request);
 }

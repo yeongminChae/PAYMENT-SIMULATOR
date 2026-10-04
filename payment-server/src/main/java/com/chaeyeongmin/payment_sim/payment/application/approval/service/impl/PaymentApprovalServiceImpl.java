@@ -4,9 +4,9 @@ import com.chaeyeongmin.payment_sim.payment.api.approval.ApproveRequest;
 import com.chaeyeongmin.payment_sim.payment.api.approval.ApproveResponse;
 import com.chaeyeongmin.payment_sim.payment.application.approval.support.ApprovalEventRecorder;
 import com.chaeyeongmin.payment_sim.payment.application.approval.service.PaymentApprovalService;
-import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.PaymentApprovalFinalizeTransactionService;
-import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.PaymentApprovalPrepareTransactionService;
-import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.model.PaymentApprovalPrepareResult;
+import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.ApprovalFinalizeTxService;
+import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.ApprovalPrepareTxService;
+import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.model.ApprovalPrepareResult;
 import com.chaeyeongmin.payment_sim.payment.api.approval.ApproveRequestValidator;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanApproveAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveRequest;
@@ -43,8 +43,8 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class PaymentApprovalServiceImpl implements PaymentApprovalService {
 
-    private final PaymentApprovalPrepareTransactionService prepareTransactionService;
-    private final PaymentApprovalFinalizeTransactionService finalizeTransactionService;
+    private final ApprovalPrepareTxService prepareTransactionService;
+    private final ApprovalFinalizeTxService finalizeTransactionService;
     private final VanGateway vanGateway;
     private final VanApproveAssembler vanApproveAssembler;
     private final ApproveRequestValidator validator;
@@ -61,7 +61,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         // - posTrx row lock을 잡고 기존 attempt를 확인한다.
         // - 재응답 가능하면 existingResponse를 돌려주고, 신규 승인만 PROCESSING attempt를 만든다.
         // - 여기서 커밋된 뒤에만 외부 VAN 호출로 넘어가므로 lock을 잡은 채 네트워크 호출하지 않는다.
-        PaymentApprovalPrepareResult prepared = prepareTransactionService.prepare(request);
+        ApprovalPrepareResult prepared = prepareTransactionService.prepare(request);
 
         // A4 재응답: 기존 DB 결과 재사용이면 VAN 호출 없음.
         // - 승인 멱등성의 핵심 분기다. 같은 posTrx + 같은 payload는 DB 값 그대로 응답한다.
@@ -99,7 +99,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         } catch (VanGatewayTimeoutException e) {
             // 요청은 VAN에 전달됐을 수 있지만 응답을 받지 못했다.
             // 승인/거절 여부를 추측하지 않고 별도 TX에서 UNKNOWN_TIMEOUT으로 확정한다.
-            return finalizeTransactionService.finalizeUnknownTimeout(prepared);
+            return finalizeTransactionService.markUnknownTimeout(prepared);
         }
 
         // 이 이벤트는 실제 VanApproveResponse를 받은 경우에만 기록한다.
@@ -108,7 +108,7 @@ public class PaymentApprovalServiceImpl implements PaymentApprovalService {
         // TX2: VAN 결과 확정 트랜잭션.
         // - FINAL_STATUS IS NULL 조건부 update로 최초 확정 요청만 저장한다.
         // - update miss가 나면 DB를 다시 읽어 저장된 값을 우선 응답한다.
-        return finalizeTransactionService.finalizeApproval(prepared, vanResponse);
+        return finalizeTransactionService.applyVanResult(prepared, vanResponse);
     }
 
 }

@@ -17,7 +17,7 @@ import com.chaeyeongmin.payment_sim.payment.domain.card.CardIdentity;
  * cardIdentity는 신규 VAN 호출 경로에서만 필요하다.
  * 기존 응답 재사용 경로에서는 이미 응답 DTO가 완성되어 있으므로 cardIdentity를 null로 둔다.
  */
-public record PaymentApprovalPrepareResult(
+public record ApprovalPrepareResult(
         String posTrx,
         int attemptSeq,
         CardIdentity cardIdentity,
@@ -35,9 +35,9 @@ public record PaymentApprovalPrepareResult(
      *
      * <p>
      * 이후 PaymentApprovalServiceImpl은 이 값으로 A5/A6 VAN 요청을 만들고,
-     * TX2 finalizeApproval에서 같은 posTrx/attemptSeq를 확정한다.
+     * TX2 applyVanResult에서 같은 posTrx/attemptSeq를 확정한다.
      */
-    public static PaymentApprovalPrepareResult created(
+    public static ApprovalPrepareResult created(
             String posTrx,
             int attemptSeq,
             CardIdentity cardIdentity
@@ -49,7 +49,7 @@ public record PaymentApprovalPrepareResult(
             );
         }
 
-        return new PaymentApprovalPrepareResult(
+        return new ApprovalPrepareResult(
                 posTrx,
                 attemptSeq,
                 cardIdentity,
@@ -65,7 +65,7 @@ public record PaymentApprovalPrepareResult(
      * 이 상태에서는 VAN 호출을 하면 멱등성이 깨질 수 있으므로,
      * 호출자는 existingResponse를 그대로 반환하고 A5/A6/TX2로 내려가지 않는다.
      */
-    public static PaymentApprovalPrepareResult fromExistingResponse(ApproveResponse reusedResponse) {
+    public static ApprovalPrepareResult fromExistingResponse(ApproveResponse reusedResponse) {
         if (reusedResponse == null) {
             throw new BusinessException(
                     ResultCode.INTERNAL_ERROR,
@@ -73,7 +73,7 @@ public record PaymentApprovalPrepareResult(
             );
         }
 
-        return new PaymentApprovalPrepareResult(
+        return new ApprovalPrepareResult(
                 reusedResponse.posTrx(),
                 reusedResponse.attemptSeq(),
                 null,

@@ -109,7 +109,7 @@ class PostgresInquiryRecoveryRaceIntegrationTest {
         assertThat(approve.finalStatus()).isEqualTo(PaymentFinalStatus.UNKNOWN_TIMEOUT);
 
         // 2. 사람이 Inquiry → VAN APPROVED → DB APPROVED
-        InquiryResponse inquiry = inquiryService.inquiry(new InquiryRequest(POS_TRX, approve.attemptSeq()));
+        InquiryResponse inquiry = inquiryService.inquire(new InquiryRequest(POS_TRX, approve.attemptSeq()));
 
         assertThat(inquiry.finalStatus()).isEqualTo(PaymentFinalStatus.APPROVED);
 
@@ -166,7 +166,7 @@ class PostgresInquiryRecoveryRaceIntegrationTest {
             recoveryResult.set(recoveryFinalizationService.finalizeApproval(recoveryTask, intended));
         });
 
-        InquiryResponse inquiry = inquiryService.inquiry(new InquiryRequest(POS_TRX, approve.attemptSeq()));
+        InquiryResponse inquiry = inquiryService.inquire(new InquiryRequest(POS_TRX, approve.attemptSeq()));
 
         assertThat(recoveryResult.get()).isNotNull();
         assertThat(recoveryResult.get().resultType()).isEqualTo(RecoveryFinalizeResultType.APPLIED);

@@ -4,7 +4,7 @@ import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelResponse;
 import com.chaeyeongmin.payment_sim.payment.application.cancel.support.CancelEventRecorder;
 import com.chaeyeongmin.payment_sim.payment.application.cancel.support.CancelResponseFactory;
 import com.chaeyeongmin.payment_sim.payment.application.common.VanDeclineCodeMapper;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.model.PaymentCancelPrepareResult;
+import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.model.CancelPrepareResult;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.payment.domain.cancel.PaymentCancel;
@@ -29,7 +29,7 @@ import java.util.Optional;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class PaymentCancelFinalizeTransactionService {
+public class CancelFinalizeTxService {
 
     private final PaymentCancelRepository cancelRepository;
     private final CancelResponseFactory factory;
@@ -42,8 +42,8 @@ public class PaymentCancelFinalizeTransactionService {
      * 원거래 기준 재조회로 현재 DB 상태를 확인해 응답 의미를 보정한다.
      */
     @Transactional
-    public CancelResponse finalizeCancel(
-            PaymentCancelPrepareResult prepared,
+    public CancelResponse applyVanResult(
+            CancelPrepareResult prepared,
             VanCancelResponse vanCancelResponse
     ) {
         // TX2 진입 방어.
@@ -163,7 +163,7 @@ public class PaymentCancelFinalizeTransactionService {
         // - 그래서 즉시 retryLater로 끝내지 않고 original 기준으로 재조회해 현재 DB 상태를 응답에 반영한다.
         log.error("[cancel][C7-0rows] update cancel result failed. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, intendedStatus={}",
                 posTrx, originalPosTrx, originalAttemptSeq, vanFinalStatus);
-        return recoverFromC7UpdateEmpty(
+        return recoverUpdateMiss(
                 posTrx,
                 originalPosTrx,
                 originalAttemptSeq
@@ -191,7 +191,7 @@ public class PaymentCancelFinalizeTransactionService {
      * - CANCEL_DECLINED : C7 요청의 취소 거절 상태로 보고 CANCEL_DECLINED
      * - row 없음        : 정합성 이상 가능성이 있으므로 error log 후 RETRY_LATER
      */
-    private CancelResponse recoverFromC7UpdateEmpty(
+    private CancelResponse recoverUpdateMiss(
             String posTrx,
             String originalPosTrx,
             int originalAttemptSeq
@@ -262,8 +262,8 @@ public class PaymentCancelFinalizeTransactionService {
      * 추측하지 않고 UNKNOWN_TIMEOUT으로 남기며, 후속 요청은 기존 row를 보고 VAN 재호출 없이 retryLater로 응답한다.
      */
     @Transactional
-    public CancelResponse finalizeUnknownTimeout(
-            PaymentCancelPrepareResult prepared
+    public CancelResponse markUnknownTimeout(
+            CancelPrepareResult prepared
     ) {
         String posTrx = prepared.posTrx();
         String originalPosTrx = prepared.originalPosTrx();
@@ -278,7 +278,7 @@ public class PaymentCancelFinalizeTransactionService {
 
         return updated.isPresent()
             ? CancelResponse.retryLater(posTrx, originalPosTrx, originalAttemptSeq)
-            : recoverFromC7UpdateEmpty(posTrx, originalPosTrx, originalAttemptSeq)
+            : recoverUpdateMiss(posTrx, originalPosTrx, originalAttemptSeq)
         ;
 
     }

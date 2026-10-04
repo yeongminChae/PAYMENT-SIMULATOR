@@ -10,7 +10,7 @@ import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelResultStatus;
 import com.chaeyeongmin.payment_sim.payment.application.cancel.support.CancelEventRecorder;
 import com.chaeyeongmin.payment_sim.payment.application.cancel.support.CancelReservationHandler;
 import com.chaeyeongmin.payment_sim.payment.application.cancel.support.CancelResponseFactory;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.model.PaymentCancelPrepareResult;
+import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.model.CancelPrepareResult;
 import com.chaeyeongmin.payment_sim.payment.application.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentFinalStatus;
@@ -40,14 +40,14 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-class PaymentCancelPrepareTransactionServiceTest {
+class CancelPrepareTxServiceTest {
 
     private static final CardFingerprintPolicy CARD_FINGERPRINT_POLICY =
             new CardFingerprintPolicy("card-fingerprint-test-secret-key");
     private static final CancelCardVerificationPolicy CANCEL_CARD_VERIFICATION_POLICY =
             new CancelCardVerificationPolicy(CARD_FINGERPRINT_POLICY);
 
-    private PaymentCancelPrepareTransactionService transactionService;
+    private CancelPrepareTxService transactionService;
     private PaymentCancelRepository cancelRepository;
     private PaymentAttemptRepository paymentAttemptRepository;
     private CancelReservationHandler cancelReservationHandler;
@@ -65,7 +65,7 @@ class PaymentCancelPrepareTransactionServiceTest {
                 new CancelResponseFactory(),
                 new CancelEventRecorder(paymentEventLogRecorder)
         );
-        transactionService = new PaymentCancelPrepareTransactionService(
+        transactionService = new CancelPrepareTxService(
                 cancelRepository,
                 paymentAttemptRepository,
                 CANCEL_CARD_VERIFICATION_POLICY,
@@ -117,7 +117,7 @@ class PaymentCancelPrepareTransactionServiceTest {
         when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.of(originalDeclinedAttempt()));
 
-        PaymentCancelPrepareResult prepared = transactionService.prepare(baseReq);
+        CancelPrepareResult prepared = transactionService.prepare(baseReq);
 
         assertThat(prepared.isCompleted()).isTrue();
         assertEquals(CancelResultStatus.CANCEL_NOT_ALLOWED, prepared.completedResponse().cancelStatus());
@@ -140,7 +140,7 @@ class PaymentCancelPrepareTransactionServiceTest {
         when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(request.originalPosTrx(), request.originalAttemptSeq()))
                 .thenReturn(Optional.of(originalDeclinedAttempt()));
 
-        PaymentCancelPrepareResult prepared = transactionService.prepare(request);
+        CancelPrepareResult prepared = transactionService.prepare(request);
 
         assertEquals(CancelResultStatus.CANCEL_NOT_ALLOWED, prepared.completedResponse().cancelStatus());
         verify(paymentEventLogRecorder).record(argThat(event ->
@@ -170,7 +170,7 @@ class PaymentCancelPrepareTransactionServiceTest {
         when(cancelRepository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.of(pendingCancel()));
 
-        PaymentCancelPrepareResult prepared = transactionService.prepare(baseReq);
+        CancelPrepareResult prepared = transactionService.prepare(baseReq);
 
         assertEquals(CancelResultStatus.RETRY_LATER, prepared.completedResponse().cancelStatus());
         verify(cancelRepository, never()).insertPendingCancel(any());
@@ -190,7 +190,7 @@ class PaymentCancelPrepareTransactionServiceTest {
         when(cancelRepository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.of(cancelledCancel()));
 
-        PaymentCancelPrepareResult prepared = transactionService.prepare(baseReq);
+        CancelPrepareResult prepared = transactionService.prepare(baseReq);
 
         assertEquals(CancelResultStatus.ALREADY_CANCELLED, prepared.completedResponse().cancelStatus());
         assertEquals("A137515458", prepared.completedResponse().cancelApprovalNo());
@@ -211,7 +211,7 @@ class PaymentCancelPrepareTransactionServiceTest {
         when(cancelRepository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq))
                 .thenReturn(Optional.of(cancelDeclinedCancel()));
 
-        PaymentCancelPrepareResult prepared = transactionService.prepare(baseReq);
+        CancelPrepareResult prepared = transactionService.prepare(baseReq);
 
         assertEquals(CancelResultStatus.CANCEL_DECLINED, prepared.completedResponse().cancelStatus());
         assertEquals("05", prepared.completedResponse().declineCode());
@@ -236,7 +236,7 @@ class PaymentCancelPrepareTransactionServiceTest {
         when(cancelRepository.insertPendingCancel(any(CancelInsertParam.class)))
                 .thenReturn(Optional.empty());
 
-        PaymentCancelPrepareResult prepared = transactionService.prepare(baseReq);
+        CancelPrepareResult prepared = transactionService.prepare(baseReq);
 
         assertEquals(CancelResultStatus.ALREADY_CANCELLED, prepared.completedResponse().cancelStatus());
         assertEquals(rereadCancel.cancelApprovalNo(), prepared.completedResponse().cancelApprovalNo());
@@ -253,7 +253,7 @@ class PaymentCancelPrepareTransactionServiceTest {
         givenNoExistingCancelThenReread(Optional.of(pendingCancel()));
         givenInsertPendingConflict();
 
-        PaymentCancelPrepareResult prepared = transactionService.prepare(baseReq);
+        CancelPrepareResult prepared = transactionService.prepare(baseReq);
 
         assertEquals(CancelResultStatus.RETRY_LATER, prepared.completedResponse().cancelStatus());
         verifyC5ConflictRecoveryTried(baseReq);
@@ -268,7 +268,7 @@ class PaymentCancelPrepareTransactionServiceTest {
         givenNoExistingCancelThenReread(Optional.of(existingCancel));
         givenInsertPendingConflict();
 
-        PaymentCancelPrepareResult prepared = transactionService.prepare(baseReq);
+        CancelPrepareResult prepared = transactionService.prepare(baseReq);
 
         assertEquals(CancelResultStatus.ALREADY_CANCELLED, prepared.completedResponse().cancelStatus());
         assertEquals(existingCancel.cancelApprovalNo(), prepared.completedResponse().cancelApprovalNo());
@@ -284,7 +284,7 @@ class PaymentCancelPrepareTransactionServiceTest {
         givenNoExistingCancelThenReread(Optional.of(existingCancel));
         givenInsertPendingConflict();
 
-        PaymentCancelPrepareResult prepared = transactionService.prepare(baseReq);
+        CancelPrepareResult prepared = transactionService.prepare(baseReq);
 
         assertEquals(CancelResultStatus.CANCEL_DECLINED, prepared.completedResponse().cancelStatus());
         assertEquals(existingCancel.declineCode(), prepared.completedResponse().declineCode());
@@ -298,7 +298,7 @@ class PaymentCancelPrepareTransactionServiceTest {
         givenNoExistingCancelThenReread(Optional.empty());
         givenInsertPendingConflict();
 
-        PaymentCancelPrepareResult prepared = transactionService.prepare(baseReq);
+        CancelPrepareResult prepared = transactionService.prepare(baseReq);
 
         assertEquals(CancelResultStatus.RETRY_LATER, prepared.completedResponse().cancelStatus());
         verifyC5ConflictRecoveryTried(baseReq);
@@ -486,7 +486,7 @@ class PaymentCancelPrepareTransactionServiceTest {
         when(cancelRepository.insertPendingCancel(any()))
                 .thenReturn(Optional.of(pendingCancel()));
 
-        PaymentCancelPrepareResult prepared = transactionService.prepare(baseReq);
+        CancelPrepareResult prepared = transactionService.prepare(baseReq);
 
         assertFalse(prepared.isCompleted());
         assertEquals(baseReq.posTrx(), prepared.posTrx());
@@ -537,7 +537,7 @@ class PaymentCancelPrepareTransactionServiceTest {
         when(cancelRepository.insertPendingCancel(any()))
                 .thenReturn(Optional.of(pendingCancel()));
 
-        PaymentCancelPrepareResult prepared = transactionService.prepare(baseReq);
+        CancelPrepareResult prepared = transactionService.prepare(baseReq);
 
         assertFalse(prepared.isCompleted());
         assertEquals(baseReq.posTrx(), prepared.posTrx());
@@ -570,7 +570,7 @@ class PaymentCancelPrepareTransactionServiceTest {
                         null
                 )));
 
-        PaymentCancelPrepareResult prepared = transactionService.prepare(request);
+        CancelPrepareResult prepared = transactionService.prepare(request);
 
         assertFalse(prepared.isCompleted());
         verify(paymentEventLogRecorder).record(argThat(event ->

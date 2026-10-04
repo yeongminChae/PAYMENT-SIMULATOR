@@ -5,5 +5,5 @@ import com.chaeyeongmin.payment_sim.payment.api.reversal.ReversalResponse;
 
 public interface PaymentReversalService {
 
-    ReversalResponse reversal(ReversalRequest request);
+    ReversalResponse reverse(ReversalRequest request);
 }
