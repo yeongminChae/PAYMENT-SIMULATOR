@@ -5,6 +5,7 @@ import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentReversalRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.ReversalResultUpdateParam;
 import com.chaeyeongmin.payment_sim.payment.api.reversal.ReversalResponse;
+import com.chaeyeongmin.payment_sim.payment.application.common.VanDeclineCodeMapper;
 import com.chaeyeongmin.payment_sim.payment.application.reversal.support.ReversalResponseFactory;
 import com.chaeyeongmin.payment_sim.payment.application.reversal.transaction.model.ReversalPrepareResult;
 import com.chaeyeongmin.payment_sim.payment.domain.reversal.PaymentReversal;
@@ -64,7 +65,7 @@ public class ReversalFinalizeTxService {
                     originalPosTrx,
                     originalAttemptSeq,
                     vanResponse.vanReversalTrxId(),
-                    code(vanResponse.declineCode())
+                    VanDeclineCodeMapper.toCode(vanResponse.declineCode())
             );
         };
 
@@ -100,7 +101,4 @@ public class ReversalFinalizeTxService {
         return ReversalResponse.retryLater(reversalPosTrx, originalPosTrx, originalAttemptSeq);
     }
 
-    private String code(com.chaeyeongmin.payment_sim.van.client.dto.enums.VanDeclineCode declineCode) {
-        return declineCode == null ? null : declineCode.name();
-    }
 }

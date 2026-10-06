@@ -211,6 +211,21 @@ class PaymentReversalServiceImplTest {
     }
 
     @Test
+    void VAN_REVERSAL_DECLINED의_DO_NOT_HONOR는_name이_아닌_code를_응답과_DB에_저장한다() {
+        insertOriginalAttempt(PaymentFinalStatus.UNKNOWN_TIMEOUT);
+        vanGateway.decline(VanDeclineCode.DO_NOT_HONOR);
+
+        ReversalResponse response = reversalService.reverse(reversalRequest(REVERSAL_POS_TRX));
+
+        assertAll(
+                () -> assertThat(response.reversalStatus()).isEqualTo(ReversalResultStatus.REVERSAL_DECLINED),
+                () -> assertThat(response.declineCode()).isEqualTo("05"),
+                () -> assertThat(storedReversalStatus()).isEqualTo(ReversalStatus.REVERSAL_DECLINED.name()),
+                () -> assertThat(storedDeclineCode()).isEqualTo("05")
+        );
+    }
+
+    @Test
     void request_not_sent면_PENDING을_cleanup하고_RETRY_LATER를_반환한다() {
         insertOriginalAttempt(PaymentFinalStatus.UNKNOWN_TIMEOUT);
         vanGateway.requestNotSent();
