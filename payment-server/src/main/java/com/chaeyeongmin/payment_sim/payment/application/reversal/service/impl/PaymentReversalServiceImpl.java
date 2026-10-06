@@ -58,7 +58,7 @@ public class PaymentReversalServiceImpl implements PaymentReversalService {
         log.info("[reversal][prepared] reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}, completed={}",
                 prepared.reversalPosTrx(), prepared.originalPosTrx(), prepared.originalAttemptSeq(), prepared.isCompleted());
         if (prepared.isCompleted()) {
-            log.info("[reversal][reused] reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}, status={}",
+            log.info("[reversal][completed] reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}, status={}",
                     prepared.reversalPosTrx(), prepared.originalPosTrx(), prepared.originalAttemptSeq(),
                     prepared.completedResponse().reversalStatus());
             return prepared.completedResponse();
