@@ -143,7 +143,9 @@ public class RecoveryWorker {
             RecoveryHandler handler = getHandler(task);
             handlerResult = handler.handle(task);
         } catch (RuntimeException e) {
-            return handleRecoveryFailure(task, history, claimToken, e);
+            RecoveryWorkerResult failureResult = handleRecoveryFailure(task, history, claimToken, e);
+            logTransition(failureResult.resultType(), task);
+            return failureResult;
         }
 
         log.info("[recovery][handler-result] taskId={}, targetType={}, targetTrxNo={}, resultType={}, observedStatus={}, dbStatus={}",
