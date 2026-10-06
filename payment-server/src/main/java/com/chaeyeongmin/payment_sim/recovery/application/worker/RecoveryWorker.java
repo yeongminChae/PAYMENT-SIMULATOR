@@ -133,6 +133,8 @@ public class RecoveryWorker {
 
         RecoveryTask task = claimed.task();
         RecoveryHistory history = claimed.history();
+        log.info("[recovery][claimed] taskId={}, targetType={}, targetTrxNo={}, targetAttemptSeq={}, retryCount={}",
+                task.id(), task.targetType(), task.targetTrxNo(), task.targetAttemptSeq(), task.retryCount());
 
         // 6. 예외 분류는 Handler 선택과 실행에서 난 오류에만 적용한다.
         // 이후 transactionService에서 난 DB 오류는 아래 catch 밖에서 그대로 전파된다.
@@ -144,12 +146,39 @@ public class RecoveryWorker {
             return handleRecoveryFailure(task, history, claimToken, e);
         }
 
+        log.info("[recovery][handler-result] taskId={}, targetType={}, targetTrxNo={}, resultType={}, observedStatus={}, dbStatus={}",
+                task.id(), task.targetType(), task.targetTrxNo(), handlerResult.resultType(),
+                handlerResult.observedStatus(), handlerResult.dbStatus());
+        RecoveryWorkerResultType workerResult = applyRecoveryTransition(handlerResult, task, history, claimToken);
+        logTransition(workerResult, task);
         return new RecoveryWorkerResult(
-                applyRecoveryTransition(handlerResult, task, history, claimToken),
+                workerResult,
                 task.id(),
                 handlerResult
         );
 
+    }
+
+    private void logTransition(RecoveryWorkerResultType resultType, RecoveryTask task) {
+        String message = switch (resultType) {
+            case RESOLVED -> "[recovery][resolved]";
+            case RETRY_WAIT -> "[recovery][retry-wait]";
+            case MANUAL_REVIEW -> "[recovery][manual-review]";
+            case OWNERSHIP_LOST -> "[recovery][ownership-lost]";
+            case NO_TASK -> "[recovery][no-task]";
+        };
+
+        if (resultType == RecoveryWorkerResultType.MANUAL_REVIEW
+                || resultType == RecoveryWorkerResultType.OWNERSHIP_LOST) {
+            log.warn("{} taskId={}, targetType={}, targetTrxNo={}, targetAttemptSeq={}, retryCount={}, resultType={}",
+                    message, task.id(), task.targetType(), task.targetTrxNo(), task.targetAttemptSeq(),
+                    task.retryCount(), resultType);
+            return;
+        }
+
+        log.info("{} taskId={}, targetType={}, targetTrxNo={}, targetAttemptSeq={}, retryCount={}, resultType={}",
+                message, task.id(), task.targetType(), task.targetTrxNo(), task.targetAttemptSeq(),
+                task.retryCount(), resultType);
     }
 
     /**
