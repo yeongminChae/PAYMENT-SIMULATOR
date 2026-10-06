@@ -548,6 +548,49 @@ class CancelPrepareTxServiceTest {
     }
 
     @Test
+    @DisplayName("request-not-sent cleanup은 정확한 PENDING cancel row를 삭제하고 RETRY_LATER를 반환한다")
+    void cleanupRequestNotSent_created_shouldDeleteExactPendingCancelAndReturnRetryLater() {
+        CancelPrepareResult prepared = CancelPrepareResult.created(
+                baseReq.posTrx(),
+                baseReq.originalPosTrx(),
+                baseReq.originalAttemptSeq(),
+                originalApprovedAttempt()
+        );
+        when(cancelRepository.deletePendingCancel(
+                baseReq.posTrx(),
+                baseReq.originalPosTrx(),
+                baseReq.originalAttemptSeq()
+        )).thenReturn(1);
+
+        CancelResponse response = transactionService.cleanupRequestNotSent(prepared);
+
+        assertEquals(CancelResultStatus.RETRY_LATER, response.cancelStatus());
+        verify(cancelRepository).deletePendingCancel(
+                baseReq.posTrx(),
+                baseReq.originalPosTrx(),
+                baseReq.originalAttemptSeq()
+        );
+    }
+
+    @Test
+    @DisplayName("completed prepare 결과는 request-not-sent cleanup 대상이 아니며 delete하지 않는다")
+    void cleanupRequestNotSent_completed_shouldThrowInternalErrorWithoutDelete() {
+        CancelResponse completedResponse = CancelResponse.retryLater(
+                baseReq.posTrx(),
+                baseReq.originalPosTrx(),
+                baseReq.originalAttemptSeq()
+        );
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> transactionService.cleanupRequestNotSent(CancelPrepareResult.completed(completedResponse))
+        );
+
+        assertEquals(ResultCode.INTERNAL_ERROR, exception.getResultCode());
+        verify(cancelRepository, never()).deletePendingCancel(anyString(), anyString(), anyInt());
+    }
+
+    @Test
     @DisplayName("신규 취소 준비가 성공하면 PENDING 생성 이벤트를 기록한다")
     void prepare_newRequest_shouldLogPendingCreatedEvent() {
         CancelRequest request = cancelRequest(

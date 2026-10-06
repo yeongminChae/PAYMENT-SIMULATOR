@@ -96,6 +96,30 @@ public class CancelPrepareTxService {
     }
 
     /**
+     * VAN에 cancel 요청이 전송되지 않은 경우 방금 만든 PENDING row를 정리한다.
+     *
+     * <p>Socket connect 실패처럼 request bytes가 나가지 않은 경우에만 사용해야 한다.
+     */
+    @Transactional
+    public CancelResponse cleanupRequestNotSent(CancelPrepareResult prepared) {
+        if (prepared == null || prepared.isCompleted()) {
+            throw new BusinessException(ResultCode.INTERNAL_ERROR, "CANCEL_CLEANUP_INVALID_PREPARE_RESULT");
+        }
+
+        cancelRepository.deletePendingCancel(
+                prepared.posTrx(),
+                prepared.originalPosTrx(),
+                prepared.originalAttemptSeq()
+        );
+
+        return CancelResponse.retryLater(
+                prepared.posTrx(),
+                prepared.originalPosTrx(),
+                prepared.originalAttemptSeq()
+        );
+    }
+
+    /**
      * 같은 원승인에 대한 취소 판단을 직렬화하기 위해 원승인 거래번호 기준 lock을 잡는다.
      */
     private void acquireOriginalPosTrxLock(String originalPosTrx) {

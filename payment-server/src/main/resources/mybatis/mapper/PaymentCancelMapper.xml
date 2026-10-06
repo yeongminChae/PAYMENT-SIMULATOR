@@ -39,6 +39,19 @@
     </select>
 
     <!--
+        request-not-sent 전용 cleanup.
+        - VAN에 request bytes가 전달되지 않은 경우에만 신규 PENDING row를 삭제한다.
+        - 현재 취소 거래번호와 원거래 식별자, PENDING 상태를 모두 조건으로 사용한다.
+    -->
+    <delete id="deletePendingCancel">
+        DELETE FROM PAYMENT_CANCEL
+        WHERE CURRENT_TRX_NO = #{posTrx}
+        AND ORIGINAL_TRX_NO = #{originalPosTrx}
+        AND ORIGINAL_ATTEMPT_SEQ = #{originalAttemptSeq}
+        AND CANCEL_STATUS = 'PENDING'
+    </delete>
+
+    <!--
         [C7] 취소 결과 확정 update
         - VAN cancel 결과가 CANCELLED 또는 CANCEL_DECLINED로 확정됐을 때 호출한다.
         - 최초 C5에서 만든 PENDING row만 확정 대상으로 삼는다.

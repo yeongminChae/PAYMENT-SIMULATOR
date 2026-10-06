@@ -22,6 +22,18 @@ class PaymentCancelMapperXmlTest {
         assertThat(xml).contains("RETURNING");
     }
 
+    @Test
+    void request_not_sent_cleanup은_정확한_key와_PENDING_조건을_사용한다() throws IOException {
+        String xml = mapperXml();
+
+        assertThat(xml).contains("<delete id=\"deletePendingCancel\">");
+        assertThat(xml).contains("DELETE FROM PAYMENT_CANCEL");
+        assertThat(xml).contains("WHERE CURRENT_TRX_NO = #{posTrx}");
+        assertThat(xml).contains("AND ORIGINAL_TRX_NO = #{originalPosTrx}");
+        assertThat(xml).contains("AND ORIGINAL_ATTEMPT_SEQ = #{originalAttemptSeq}");
+        assertThat(xml).contains("AND CANCEL_STATUS = 'PENDING'");
+    }
+
     private static String mapperXml() throws IOException {
         try (InputStream inputStream = PaymentCancelMapperXmlTest.class
                 .getClassLoader()
