@@ -75,10 +75,10 @@ public class CancelResponseFactory {
      *
      * <p>
      * - 기존 row 재응답: 현재 요청은 VAN을 호출하지 않은 중복 요청이므로 CANCELLED -> ALREADY_CANCELLED
-     * - C7 복구 응답 : 현재 요청은 VAN을 이미 호출했으므로 CANCELLED -> CANCELLED
+     * - finalize update miss 이후 응답 : 현재 요청은 VAN을 이미 호출했으므로 CANCELLED -> CANCELLED
      * - UNKNOWN_TIMEOUT: 현재 요청의 VAN 결과도 확정할 수 없으므로 재호출 없이 RETRY_LATER
      */
-    public CancelResponse fromC7RecoveredCancel(
+    public CancelResponse fromFinalizedCurrent(
             PaymentCancel cancel
     ) {
         return switch (cancel.cancelStatus()) {

@@ -5,7 +5,7 @@ import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.payment.api.inquiry.InquiryRequest;
 import com.chaeyeongmin.payment_sim.payment.api.inquiry.InquiryResponse;
 import com.chaeyeongmin.payment_sim.payment.application.inquiry.service.PaymentInquiryService;
-import com.chaeyeongmin.payment_sim.payment.application.inquiry.transaction.PaymentInquiryTransactionService;
+import com.chaeyeongmin.payment_sim.payment.application.inquiry.transaction.ApprovalInquiryTxService;
 import com.chaeyeongmin.payment_sim.payment.application.card.support.CardSummaryFactory;
 import com.chaeyeongmin.payment_sim.payment.application.common.VanDeclineCodeMapper;
 import com.chaeyeongmin.payment_sim.payment.api.inquiry.InquiryRequestValidator;
@@ -45,7 +45,7 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
     private final VanGateway vanGateway;
     private final InquiryRequestValidator validator;
     private final VanInquiryAssembler vanInquiryAssembler;
-    private final PaymentInquiryTransactionService transactionService;
+    private final ApprovalInquiryTxService transactionService;
 
     @Override
     public InquiryResponse inquire(InquiryRequest request) {
@@ -206,7 +206,7 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
         // Q5a/Q5b: VAN이 APPROVED 또는 DECLINED로 확정 결과를 돌려준 경우.
         // - 외부 응답을 바로 클라이언트에 내리지 않고, DB의 UNKNOWN_TIMEOUT row 확정은 transaction service에 맡긴다.
         // - 그래야 다음 조회부터 DB에 실제 저장된 값만으로 같은 결과를 재응답할 수 있다.
-        return transactionService.finalizeResolvedInquiry(
+        return transactionService.applyResolvedResult(
                 posTrx,
                 attemptSeq,
                 vanInquiryResponse,

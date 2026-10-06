@@ -21,12 +21,12 @@ import java.util.Optional;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class PaymentCancelInquiryTransactionService {
+public class CancelInquiryTxService {
 
     private final PaymentCancelRepository cancelRepository;
 
     @Transactional
-    public CancelResponse finalizeResolvedInquiry(
+    public CancelResponse applyResolvedResult(
             PaymentCancel cancel,
             VanInquiryResponse response
     ) {

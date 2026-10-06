@@ -27,9 +27,9 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-class PaymentInquiryTransactionServiceTest {
+class ApprovalInquiryTxServiceTest {
 
-    private PaymentInquiryTransactionService service;
+    private ApprovalInquiryTxService service;
     private PaymentInquiryRepository paymentInquiryRepository;
     private PaymentAttemptRepository paymentAttemptRepository;
 
@@ -42,7 +42,7 @@ class PaymentInquiryTransactionServiceTest {
         paymentInquiryRepository = mock(PaymentInquiryRepository.class);
         paymentAttemptRepository = mock(PaymentAttemptRepository.class);
 
-        service = new PaymentInquiryTransactionService(
+        service = new ApprovalInquiryTxService(
                 paymentInquiryRepository,
                 paymentAttemptRepository
         );
@@ -60,7 +60,7 @@ class PaymentInquiryTransactionServiceTest {
         when(paymentInquiryRepository.updateUnknownToFinal(any(AttemptResultUpdateParam.class)))
                 .thenReturn(Optional.of(updatedRow));
 
-        InquiryResponse response = service.finalizeResolvedInquiry(
+        InquiryResponse response = service.applyResolvedResult(
                 posTrx,
                 attemptSeq,
                 vanResponse,
@@ -90,7 +90,7 @@ class PaymentInquiryTransactionServiceTest {
         when(paymentInquiryRepository.updateUnknownToFinal(any(AttemptResultUpdateParam.class)))
                 .thenReturn(Optional.of(updatedRow));
 
-        InquiryResponse response = service.finalizeResolvedInquiry(
+        InquiryResponse response = service.applyResolvedResult(
                 posTrx,
                 attemptSeq,
                 vanResponse,
@@ -125,7 +125,7 @@ class PaymentInquiryTransactionServiceTest {
         when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(posTrx, attemptSeq))
                 .thenReturn(Optional.of(rereadApproved));
 
-        InquiryResponse response = service.finalizeResolvedInquiry(
+        InquiryResponse response = service.applyResolvedResult(
                 posTrx,
                 attemptSeq,
                 vanResponse,
@@ -160,7 +160,7 @@ class PaymentInquiryTransactionServiceTest {
         when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(posTrx, attemptSeq))
                 .thenReturn(Optional.of(rereadDeclined));
 
-        InquiryResponse response = service.finalizeResolvedInquiry(
+        InquiryResponse response = service.applyResolvedResult(
                 posTrx,
                 attemptSeq,
                 vanResponse,
@@ -187,7 +187,7 @@ class PaymentInquiryTransactionServiceTest {
         when(paymentAttemptRepository.findByPosTrxAndAttemptSeq(posTrx, attemptSeq))
                 .thenReturn(Optional.empty());
 
-        InquiryResponse response = service.finalizeResolvedInquiry(
+        InquiryResponse response = service.applyResolvedResult(
                 posTrx,
                 attemptSeq,
                 vanResponse,

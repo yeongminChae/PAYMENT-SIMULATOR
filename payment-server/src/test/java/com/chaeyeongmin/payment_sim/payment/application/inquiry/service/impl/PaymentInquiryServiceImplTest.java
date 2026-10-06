@@ -9,7 +9,7 @@ import com.chaeyeongmin.payment_sim.payment.api.inquiry.InquiryRequestValidator;
 import com.chaeyeongmin.payment_sim.payment.api.inquiry.InquiryResponse;
 import com.chaeyeongmin.payment_sim.payment.api.inquiry.InquiryValidationError;
 import com.chaeyeongmin.payment_sim.payment.application.inquiry.service.PaymentInquiryService;
-import com.chaeyeongmin.payment_sim.payment.application.inquiry.transaction.PaymentInquiryTransactionService;
+import com.chaeyeongmin.payment_sim.payment.application.inquiry.transaction.ApprovalInquiryTxService;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanInquiryAssembler;
@@ -60,7 +60,7 @@ class PaymentInquiryServiceImplTest {
     private VanGateway gateway;
     private InquiryRequestValidator validator;
     private VanInquiryAssembler assembler;
-    private PaymentInquiryTransactionService transactionService;
+    private ApprovalInquiryTxService transactionService;
 
     private InquiryRequest baseReq;
 
@@ -70,7 +70,7 @@ class PaymentInquiryServiceImplTest {
         gateway = mock(VanGateway.class);
         validator = mock(InquiryRequestValidator.class);
         assembler = mock(VanInquiryAssembler.class);
-        transactionService = mock(PaymentInquiryTransactionService.class);
+        transactionService = mock(ApprovalInquiryTxService.class);
 
         service = new PaymentInquiryServiceImpl(
                 paymentAttemptRepository,
@@ -364,7 +364,7 @@ class PaymentInquiryServiceImplTest {
         when(gateway.inquiry(vanInquiryReq))
                 .thenReturn(vanInquiryRes);
 
-        when(transactionService.finalizeResolvedInquiry(
+        when(transactionService.applyResolvedResult(
                 eq(trx),
                 eq(attemptSeq),
                 eq(vanInquiryRes),
@@ -378,7 +378,7 @@ class PaymentInquiryServiceImplTest {
         assertEquals(finalizedResponse, res);
 
         verify(transactionService, times(1))
-                .finalizeResolvedInquiry(
+                .applyResolvedResult(
                         eq(trx),
                         eq(attemptSeq),
                         eq(vanInquiryRes),
@@ -446,7 +446,7 @@ class PaymentInquiryServiceImplTest {
         when(gateway.inquiry(vanInquiryReq))
                 .thenReturn(vanInquiryRes);
 
-        when(transactionService.finalizeResolvedInquiry(
+        when(transactionService.applyResolvedResult(
                 eq(trx),
                 eq(attemptSeq),
                 eq(vanInquiryRes),
@@ -466,7 +466,7 @@ class PaymentInquiryServiceImplTest {
         verify(gateway, times(1))
                 .inquiry(vanInquiryReq);
         verify(transactionService, times(1))
-                .finalizeResolvedInquiry(eq(trx), eq(attemptSeq), eq(vanInquiryRes), any(CardSummary.class));
+                .applyResolvedResult(eq(trx), eq(attemptSeq), eq(vanInquiryRes), any(CardSummary.class));
     }
 
     /**

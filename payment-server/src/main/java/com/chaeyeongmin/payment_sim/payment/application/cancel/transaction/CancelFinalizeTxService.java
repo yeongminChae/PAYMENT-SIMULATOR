@@ -223,7 +223,7 @@ public class CancelFinalizeTxService {
                 recoveredCancelByOriginal.cancelStatus()
         );
 
-        return factory.fromC7RecoveredCancel(recoveredCancelByOriginal);
+        return factory.fromFinalizedCurrent(recoveredCancelByOriginal);
     }
 
     /**
