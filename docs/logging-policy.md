@@ -91,6 +91,6 @@ Hibernate bind parameter TRACE처럼 민감한 값이 노출될 수 있는 로�
 
 외부 입력에서 유래한 식별자나 메시지에 newline 등 제어문자가 포함되면 로그 라인을 위조하거나 수집 파이프라인을 깨뜨릴 수 있다.
 
-두 애플리케이션의 Logback pattern은 MDC `requestId`와 최종 message에 포함된 제어문자(`\\p{Cntrl}`)를 `_`로 치환한 뒤 출력한다.
+두 애플리케이션의 Logback pattern은 MDC `requestId`와 최종 message에 포함된 제어문자(`\p{Cntrl}`)를 `_`로 치환한 뒤 출력한다.
 
 이 처리는 로그 출력 안전성을 위한 방어이며, 거래 correlation 검증이나 비즈니스 상태 판단을 대신하지 않는다.
