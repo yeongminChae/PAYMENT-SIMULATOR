@@ -11,6 +11,7 @@ import com.chaeyeongmin.payment_sim.payment.application.reversal.transaction.mod
 import com.chaeyeongmin.payment_sim.payment.domain.reversal.PaymentReversal;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanReversalResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,6 +22,7 @@ import java.util.Optional;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ReversalFinalizeTxService {
 
     private final PaymentReversalRepository reversalRepository;
@@ -73,6 +75,10 @@ public class ReversalFinalizeTxService {
         // - updateReversalResult는 아직 PENDING인 row만 최종 상태로 바꾸는 멱등성 보호 장치다.
         // - update miss가 나면 다른 흐름이 먼저 상태를 바꿨거나 row 조건이 기대와 달라졌을 수 있다.
         Optional<PaymentReversal> updated = reversalRepository.updateReversalResult(updateParam);
+        if (updated.isEmpty()) {
+            log.warn("[reversal][update-miss] reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}",
+                    reversalPosTrx, originalPosTrx, originalAttemptSeq);
+        }
         return updated.isPresent()
                 ? responseFactory.fromFinalizedCurrent(updated.get())
                 : recoverUpdateMiss(reversalPosTrx, originalPosTrx, originalAttemptSeq);

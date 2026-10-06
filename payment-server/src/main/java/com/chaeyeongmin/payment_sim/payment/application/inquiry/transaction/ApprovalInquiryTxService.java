@@ -53,6 +53,8 @@ public class ApprovalInquiryTxService {
         // - "응답으로 나간 값 = DB에 남은 값"을 맞추기 위한 규칙이다.
         if (finalizedRowOpt.isPresent()) {
             PaymentAttemptUpdatedRow finalizedRow = finalizedRowOpt.get();
+            log.info("[inquiry][finalized] targetType=APPROVAL, posTrx={}, attemptSeq={}, status={}, vanTrxId={}",
+                    posTrx, attemptSeq, finalizedRow.finalStatus(), vanInquiryResponse.vanTrxId());
 
             // CARD_BRAND도 update RETURNING row에 포함해 승인/조회 응답 카드 요약을 동일한 DB 저장값 기준으로 만든다.
             return getInquiryResponse(
@@ -70,6 +72,8 @@ public class ApprovalInquiryTxService {
 
         }
 
+        log.warn("[inquiry][update-miss] targetType=APPROVAL, posTrx={}, attemptSeq={}, vanTrxId={}",
+                posTrx, attemptSeq, vanInquiryResponse.vanTrxId());
         return handleUpdateUnknownToFinalMiss(
                 posTrx,
                 attemptSeq,
