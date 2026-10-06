@@ -302,6 +302,21 @@ Worker A lease expiry
 
 ---
 
+## Observability
+
+거래 장애를 단순 예외 메시지가 아니라 **어느 구간까지 처리되었는지 추적할 수 있도록** 애플리케이션 로그를 보강했습니다.
+
+- HTTP 요청은 MDC의 `requestId`를 `[rid=...]`로 기록합니다.
+- Payment Server ↔ VAN Simulator TCP 거래는 HTTP Request ID와 별도의 protocol correlation ID를 사용하고, 로그에서는 `vanRequestId`로 구분합니다.
+- Payment Server는 `[van]`, `[reversal]`, `[inquiry]`, `[cancel-inquiry]`, `[recovery]` 흐름을 기록합니다.
+- VAN Simulator는 `[van-tcp]` 기준으로 요청 수신, 처리 결과, Approval response drop 시나리오를 기록합니다.
+- PAN, expiry, card fingerprint, secret, raw payload와 DTO 전체 값은 로그에 남기지 않습니다.
+- Logback 출력 단계에서 request ID와 message의 제어문자를 치환해 로그 라인 변조 가능성을 줄입니다.
+
+상세 정책은 [Logging & Request ID Policy](./docs/logging-policy.md)를 참고하세요.
+
+---
+
 ## Key Verification Results
 
 단순 happy path보다 **실패 위치와 동시 실행 순서를 의도적으로 만들어 최종 DB 상태와 VAN 호출 횟수**를 확인했습니다.
@@ -376,7 +391,8 @@ R6
 | Recovery Orchestration | Spring Batch |
 | Test | JUnit 5, Mockito, Spring Boot Test, MyBatis Test, Testcontainers |
 | Local Environment | Docker Compose |
-| Logging | MDC, Logback |
+| CI | GitHub Actions — develop PR / push 시 전체 Gradle test |
+| Logging | MDC, Logback, HTTP / TCP correlation logging |
 
 ---
 
@@ -442,6 +458,8 @@ $env:CARD_SECRET_KEY = "local-dev-card-fingerprint-secret-key-32bytes"
 
 PostgreSQL integration test는 Testcontainers를 사용하므로 Docker가 필요합니다.
 
+GitHub Actions는 `develop` 대상 PR과 `develop` push에서 Java 21(Temurin) 환경으로 `./gradlew test --no-daemon --stacktrace`를 실행합니다. 테스트 실패 시 Payment Server와 VAN Simulator의 테스트 리포트를 artifact로 업로드합니다.
+
 ---
 
 ## Limitations
@@ -467,3 +485,7 @@ PostgreSQL integration test는 Testcontainers를 사용하므로 Docker가 필�
   - Recovery Claim / Lease / Fencing
   - Conditional Finalization
   - Race & Crash Scenarios
+- [Logging & Request ID Policy](./docs/logging-policy.md)
+  - HTTP Request ID / MDC
+  - TCP protocol correlation ID
+  - Sensitive data / log injection policy
