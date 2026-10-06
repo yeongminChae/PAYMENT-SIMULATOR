@@ -179,6 +179,8 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
                 cardSummary.cardLast4(),
                 vanTrxId
         );
+        log.info("[inquiry][van-requested] targetType=APPROVAL, targetTrxNo={}, targetAttemptSeq={}, vanTrxId={}",
+                posTrx, attemptSeq, vanTrxId);
 
         // Q5-1: VAN 조회 호출.
         // - UNKNOWN_TIMEOUT 건에 대해서만 수행한다.
@@ -187,6 +189,9 @@ public class PaymentInquiryServiceImpl implements PaymentInquiryService {
         VanInquiryResponse vanInquiryResponse = vanGateway.inquiry(vanInquiryRequest);
         PaymentFinalStatus vanFinalStatus = toPaymentFinalStatus(vanInquiryResponse);
         String responseDeclineCode = VanDeclineCodeMapper.toCode(vanInquiryResponse.declineCode());
+        log.info("[inquiry][van-result-received] targetType={}, targetTrxNo={}, targetAttemptSeq={}, resultCode={}, status={}, vanTrxId={}",
+                vanInquiryResponse.targetType(), vanInquiryResponse.targetTrxNo(), vanInquiryResponse.targetAttemptSeq(),
+                vanInquiryResponse.resultCode(), vanInquiryResponse.status(), vanInquiryResponse.vanTrxId());
 
         // Q5c/Q8: VAN 조회 결과도 여전히 미확정.
         // - 이 경우 DB 상태를 바꾸지 않는다. 이미 UNKNOWN_TIMEOUT으로 저장된 상태와 의미가 같기 때문이다.

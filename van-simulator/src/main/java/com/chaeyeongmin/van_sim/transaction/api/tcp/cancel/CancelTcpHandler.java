@@ -11,6 +11,7 @@ import com.chaeyeongmin.van_sim.transaction.application.cancel.result.CancelResu
 import com.chaeyeongmin.van_sim.transaction.application.cancel.service.CancelService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
@@ -19,6 +20,7 @@ import java.io.IOException;
 @Component
 @Profile("postgres")
 @RequiredArgsConstructor
+@Slf4j
 public class CancelTcpHandler {
 
     private static final String PROTOCOL_VERSION = "1";
@@ -33,6 +35,8 @@ public class CancelTcpHandler {
     public byte[] handle(byte[] payload) {
         // TCP 서버가 수신한 원본 JSON 바이트 payload를 취소 요청 전문 객체로 역직렬화한다.
         CancelRequestMessage cancelRequest = readCancelRequest(payload);
+        log.info("[van-tcp][cancel][received] requestId={}, cancelPosTrx={}, originalPosTrx={}, originalAttemptSeq={}",
+                cancelRequest.requestId(), cancelRequest.cancelPosTrx(), cancelRequest.originalPosTrx(), cancelRequest.originalAttemptSeq());
 
         // 취소 요청 전문 객체 값 체크
         validate(cancelRequest);
@@ -43,6 +47,10 @@ public class CancelTcpHandler {
         // 취소 서비스에 커맨드를 전달해 취소 가능 여부와 응답에 필요한 처리 결과를 계산한다.
         // 이 호출이 반환된 시점에는 CancelService @Transactional 경계가 끝나 원장 저장도 commit된 뒤다.
         CancelResult cancelResult = service.processCancel(cancelCommand);
+        log.info("[van-tcp][cancel][result] requestId={}, cancelPosTrx={}, originalPosTrx={}, originalAttemptSeq={}, status={}, resultCode={}, vanTrxId={}, approvalNo={}, declineCode={}",
+                cancelRequest.requestId(), cancelResult.cancelPosTrx(), cancelResult.originalPosTrx(), cancelResult.originalAttemptSeq(),
+                cancelResult.cancelStatus(), cancelResult.resultCode(), cancelResult.vanCancelTrxId(),
+                cancelResult.cancelApprovalNo(), cancelResult.declineCode());
 
         // DROP_RESPONSE는 TCP 응답만 유실시키는 transport 계층 시나리오다.
         // 따라서 서비스 트랜잭션 안에 넣지 않고, 업무 처리 완료 후 응답 payload를 만들기 전에 적용한다.

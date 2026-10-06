@@ -16,6 +16,7 @@ import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutExcep
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -32,6 +33,7 @@ import java.time.LocalDateTime;
 @Component
 @ConditionalOnProperty(name = "payment.van.mode", havingValue = "tcp")
 @RequiredArgsConstructor
+@Slf4j
 public class TcpCancelOperation {
 
     private static final String PROTOCOL_VERSION = "1";
@@ -53,16 +55,26 @@ public class TcpCancelOperation {
     public VanCancelResponse execute(VanCancelRequest request) {
         try {
             VanCancelTcpRequest tcpRequest = toTcpRequest(request);
+            log.info("[van][cancel][request] vanRequestId={}, cancelPosTrx={}, originalPosTrx={}, originalAttemptSeq={}",
+                    tcpRequest.requestId(), tcpRequest.cancelPosTrx(), tcpRequest.originalPosTrx(), tcpRequest.originalAttemptSeq());
             byte[] requestPayload = writeRequest(tcpRequest);
             byte[] responsePayload = vanTcpClient.send(requestPayload);
             VanCancelTcpResponse tcpResponse = readCancelResponse(responsePayload);
 
             validateCancelResponse(tcpRequest, tcpResponse);
-            return toCancelResponse(tcpResponse);
+            VanCancelResponse response = toCancelResponse(tcpResponse);
+            log.info("[van][cancel][response] vanRequestId={}, cancelPosTrx={}, originalPosTrx={}, originalAttemptSeq={}, status={}, vanTrxId={}, approvalNo={}, declineCode={}",
+                    tcpRequest.requestId(), response.posTrx(), response.originalPosTrx(), response.originalAttemptSeq(),
+                    response.cancelStatus(), response.vanTrxId(), response.cancelApprovalNo(), response.declineCode());
+            return response;
 
         } catch (VanTcpRequestNotSentException e) {
+            log.warn("[van][cancel][request-not-sent] vanRequestId={}, cancelPosTrx={}, originalPosTrx={}, originalAttemptSeq={}",
+                    cancelRequestId(request), request.posTrx(), request.originalPosTrx(), request.originalAttemptSeq(), e);
             throw new VanGatewayRequestNotSentException(e);
         } catch (VanTcpResponseTimeoutException e) {
+            log.warn("[van][cancel][timeout] vanRequestId={}, cancelPosTrx={}, originalPosTrx={}, originalAttemptSeq={}",
+                    cancelRequestId(request), request.posTrx(), request.originalPosTrx(), request.originalAttemptSeq(), e);
             throw new VanGatewayTimeoutException(e);
         }
     }

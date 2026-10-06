@@ -11,6 +11,7 @@ import com.chaeyeongmin.van_sim.transaction.application.approval.result.Approval
 import com.chaeyeongmin.van_sim.transaction.application.approval.service.ApprovalService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
@@ -24,6 +25,7 @@ import java.io.IOException;
 @Component
 @Profile("postgres")
 @RequiredArgsConstructor
+@Slf4j
 public class ApprovalTcpHandler {
 
     /**
@@ -46,6 +48,8 @@ public class ApprovalTcpHandler {
     public byte[] handle(byte[] payload) {
         // TCP 서버가 수신한 원본 JSON 바이트 payload를 승인 요청 전문 객체로 역직렬화한다.
         ApprovalRequestMessage approvalRequest = readApprovalRequest(payload);
+        log.info("[van-tcp][approval][received] requestId={}, posTrx={}, attemptSeq={}",
+                approvalRequest.requestId(), approvalRequest.posTrx(), approvalRequest.attemptSeq());
 
         // 취소 요청 전문 객체 값 체크
         validate(approvalRequest);
@@ -56,10 +60,17 @@ public class ApprovalTcpHandler {
         // 승인 서비스에 커맨드를 전달해 카드 승인 가능 여부와 응답에 필요한 처리 결과를 계산한다.
         // 이 호출이 반환된 시점에는 ApprovalService의 @Transactional 경계가 끝나 원장 저장도 commit된 뒤다.
         ApprovalResult approvalResult = service.processApproval(approvalCommand);
+        log.info("[van-tcp][approval][result] requestId={}, posTrx={}, attemptSeq={}, status={}, vanTrxId={}, approvalNo={}, declineCode={}",
+                approvalRequest.requestId(), approvalResult.posTrx(), approvalResult.attemptSeq(), approvalResult.status(),
+                approvalResult.vanTrxId(), approvalResult.approvalNo(), approvalResult.declineCode());
 
         // DROP_RESPONSE는 발급사 승인 처리는 끝내되 TCP 응답만 유실시키는 transport 계층 시나리오다.
         // 따라서 서비스 트랜잭션 안에 넣지 않고, 업무 처리 완료 후 응답 payload를 만들기 전에 적용한다.
-        if (shouldDropResponse(approvalRequest)) return null;
+        if (shouldDropResponse(approvalRequest)) {
+            log.warn("[van-tcp][approval][drop-response] requestId={}, posTrx={}, attemptSeq={}, result={}",
+                    approvalRequest.requestId(), approvalRequest.posTrx(), approvalRequest.attemptSeq(), approvalResult.status());
+            return null;
+        }
 
         // 원 요청 전문의 식별 정보와 서비스 처리 결과를 조합해 TCP 응답 전문 객체를 만든다.
         ApprovalResponseMessage approvalResponse = mapper.toResponse(approvalRequest, approvalResult);

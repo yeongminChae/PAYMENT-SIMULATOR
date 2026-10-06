@@ -4,7 +4,7 @@
                     source="spring.application.name" defaultValue="payment-sim"/>
     <property name="LOG_DIR" value="${LOG_DIR:-./logs}"/>
     <property name="LOG_PATTERN"
-              value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} [app=${APPLICATION_NAME}] [rid=%X{requestId}] - %msg%n"/>
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} [app=${APPLICATION_NAME}] [rid=%replace(%X{requestId}){'[\p{Cntrl}]','_'}] - %replace(%msg){'[\p{Cntrl}]','_'}%n"/>
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <filter class="ch.qos.logback.classic.filter.ThresholdFilter">

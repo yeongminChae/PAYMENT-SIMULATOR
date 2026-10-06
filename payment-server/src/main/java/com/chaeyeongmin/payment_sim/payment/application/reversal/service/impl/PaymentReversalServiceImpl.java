@@ -13,6 +13,7 @@ import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayRequestNotSentException;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
@@ -32,6 +33,7 @@ import org.springframework.stereotype.Service;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class PaymentReversalServiceImpl implements PaymentReversalService {
 
     private final ReversalPrepareTxService prepareTxService;
@@ -53,7 +55,12 @@ public class PaymentReversalServiceImpl implements PaymentReversalService {
         // - UNKNOWN_TIMEOUT 원승인만 reversal 대상이며, 신규 요청은 PENDING row를 먼저 만든다.
         // - completed=true면 이미 DB 기준으로 응답이 확정된 경로라 VAN을 호출하지 않는다.
         ReversalPrepareResult prepared = prepareTxService.prepare(request);
-        if (prepared.isCompleted()) return prepared.completedResponse();
+        if (prepared.isCompleted()) {
+            log.info("[reversal][no-van-response] reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}, status={}",
+                    prepared.reversalPosTrx(), prepared.originalPosTrx(), prepared.originalAttemptSeq(),
+                    prepared.completedResponse().reversalStatus());
+            return prepared.completedResponse();
+        }
 
         // R5: VAN reversal 요청 DTO 구성.
         // - prepared에는 TX1에서 확정한 reversal 거래번호와 원승인 attempt 정보가 들어 있다.
@@ -64,6 +71,8 @@ public class PaymentReversalServiceImpl implements PaymentReversalService {
                 prepared.originalAttemptSeq(),
                 prepared.originalAttempt()
         );
+        log.info("[reversal][van-requested] reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}",
+                prepared.reversalPosTrx(), prepared.originalPosTrx(), prepared.originalAttemptSeq());
 
         // R6: VAN reversal 호출. (트랜잭션 없음)
         // - 네트워크 I/O는 PENDING row 생성 트랜잭션과 최종 저장 트랜잭션 사이에서 수행한다.
@@ -71,15 +80,22 @@ public class PaymentReversalServiceImpl implements PaymentReversalService {
         final VanReversalResponse vanResponse;
         try {
             vanResponse = vanGateway.reversal(vanRequest);
+            log.info("[reversal][van-result-received] reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}, status={}, resultCode={}, vanTrxId={}",
+                    vanResponse.reversalPosTrx(), vanResponse.originalPosTrx(), vanResponse.originalAttemptSeq(),
+                    vanResponse.reversalStatus(), vanResponse.resultCode(), vanResponse.vanReversalTrxId());
 
         } catch (VanGatewayRequestNotSentException e) {
             // Socket.connect 단계에서 실패해 request bytes가 전송되지 않은 경우다.
             // - VAN에 reversal이 전달되지 않았으므로 방금 만든 PENDING row를 정리해 동일 요청 재시도를 허용한다.
+            log.warn("[reversal][request-not-sent] reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}",
+                    prepared.reversalPosTrx(), prepared.originalPosTrx(), prepared.originalAttemptSeq());
             return prepareTxService.cleanupRequestNotSent(prepared);
 
         } catch (VanGatewayTimeoutException e) {
             // 요청은 VAN에 전달됐을 수 있지만 응답을 받지 못했다.
             // - 성공/거절 여부를 추측하지 않고 PENDING 상태를 유지해 후속 요청의 중복 VAN 호출을 막는다.
+            log.warn("[reversal][timeout-pending] reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}",
+                    prepared.reversalPosTrx(), prepared.originalPosTrx(), prepared.originalAttemptSeq());
             return ReversalResponse.retryLater(
                     prepared.reversalPosTrx(),
                     prepared.originalPosTrx(),
@@ -90,6 +106,9 @@ public class PaymentReversalServiceImpl implements PaymentReversalService {
         // R7: VAN 응답 확정 트랜잭션.
         // - PENDING row를 선점한 요청만 여기까지 내려온다.
         // - VAN 결과를 DB에 먼저 저장하고, 실제 저장된 값을 기준으로 최종 응답을 만든다.
-        return finalizeTxService.applyVanResult(prepared, vanResponse);
+        ReversalResponse finalized = finalizeTxService.applyVanResult(prepared, vanResponse);
+        log.info("[reversal][finalized] reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}, status={}",
+                finalized.reversalPosTrx(), finalized.originalPosTrx(), finalized.originalAttemptSeq(), finalized.reversalStatus());
+        return finalized;
     }
 }

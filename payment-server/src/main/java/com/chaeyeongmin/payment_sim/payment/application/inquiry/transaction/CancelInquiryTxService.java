@@ -80,11 +80,17 @@ public class CancelInquiryTxService {
         // Inquiry 복구는 UNKNOWN_TIMEOUT row에만 반영해야 일반 취소 확정 경로와 조건이 섞이지 않는다.
         Optional<PaymentCancel> updated = cancelRepository.updateUnknownTimeoutToFinal(param);
 
-        if (updated.isPresent()) return responseFromCurrentCancel(updated.get());
+        if (updated.isPresent()) {
+            log.info("[cancel-inquiry][finalized] cancelPosTrx={}, status={}, vanTrxId={}",
+                    cancel.posTrx(), updated.get().cancelStatus(), response.vanTrxId());
+            return responseFromCurrentCancel(updated.get());
+        }
 
         // 같은 UNKNOWN_TIMEOUT row에 동시에 inquiry가 들어오면 한 요청만 update에 성공할 수 있다.
         // update miss 시에는 cancel posTrx로 재조회해서 이미 확정된 DB 상태를 정본으로 응답한다.
         Optional<PaymentCancel> reread = cancelRepository.findByPosTrx(cancel.posTrx());
+        log.info("[cancel-inquiry][update-miss] cancelPosTrx={}, rereadPresent={}",
+                cancel.posTrx(), reread.isPresent());
 
         if (reread.isEmpty()) {
             log.error(

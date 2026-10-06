@@ -18,6 +18,7 @@ import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutExcep
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -34,6 +35,7 @@ import java.time.LocalDateTime;
 @Component
 @ConditionalOnProperty(name = "payment.van.mode", havingValue = "tcp")
 @RequiredArgsConstructor
+@Slf4j
 public class TcpReversalOperation {
 
     private static final String PROTOCOL_VERSION = "1";
@@ -55,16 +57,27 @@ public class TcpReversalOperation {
     public VanReversalResponse execute(VanReversalRequest request) {
         try {
             VanReversalTcpRequest tcpRequest = toTcpRequest(request);
+            log.info("[van][reversal][request] vanRequestId={}, reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}",
+                    tcpRequest.requestId(), tcpRequest.reversalPosTrx(), tcpRequest.originalPosTrx(), tcpRequest.originalAttemptSeq());
             byte[] requestPayload = writeRequest(tcpRequest);
             byte[] responsePayload = vanTcpClient.send(requestPayload);
             VanReversalTcpResponse tcpResponse = readReversalResponse(responsePayload);
 
             validateReversalResponse(tcpRequest, tcpResponse);
-            return toReversalResponse(tcpResponse);
+            VanReversalResponse response = toReversalResponse(tcpResponse);
+            log.info("[van][reversal][response] vanRequestId={}, reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}, status={}, resultCode={}, vanTrxId={}, approvalNo={}, declineCode={}",
+                    tcpRequest.requestId(), response.reversalPosTrx(), response.originalPosTrx(), response.originalAttemptSeq(),
+                    response.reversalStatus(), response.resultCode(), response.vanReversalTrxId(),
+                    response.reversalApprovalNo(), response.declineCode());
+            return response;
 
         } catch (VanTcpRequestNotSentException e) {
+            log.warn("[van][reversal][request-not-sent] vanRequestId={}, reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}",
+                    reversalRequestId(request), request.reversalPosTrx(), request.originalPosTrx(), request.originalAttemptSeq(), e);
             throw new VanGatewayRequestNotSentException(e);
         } catch (VanTcpResponseTimeoutException e) {
+            log.warn("[van][reversal][timeout] vanRequestId={}, reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}",
+                    reversalRequestId(request), request.reversalPosTrx(), request.originalPosTrx(), request.originalAttemptSeq(), e);
             throw new VanGatewayTimeoutException(e);
         }
     }

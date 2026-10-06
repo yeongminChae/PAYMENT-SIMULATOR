@@ -9,6 +9,7 @@ import com.chaeyeongmin.van_sim.transaction.application.inquiry.result.ReversalI
 import com.chaeyeongmin.van_sim.transaction.api.tcp.inquiry.exception.InquiryTcpMessageException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
@@ -27,6 +28,7 @@ import java.util.Optional;
 @Component
 @Profile("postgres")
 @RequiredArgsConstructor
+@Slf4j
 public class InquiryTcpHandler {
 
     private static final String PROTOCOL_VERSION = "1";
@@ -45,6 +47,8 @@ public class InquiryTcpHandler {
      */
     public byte[] handle(byte[] payload) {
         InquiryRequestMessage request = readInquiryRequest(payload);
+        log.info("[van-tcp][inquiry][received] requestId={}, targetType={}, targetTrxNo={}, targetAttemptSeq={}",
+                request.requestId(), request.targetType(), request.targetTrxNo(), request.targetAttemptSeq());
 
         validate(request);
 
@@ -56,6 +60,11 @@ public class InquiryTcpHandler {
                     case CANCEL -> handleCancelInquiry(request);
                     case REVERSAL -> handleReversalInquiry(request);
                 };
+
+        log.info("[van-tcp][inquiry][result] requestId={}, targetType={}, targetTrxNo={}, targetAttemptSeq={}, resultCode={}, status={}, vanTrxId={}, approvalNo={}, cancelApprovalNo={}, reversalApprovalNo={}, declineCode={}",
+                response.requestId(), response.targetType(), response.targetTrxNo(), response.targetAttemptSeq(),
+                response.resultCode(), response.status(), response.vanTrxId(), response.approvalNo(),
+                response.cancelApprovalNo(), response.reversalApprovalNo(), response.declineCode());
 
         return writeInquiryResponse(response);
     }

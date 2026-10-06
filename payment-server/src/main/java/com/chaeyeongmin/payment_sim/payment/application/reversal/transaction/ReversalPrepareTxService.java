@@ -64,6 +64,8 @@ public class ReversalPrepareTxService {
         // - 동일 reversalPosTrx가 같은 payload로 다시 들어온 경우 VAN을 재호출하지 않고 DB 상태를 재응답한다.
         Optional<PaymentReversal> existingByCurrent = reversalRepository.findByReversalPosTrx(reversalPosTrx);
         if (existingByCurrent.isPresent()) {
+            log.info("[reversal][reused] reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}, reason=current-row",
+                    reversalPosTrx, originalPosTrx, originalAttemptSeq);
             return ReversalPrepareResult.completed(responseFactory.fromExistingCurrent(existingByCurrent.get()));
         }
 
@@ -93,6 +95,8 @@ public class ReversalPrepareTxService {
         Optional<PaymentReversal> existingByOriginal =
                 reversalRepository.findByOriginalPosTrxAndOriginalAttemptSeq(originalPosTrx, originalAttemptSeq);
         if (existingByOriginal.isPresent()) {
+            log.info("[reversal][reused] reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}, reason=original-row",
+                    reversalPosTrx, originalPosTrx, originalAttemptSeq);
             return ReversalPrepareResult.completed(responseFactory.fromExistingOriginal(
                     reversalPosTrx,
                     existingByOriginal.get()
@@ -176,6 +180,8 @@ public class ReversalPrepareTxService {
             return;
         }
 
+        log.warn("[reversal][conflict] reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}, reason=payload-mismatch",
+                reversalPosTrx, originalPosTrx, originalAttemptSeq);
         throw new BusinessException(ResultCode.CONFLICT, "POS_TRX_ALREADY_USED");
     }
 
