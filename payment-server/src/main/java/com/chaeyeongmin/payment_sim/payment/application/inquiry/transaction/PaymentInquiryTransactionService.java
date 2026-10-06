@@ -15,6 +15,7 @@ import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 
@@ -31,6 +32,7 @@ public class PaymentInquiryTransactionService {
      * <p>
      * 응답은 VAN 응답 자체가 아니라 update RETURNING 또는 reread로 확인한 DB 저장값을 source of truth로 사용한다.
      */
+    @Transactional
     public InquiryResponse finalizeResolvedInquiry(
             String posTrx,
             int attemptSeq,
