@@ -3,12 +3,15 @@ package com.chaeyeongmin.payment_sim.payment.application.approval.service.impl;
 import com.chaeyeongmin.payment_sim.payment.api.common.CardInput;
 import com.chaeyeongmin.payment_sim.payment.api.approval.ApproveRequest;
 import com.chaeyeongmin.payment_sim.payment.api.approval.ApproveResponse;
+import com.chaeyeongmin.payment_sim.payment.application.approval.support.ApprovalEventRecorder;
+import com.chaeyeongmin.payment_sim.payment.application.approval.support.ApprovalResponseFactory;
 import com.chaeyeongmin.payment_sim.payment.application.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.payment.application.card.service.BinCatalogService;
 import com.chaeyeongmin.payment_sim.payment.application.approval.service.PaymentApprovalService;
-import com.chaeyeongmin.payment_sim.payment.application.card.CardSummaryFactory;
-import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.PaymentApprovalTransactionService;
-import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.model.PaymentApprovalPrepareResult;
+import com.chaeyeongmin.payment_sim.payment.application.card.support.CardSummaryFactory;
+import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.ApprovalFinalizeTxService;
+import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.ApprovalPrepareTxService;
+import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.model.ApprovalPrepareResult;
 import com.chaeyeongmin.payment_sim.payment.api.approval.ApproveRequestValidator;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
@@ -61,10 +64,12 @@ class PaymentApprovalServiceImplTest {
     private ApproveRequestValidator validator;
     private VanApproveAssembler assembler;
     private PaymentEventLogRecorder paymentEventLogRecorder;
+    private ApprovalEventRecorder approvalEventRecorder;
     private BinCatalogService binCatalogService;
     private PaymentExternalInfoRepository paymentExternalInfoRepository;
     private CardFingerprintPolicy cardFingerprintPolicy;
-    private PaymentApprovalTransactionService transactionService;
+    private ApprovalPrepareTxService prepareTransactionService;
+    private ApprovalFinalizeTxService finalizeTransactionService;
 
     // 기본 정상 요청 (필드 세팅은 각 테스트에서 수정해서 사용)
     private ApproveRequest baseReq;
@@ -76,23 +81,31 @@ class PaymentApprovalServiceImplTest {
         validator = mock(ApproveRequestValidator.class);
         assembler = mock(VanApproveAssembler.class);
         paymentEventLogRecorder = mock(PaymentEventLogRecorder.class);
+        approvalEventRecorder = new ApprovalEventRecorder(paymentEventLogRecorder);
         binCatalogService = mock(BinCatalogService.class);
         paymentExternalInfoRepository = mock(PaymentExternalInfoRepository.class);
         cardFingerprintPolicy = mock(CardFingerprintPolicy.class);
-        transactionService = new PaymentApprovalTransactionService(
+        prepareTransactionService = new ApprovalPrepareTxService(
                 binCatalogService,
                 repository,
                 paymentExternalInfoRepository,
                 cardFingerprintPolicy,
-                paymentEventLogRecorder
+                approvalEventRecorder,
+                new ApprovalResponseFactory()
+        );
+        finalizeTransactionService = new ApprovalFinalizeTxService(
+                repository,
+                approvalEventRecorder,
+                new ApprovalResponseFactory()
         );
 
         service = new PaymentApprovalServiceImpl(
-                transactionService,
+                prepareTransactionService,
+                finalizeTransactionService,
                 gateway,
                 assembler,
                 validator,
-                paymentEventLogRecorder
+                approvalEventRecorder
         );
 
         when(binCatalogService.identify(anyString(), anyString())).thenAnswer(invocation ->
@@ -639,20 +652,22 @@ class PaymentApprovalServiceImplTest {
     void VAN_gateway_timeout이면_UNKNOWN_TIMEOUT_확정으로_전환한다() {
         // given
         String trx = baseReq.getPosTrx();
-        PaymentApprovalTransactionService trServiceMock = mock(PaymentApprovalTransactionService.class);
+        ApprovalPrepareTxService prepareServiceMock = mock(ApprovalPrepareTxService.class);
+        ApprovalFinalizeTxService finalizeServiceMock = mock(ApprovalFinalizeTxService.class);
 
         PaymentApprovalService serviceUnderTest =
                 new PaymentApprovalServiceImpl(
-                        trServiceMock,
+                        prepareServiceMock,
+                        finalizeServiceMock,
                         gateway,
                         assembler,
                         validator,
-                        paymentEventLogRecorder
+                        approvalEventRecorder
                 );
 
         CardIdentity cardIdentity = CardIdentity.unknown("41111111", "1111");
 
-        PaymentApprovalPrepareResult prepared = PaymentApprovalPrepareResult.created(trx, 1, cardIdentity);
+        ApprovalPrepareResult prepared = ApprovalPrepareResult.created(trx, 1, cardIdentity);
 
         VanApproveRequest vanRequest = VanApproveRequest.builder()
                 .posTrx(trx)
@@ -676,7 +691,7 @@ class PaymentApprovalServiceImplTest {
                         )
                 );
 
-        when(trServiceMock.prepare(baseReq)).thenReturn(prepared);
+        when(prepareServiceMock.prepare(baseReq)).thenReturn(prepared);
         when(assembler.assemble(
                 prepared.posTrx(),
                 prepared.attemptSeq(),
@@ -689,7 +704,7 @@ class PaymentApprovalServiceImplTest {
         when(gateway.approve(vanRequest)).thenThrow(
                 new VanGatewayTimeoutException(new RuntimeException("timeout"))
         );
-        when(trServiceMock.finalizeUnknownTimeout(prepared)).thenReturn(timeoutResponse);
+        when(finalizeServiceMock.markUnknownTimeout(prepared)).thenReturn(timeoutResponse);
 
         // when
         ApproveResponse response = serviceUnderTest.approve(baseReq);
@@ -697,23 +712,25 @@ class PaymentApprovalServiceImplTest {
         // then
         assertThat(response).isSameAs(timeoutResponse);
         verify(gateway).approve(vanRequest);
-        verify(trServiceMock).finalizeUnknownTimeout(prepared);
-        verify(trServiceMock, never()).finalizeApproval(eq(prepared), any(VanApproveResponse.class));
+        verify(finalizeServiceMock).markUnknownTimeout(prepared);
+        verify(finalizeServiceMock, never()).applyVanResult(eq(prepared), any(VanApproveResponse.class));
     }
 
     @Test
     void VAN_request_not_sent이면_PROCESSING을_정리하고_예외를_전파한다() {
         String trx = baseReq.getPosTrx();
-        PaymentApprovalTransactionService trServiceMock = mock(PaymentApprovalTransactionService.class);
+        ApprovalPrepareTxService prepareServiceMock = mock(ApprovalPrepareTxService.class);
+        ApprovalFinalizeTxService finalizeServiceMock = mock(ApprovalFinalizeTxService.class);
         PaymentApprovalService serviceUnderTest = new PaymentApprovalServiceImpl(
-                trServiceMock,
+                prepareServiceMock,
+                finalizeServiceMock,
                 gateway,
                 assembler,
                 validator,
-                paymentEventLogRecorder
+                approvalEventRecorder
         );
         CardIdentity cardIdentity = CardIdentity.unknown("41111111", "1111");
-        PaymentApprovalPrepareResult prepared = PaymentApprovalPrepareResult.created(trx, 1, cardIdentity);
+        ApprovalPrepareResult prepared = ApprovalPrepareResult.created(trx, 1, cardIdentity);
         VanApproveRequest vanRequest = VanApproveRequest.builder()
                 .posTrx(trx)
                 .attemptSeq(1)
@@ -726,7 +743,7 @@ class PaymentApprovalServiceImplTest {
         VanGatewayRequestNotSentException requestNotSent =
                 new VanGatewayRequestNotSentException(new RuntimeException("connect failed"));
 
-        when(trServiceMock.prepare(baseReq)).thenReturn(prepared);
+        when(prepareServiceMock.prepare(baseReq)).thenReturn(prepared);
         when(assembler.assemble(
                 prepared.posTrx(),
                 prepared.attemptSeq(),
@@ -743,9 +760,9 @@ class PaymentApprovalServiceImplTest {
                 assertThrows(VanGatewayRequestNotSentException.class, () -> serviceUnderTest.approve(baseReq))
         );
 
-        verify(trServiceMock).cleanupRequestNotSent(prepared);
-        verify(trServiceMock, never()).finalizeUnknownTimeout(any());
-        verify(trServiceMock, never()).finalizeApproval(any(), any());
+        verify(prepareServiceMock).cleanupRequestNotSent(prepared);
+        verify(finalizeServiceMock, never()).markUnknownTimeout(any());
+        verify(finalizeServiceMock, never()).applyVanResult(any(), any());
     }
 
     // 테스트용 객체 생성 메소드

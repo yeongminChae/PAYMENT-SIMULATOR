@@ -79,7 +79,7 @@ public class PaymentController {
     ) {
         log.info("[INQUIRY] req posTrx={}, attemptSeq={}", request.posTrx(), request.attemptSeq());
 
-        InquiryResponse res = inquiryService.inquiry(request);
+        InquiryResponse res = inquiryService.inquire(request);
 
         log.info("[INQUIRY] res posTrx={}, attemptSeq={}, finalStatus={}, approvalNo={}, declineCode={}",
                 res.posTrx(), res.attemptSeq(), res.finalStatus(), res.approvalNo(), res.declineCode());
@@ -117,7 +117,7 @@ public class PaymentController {
         // 이미 CANCELLED인 row도 ALREADY_CANCELLED가 아니라 inquiry 결과인 CANCELLED로 내려간다.
         log.info("[cancel-inquiry] request received. posTrx={}", request.posTrx());
 
-        CancelResponse response = cancelInquiryService.inquiry(request);
+        CancelResponse response = cancelInquiryService.inquire(request);
 
         log.info("[cancel-inquiry] response. posTrx={}, originalPosTrx={}, originalAttemptSeq={}, cancelStatus={}",
                 response.posTrx(),
@@ -139,7 +139,7 @@ public class PaymentController {
                 request.originalAttemptSeq()
         );
 
-        ReversalResponse response = reversalService.reversal(request);
+        ReversalResponse response = reversalService.reverse(request);
 
         log.info("[reversal] response. reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}, reversalStatus={}",
                 response.reversalPosTrx(),

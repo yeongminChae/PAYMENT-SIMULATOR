@@ -1,53 +1,42 @@
 package com.chaeyeongmin.van_sim.transaction.api.tcp.cancel;
 
-import com.chaeyeongmin.van_sim.scenario.domain.cancel.CancelTransportBehavior;
-import com.chaeyeongmin.van_sim.scenario.application.cancel.CancelScenarioRegistry;
 import com.chaeyeongmin.van_sim.protocol.cancel.CancelRequestMessage;
 import com.chaeyeongmin.van_sim.protocol.cancel.CancelResponseMessage;
-import com.chaeyeongmin.van_sim.transaction.application.cancel.service.CancelService;
+import com.chaeyeongmin.van_sim.scenario.application.cancel.CancelScenarioRegistry;
+import com.chaeyeongmin.van_sim.scenario.domain.cancel.CancelTransportBehavior;
+import com.chaeyeongmin.van_sim.transaction.api.tcp.cancel.exception.CancelTcpMessageException;
+import com.chaeyeongmin.van_sim.transaction.api.tcp.support.PosTrxProtocolValidator;
 import com.chaeyeongmin.van_sim.transaction.application.cancel.command.CancelCommand;
 import com.chaeyeongmin.van_sim.transaction.application.cancel.result.CancelResult;
-import com.chaeyeongmin.van_sim.transaction.api.tcp.cancel.exception.CancelTcpMessageException;
+import com.chaeyeongmin.van_sim.transaction.application.cancel.service.CancelService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
-import java.time.format.ResolverStyle;
-import java.util.regex.Pattern;
 
 @Component
 @Profile("postgres")
 @RequiredArgsConstructor
+@Slf4j
 public class CancelTcpHandler {
 
     private static final String PROTOCOL_VERSION = "1";
     private static final String MESSAGE_TYPE = "CANCEL";
 
-    /**
-     * Payment Server가 발급하는 POS 거래번호 형식이다.
-     * storeCd(4)-bizDate(8)-posNo(4)-seq(4) 구조이며, VAN 원장 멱등 key의 일부로 쓰인다.
-     */
-    private static final Pattern POS_TRX_PATTERN = Pattern.compile("^\\d{4}-\\d{8}-\\d{4}-\\d{4}$");
-
-    /**
-     * posTrx 안의 bizDate가 20260230 같은 허위 날짜로 들어오는 것을 막기 위한 strict parser다.
-     */
-    private static final DateTimeFormatter BIZ_DATE_FORMATTER =
-            DateTimeFormatter.ofPattern("uuuuMMdd").withResolverStyle(ResolverStyle.STRICT);
-
     private final ObjectMapper objectMapper;
     private final CancelTcpMessageMapper mapper;
-    private final CancelService cancelService;
+    private final CancelService service;
     private final CancelScenarioRegistry registry;
+    private final PosTrxProtocolValidator posTrxProtocolValidator;
 
     public byte[] handle(byte[] payload) {
         // TCP 서버가 수신한 원본 JSON 바이트 payload를 취소 요청 전문 객체로 역직렬화한다.
         CancelRequestMessage cancelRequest = readCancelRequest(payload);
+        log.info("[van-tcp][cancel][received] requestId={}, cancelPosTrx={}, originalPosTrx={}, originalAttemptSeq={}",
+                cancelRequest.requestId(), cancelRequest.cancelPosTrx(), cancelRequest.originalPosTrx(), cancelRequest.originalAttemptSeq());
 
         // 취소 요청 전문 객체 값 체크
         validate(cancelRequest);
@@ -57,7 +46,11 @@ public class CancelTcpHandler {
 
         // 취소 서비스에 커맨드를 전달해 취소 가능 여부와 응답에 필요한 처리 결과를 계산한다.
         // 이 호출이 반환된 시점에는 CancelService @Transactional 경계가 끝나 원장 저장도 commit된 뒤다.
-        CancelResult cancelResult = cancelService.processCancel(cancelCommand);
+        CancelResult cancelResult = service.processCancel(cancelCommand);
+        log.info("[van-tcp][cancel][result] requestId={}, cancelPosTrx={}, originalPosTrx={}, originalAttemptSeq={}, status={}, resultCode={}, vanTrxId={}, approvalNo={}, declineCode={}",
+                cancelRequest.requestId(), cancelResult.cancelPosTrx(), cancelResult.originalPosTrx(), cancelResult.originalAttemptSeq(),
+                cancelResult.cancelStatus(), cancelResult.resultCode(), cancelResult.vanCancelTrxId(),
+                cancelResult.cancelApprovalNo(), cancelResult.declineCode());
 
         // DROP_RESPONSE는 TCP 응답만 유실시키는 transport 계층 시나리오다.
         // 따라서 서비스 트랜잭션 안에 넣지 않고, 업무 처리 완료 후 응답 payload를 만들기 전에 적용한다.
@@ -81,32 +74,13 @@ public class CancelTcpHandler {
         if (PROTOCOL_VERSION.equals(request.protocolVersion()) == false
                 || MESSAGE_TYPE.equals(request.messageType()) == false
                 || isBlank(request.requestId())
-                || isInvalidPosTrx(request.cancelPosTrx())
-                || isInvalidPosTrx(request.originalPosTrx())
+                || posTrxProtocolValidator.isInvalid(request.cancelPosTrx())
+                || posTrxProtocolValidator.isInvalid(request.originalPosTrx())
                 || request.originalAttemptSeq() <= 0
                 || isBlank(request.originalVanTrxId())
                 || isBlank(request.originalApprovalNo())
                 || request.amount() <= 0) {
             throw new CancelTcpMessageException("CANCEL_TCP_REQUEST_INVALID");
-        }
-    }
-
-    /**
-     * posTrx는 VAN 승인 원장의 멱등 key로 사용된다.
-     * 형식이 깨진 값이 원장까지 내려가면 이후 Inquiry와 재응답 기준도 함께 흔들리므로
-     * 서비스 호출 전에 protocol boundary에서 차단한다.
-     */
-    private boolean isInvalidPosTrx(String posTrx) {
-        if (isBlank(posTrx) || POS_TRX_PATTERN.matcher(posTrx).matches() == false) return true;
-
-        String bizDate = posTrx.substring(5, 13);
-
-        try {
-            LocalDate.parse(bizDate, BIZ_DATE_FORMATTER);
-
-            return false;
-        } catch (DateTimeParseException e) {
-            return true;
         }
     }
 

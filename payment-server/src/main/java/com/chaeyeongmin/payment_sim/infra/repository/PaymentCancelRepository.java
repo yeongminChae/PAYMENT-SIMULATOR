@@ -25,6 +25,12 @@ public interface PaymentCancelRepository {
 
     Optional<PaymentCancel> insertPendingCancel(CancelInsertParam param);
 
+    int deletePendingCancel(
+            String posTrx,
+            String originalPosTrx,
+            int originalAttemptSeq
+    );
+
     Optional<PaymentCancel> updateCancelResult(CancelResultUpdateParam param);
 
     /**

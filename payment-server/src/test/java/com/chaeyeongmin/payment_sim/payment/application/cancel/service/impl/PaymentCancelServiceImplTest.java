@@ -1,31 +1,34 @@
 package com.chaeyeongmin.payment_sim.payment.application.cancel.service.impl;
 
-import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelResultStatus;
-import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelRequest;
-import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelResponse;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.service.PaymentCancelService;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.CancelEventRecorder;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.CancelResponseFactory;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.PaymentCancelTransactionService;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.model.PaymentCancelPrepareResult;
-import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelRequestValidator;
-import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelValidationError;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
-import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentAttempt;
-import com.chaeyeongmin.payment_sim.payment.domain.cancel.PaymentCancel;
-import com.chaeyeongmin.payment_sim.payment.domain.cancel.CancelStatus;
-import com.chaeyeongmin.payment_sim.payment.domain.event.PaymentEventType;
-import com.chaeyeongmin.payment_sim.payment.domain.cancel.CancelCardVerificationPolicy;
-import com.chaeyeongmin.payment_sim.payment.domain.card.CardFingerprintPolicy;
-import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelResultUpdateParam;
+import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelRequest;
+import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelRequestValidator;
+import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelResponse;
+import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelResultStatus;
+import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelValidationError;
+import com.chaeyeongmin.payment_sim.payment.application.cancel.service.PaymentCancelService;
+import com.chaeyeongmin.payment_sim.payment.application.cancel.support.CancelEventRecorder;
+import com.chaeyeongmin.payment_sim.payment.application.cancel.support.CancelReservationHandler;
+import com.chaeyeongmin.payment_sim.payment.application.cancel.support.CancelResponseFactory;
+import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.CancelFinalizeTxService;
+import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.CancelPrepareTxService;
+import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.model.CancelPrepareResult;
+import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentAttempt;
+import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentFinalStatus;
+import com.chaeyeongmin.payment_sim.payment.domain.cancel.CancelCardVerificationPolicy;
+import com.chaeyeongmin.payment_sim.payment.domain.cancel.CancelStatus;
+import com.chaeyeongmin.payment_sim.payment.domain.cancel.PaymentCancel;
+import com.chaeyeongmin.payment_sim.payment.domain.card.CardFingerprintPolicy;
+import com.chaeyeongmin.payment_sim.payment.domain.event.PaymentEventType;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanCancelAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelResponse;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
+import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayRequestNotSentException;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -38,8 +41,17 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 class PaymentCancelServiceImplTest {
 
@@ -49,24 +61,28 @@ class PaymentCancelServiceImplTest {
             new CancelCardVerificationPolicy(CARD_FINGERPRINT_POLICY);
 
     private PaymentCancelService service;
-    private PaymentCancelTransactionService transactionService;
+    private CancelPrepareTxService prepareTransactionService;
+    private CancelFinalizeTxService finalizeTransactionService;
     private VanGateway vanGateway;
     private CancelRequestValidator validator;
     private VanCancelAssembler vanCancelAssembler;
+    private CancelReservationHandler cancelReservationHandler;
     private CancelEventRecorder recorder;
 
     private CancelRequest baseReq;
 
     @BeforeEach
     void setUp() {
-        transactionService = mock(PaymentCancelTransactionService.class);
+        prepareTransactionService = mock(CancelPrepareTxService.class);
+        finalizeTransactionService = mock(CancelFinalizeTxService.class);
         vanGateway = mock(VanGateway.class);
         validator = mock(CancelRequestValidator.class);
         vanCancelAssembler = mock(VanCancelAssembler.class);
         recorder = mock(CancelEventRecorder.class);
 
         service = new PaymentCancelServiceImpl(
-                transactionService,
+                prepareTransactionService,
+                finalizeTransactionService,
                 vanGateway,
                 validator,
                 vanCancelAssembler,
@@ -112,7 +128,7 @@ class PaymentCancelServiceImplTest {
         assertEquals(CancelValidationError.INVALID_REQUEST.code(), exception.getMessage());
 
         verify(validator).validate(baseReq);
-        verifyNoInteractions(transactionService, vanGateway, vanCancelAssembler, recorder);
+        verifyNoInteractions(prepareTransactionService, finalizeTransactionService, vanGateway, vanCancelAssembler, recorder);
     }
 
     @Test
@@ -123,8 +139,8 @@ class PaymentCancelServiceImplTest {
                 baseReq.originalPosTrx(),
                 baseReq.originalAttemptSeq()
         );
-        when(transactionService.prepare(baseReq))
-                .thenReturn(PaymentCancelPrepareResult.completed(completedResponse));
+        when(prepareTransactionService.prepare(baseReq))
+                .thenReturn(CancelPrepareResult.completed(completedResponse));
 
         CancelResponse response = service.cancel(baseReq);
 
@@ -132,8 +148,8 @@ class PaymentCancelServiceImplTest {
         assertEquals(CancelResultStatus.RETRY_LATER, response.cancelStatus());
 
         verify(validator).validate(baseReq);
-        verify(transactionService).prepare(baseReq);
-        verify(transactionService, never()).finalizeCancel(any(), any());
+        verify(prepareTransactionService).prepare(baseReq);
+        verify(finalizeTransactionService, never()).applyVanResult(any(), any());
         verifyNoInteractions(vanGateway, vanCancelAssembler, recorder);
     }
 
@@ -141,7 +157,7 @@ class PaymentCancelServiceImplTest {
     @DisplayName("신규 취소 준비가 끝나면 VAN을 호출하고 TX2에서 최종 응답을 확정한다")
     void cancel_prepareCreated_shouldCallVanAndFinalize() {
         PaymentAttempt originalAttempt = originalApprovedAttempt();
-        PaymentCancelPrepareResult prepared = PaymentCancelPrepareResult.created(
+        CancelPrepareResult prepared = CancelPrepareResult.created(
                 baseReq.posTrx(),
                 baseReq.originalPosTrx(),
                 baseReq.originalAttemptSeq(),
@@ -156,7 +172,7 @@ class PaymentCancelServiceImplTest {
                 "VAN-CANCEL-APPROVAL-0001"
         );
 
-        when(transactionService.prepare(baseReq)).thenReturn(prepared);
+        when(prepareTransactionService.prepare(baseReq)).thenReturn(prepared);
         when(vanCancelAssembler.assemble(
                 prepared.posTrx(),
                 prepared.originalPosTrx(),
@@ -164,7 +180,7 @@ class PaymentCancelServiceImplTest {
                 prepared.originalAttempt()
         )).thenReturn(vanRequest);
         when(vanGateway.cancel(vanRequest)).thenReturn(vanResponse);
-        when(transactionService.finalizeCancel(prepared, vanResponse)).thenReturn(finalizedResponse);
+        when(finalizeTransactionService.applyVanResult(prepared, vanResponse)).thenReturn(finalizedResponse);
 
         CancelResponse response = service.cancel(baseReq);
 
@@ -173,7 +189,7 @@ class PaymentCancelServiceImplTest {
         assertEquals("VAN-CANCEL-APPROVAL-0001", response.cancelApprovalNo());
 
         verify(validator).validate(baseReq);
-        verify(transactionService).prepare(baseReq);
+        verify(prepareTransactionService).prepare(baseReq);
         verify(vanCancelAssembler).assemble(
                 prepared.posTrx(),
                 prepared.originalPosTrx(),
@@ -205,7 +221,45 @@ class PaymentCancelServiceImplTest {
                 isNull(),
                 eq("VAN cancel result received")
         );
-        verify(transactionService).finalizeCancel(prepared, vanResponse);
+        verify(finalizeTransactionService).applyVanResult(prepared, vanResponse);
+    }
+
+    @Test
+    @DisplayName("VAN 취소 요청이 전송되지 않으면 PENDING cleanup 후 RETRY_LATER를 반환한다")
+    void cancel_vanRequestNotSent_shouldCleanupAndReturnRetryLater() {
+        PaymentAttempt originalAttempt = originalApprovedAttempt();
+        CancelPrepareResult prepared = CancelPrepareResult.created(
+                baseReq.posTrx(),
+                baseReq.originalPosTrx(),
+                baseReq.originalAttemptSeq(),
+                originalAttempt
+        );
+        VanCancelRequest vanRequest = vanCancelRequest();
+        CancelResponse retryLaterResponse = CancelResponse.retryLater(
+                baseReq.posTrx(),
+                baseReq.originalPosTrx(),
+                baseReq.originalAttemptSeq()
+        );
+
+        when(prepareTransactionService.prepare(baseReq)).thenReturn(prepared);
+        when(vanCancelAssembler.assemble(
+                prepared.posTrx(),
+                prepared.originalPosTrx(),
+                prepared.originalAttemptSeq(),
+                prepared.originalAttempt()
+        )).thenReturn(vanRequest);
+        doThrow(new VanGatewayRequestNotSentException(new RuntimeException("connect failed")))
+                .when(vanGateway)
+                .cancel(vanRequest);
+        when(prepareTransactionService.cleanupRequestNotSent(prepared)).thenReturn(retryLaterResponse);
+
+        CancelResponse response = service.cancel(baseReq);
+
+        assertSame(retryLaterResponse, response);
+        assertEquals(CancelResultStatus.RETRY_LATER, response.cancelStatus());
+        verify(prepareTransactionService).cleanupRequestNotSent(prepared);
+        verify(finalizeTransactionService, never()).markUnknownTimeout(any());
+        verify(finalizeTransactionService, never()).applyVanResult(any(), any());
     }
 
     @Test
@@ -213,15 +267,26 @@ class PaymentCancelServiceImplTest {
     void cancel_vanTimeout_shouldFinalizeUnknownTimeoutAndReturnRetryLater() {
         PaymentCancelRepository cancelRepository = mock(PaymentCancelRepository.class);
         PaymentAttemptRepository attemptRepository = mock(PaymentAttemptRepository.class);
-        PaymentCancelTransactionService realTransactionService = new PaymentCancelTransactionService(
+        CancelPrepareTxService realPrepareTransactionService = new CancelPrepareTxService(
                 cancelRepository,
                 attemptRepository,
                 CANCEL_CARD_VERIFICATION_POLICY,
+                cancelReservationHandler =
+                        new CancelReservationHandler(
+                                cancelRepository,
+                                new CancelResponseFactory(),
+                                recorder
+                        ),
+                recorder
+        );
+        CancelFinalizeTxService realFinalizeTransactionService = new CancelFinalizeTxService(
+                cancelRepository,
                 new CancelResponseFactory(),
                 recorder
         );
         PaymentCancelService serviceUnderTest = new PaymentCancelServiceImpl(
-                realTransactionService,
+                realPrepareTransactionService,
+                realFinalizeTransactionService,
                 vanGateway,
                 validator,
                 vanCancelAssembler,
@@ -277,15 +342,26 @@ class PaymentCancelServiceImplTest {
     void cancel_existingUnknownTimeout_shouldReturnRetryLaterWithoutVanCall() {
         PaymentCancelRepository cancelRepository = mock(PaymentCancelRepository.class);
         PaymentAttemptRepository attemptRepository = mock(PaymentAttemptRepository.class);
-        PaymentCancelTransactionService realTransactionService = new PaymentCancelTransactionService(
+        CancelPrepareTxService realPrepareTransactionService = new CancelPrepareTxService(
                 cancelRepository,
                 attemptRepository,
                 CANCEL_CARD_VERIFICATION_POLICY,
+                new CancelReservationHandler(
+                        cancelRepository,
+                        new CancelResponseFactory(),
+                        recorder
+                ),
+                recorder
+        );
+
+        CancelFinalizeTxService realFinalizeTransactionService = new CancelFinalizeTxService(
+                cancelRepository,
                 new CancelResponseFactory(),
                 recorder
         );
         PaymentCancelService serviceUnderTest = new PaymentCancelServiceImpl(
-                realTransactionService,
+                realPrepareTransactionService,
+                realFinalizeTransactionService,
                 vanGateway,
                 validator,
                 vanCancelAssembler,

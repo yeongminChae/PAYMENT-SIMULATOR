@@ -112,7 +112,7 @@ class PaymentReversalServiceImplTest {
     void UNKNOWN_TIMEOUT_원승인은_PENDING_생성후_VAN_1회_호출하고_REVERSED로_확정한다() {
         insertOriginalAttempt(PaymentFinalStatus.UNKNOWN_TIMEOUT);
 
-        ReversalResponse response = reversalService.reversal(reversalRequest(REVERSAL_POS_TRX));
+        ReversalResponse response = reversalService.reverse(reversalRequest(REVERSAL_POS_TRX));
 
         assertAll(
                 () -> assertThat(response.reversalStatus()).isEqualTo(ReversalResultStatus.REVERSED),
@@ -137,7 +137,7 @@ class PaymentReversalServiceImplTest {
     void PROCESSING_원승인은_REVERSAL_NOT_ALLOWED이고_VAN을_호출하지_않는다() {
         insertProcessingAttempt();
 
-        ReversalResponse response = reversalService.reversal(reversalRequest(REVERSAL_POS_TRX));
+        ReversalResponse response = reversalService.reverse(reversalRequest(REVERSAL_POS_TRX));
 
         assertAll(
                 () -> assertThat(response.reversalStatus()).isEqualTo(ReversalResultStatus.REVERSAL_NOT_ALLOWED),
@@ -151,8 +151,8 @@ class PaymentReversalServiceImplTest {
     void 같은_reversalPosTrx_replay는_DB_결과를_재응답하고_VAN을_재호출하지_않는다() {
         insertOriginalAttempt(PaymentFinalStatus.UNKNOWN_TIMEOUT);
 
-        ReversalResponse first = reversalService.reversal(reversalRequest(REVERSAL_POS_TRX));
-        ReversalResponse replay = reversalService.reversal(reversalRequest(REVERSAL_POS_TRX));
+        ReversalResponse first = reversalService.reverse(reversalRequest(REVERSAL_POS_TRX));
+        ReversalResponse replay = reversalService.reverse(reversalRequest(REVERSAL_POS_TRX));
 
         assertAll(
                 () -> assertThat(first.reversalStatus()).isEqualTo(ReversalResultStatus.REVERSED),
@@ -166,10 +166,10 @@ class PaymentReversalServiceImplTest {
     @Test
     void 같은_reversalPosTrx_다른_payload는_CONFLICT다() {
         insertOriginalAttempt(PaymentFinalStatus.UNKNOWN_TIMEOUT);
-        reversalService.reversal(reversalRequest(REVERSAL_POS_TRX));
+        reversalService.reverse(reversalRequest(REVERSAL_POS_TRX));
 
         assertThatThrownBy(() ->
-                reversalService.reversal(new ReversalRequest(
+                reversalService.reverse(new ReversalRequest(
                         REVERSAL_POS_TRX,
                         "2376-20260806-9911-5402",
                         ORIGINAL_ATTEMPT_SEQ
@@ -183,9 +183,9 @@ class PaymentReversalServiceImplTest {
     @Test
     void 기존_REVERSED_original에_다른_reversalPosTrx가_오면_ALREADY_REVERSED다() {
         insertOriginalAttempt(PaymentFinalStatus.UNKNOWN_TIMEOUT);
-        reversalService.reversal(reversalRequest(REVERSAL_POS_TRX));
+        reversalService.reverse(reversalRequest(REVERSAL_POS_TRX));
 
-        ReversalResponse response = reversalService.reversal(reversalRequest(REVERSAL_POS_TRX_2));
+        ReversalResponse response = reversalService.reverse(reversalRequest(REVERSAL_POS_TRX_2));
 
         assertAll(
                 () -> assertThat(response.reversalStatus()).isEqualTo(ReversalResultStatus.ALREADY_REVERSED),
@@ -200,7 +200,7 @@ class PaymentReversalServiceImplTest {
         insertOriginalAttempt(PaymentFinalStatus.UNKNOWN_TIMEOUT);
         vanGateway.decline(VanDeclineCode.ORIGINAL_MISMATCH);
 
-        ReversalResponse response = reversalService.reversal(reversalRequest(REVERSAL_POS_TRX));
+        ReversalResponse response = reversalService.reverse(reversalRequest(REVERSAL_POS_TRX));
 
         assertAll(
                 () -> assertThat(response.reversalStatus()).isEqualTo(ReversalResultStatus.REVERSAL_DECLINED),
@@ -211,11 +211,26 @@ class PaymentReversalServiceImplTest {
     }
 
     @Test
+    void VAN_REVERSAL_DECLINED의_DO_NOT_HONOR는_name이_아닌_code를_응답과_DB에_저장한다() {
+        insertOriginalAttempt(PaymentFinalStatus.UNKNOWN_TIMEOUT);
+        vanGateway.decline(VanDeclineCode.DO_NOT_HONOR);
+
+        ReversalResponse response = reversalService.reverse(reversalRequest(REVERSAL_POS_TRX));
+
+        assertAll(
+                () -> assertThat(response.reversalStatus()).isEqualTo(ReversalResultStatus.REVERSAL_DECLINED),
+                () -> assertThat(response.declineCode()).isEqualTo("05"),
+                () -> assertThat(storedReversalStatus()).isEqualTo(ReversalStatus.REVERSAL_DECLINED.name()),
+                () -> assertThat(storedDeclineCode()).isEqualTo("05")
+        );
+    }
+
+    @Test
     void request_not_sent면_PENDING을_cleanup하고_RETRY_LATER를_반환한다() {
         insertOriginalAttempt(PaymentFinalStatus.UNKNOWN_TIMEOUT);
         vanGateway.requestNotSent();
 
-        ReversalResponse response = reversalService.reversal(reversalRequest(REVERSAL_POS_TRX));
+        ReversalResponse response = reversalService.reverse(reversalRequest(REVERSAL_POS_TRX));
 
         assertAll(
                 () -> assertThat(response.reversalStatus()).isEqualTo(ReversalResultStatus.RETRY_LATER),
@@ -229,7 +244,7 @@ class PaymentReversalServiceImplTest {
         insertOriginalAttempt(PaymentFinalStatus.UNKNOWN_TIMEOUT);
         vanGateway.timeout();
 
-        ReversalResponse response = reversalService.reversal(reversalRequest(REVERSAL_POS_TRX));
+        ReversalResponse response = reversalService.reverse(reversalRequest(REVERSAL_POS_TRX));
 
         assertAll(
                 () -> assertThat(response.reversalStatus()).isEqualTo(ReversalResultStatus.RETRY_LATER),
@@ -242,7 +257,7 @@ class PaymentReversalServiceImplTest {
     void Reversal_성공후_원_PAYMENT_ATTEMPT_status는_UNKNOWN_TIMEOUT_그대로다() {
         insertOriginalAttempt(PaymentFinalStatus.UNKNOWN_TIMEOUT);
 
-        reversalService.reversal(reversalRequest(REVERSAL_POS_TRX));
+        reversalService.reverse(reversalRequest(REVERSAL_POS_TRX));
 
         assertThat(storedOriginalAttemptStatus()).isEqualTo(PaymentFinalStatus.UNKNOWN_TIMEOUT.name());
     }
@@ -308,14 +323,14 @@ class PaymentReversalServiceImplTest {
         return () -> {
             ready.countDown();
             start.await();
-            return reversalService.reversal(reversalRequest(reversalPosTrx));
+            return reversalService.reverse(reversalRequest(reversalPosTrx));
         };
     }
 
     private void assertNotAllowed(PaymentFinalStatus finalStatus) {
         insertOriginalAttempt(finalStatus);
 
-        ReversalResponse response = reversalService.reversal(reversalRequest(REVERSAL_POS_TRX));
+        ReversalResponse response = reversalService.reverse(reversalRequest(REVERSAL_POS_TRX));
 
         assertAll(
                 () -> assertThat(response.reversalStatus()).isEqualTo(ReversalResultStatus.REVERSAL_NOT_ALLOWED),

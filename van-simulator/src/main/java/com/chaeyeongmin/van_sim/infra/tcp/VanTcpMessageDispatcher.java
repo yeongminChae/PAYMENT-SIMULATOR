@@ -8,6 +8,7 @@ import com.chaeyeongmin.van_sim.infra.tcp.exception.VanTcpMessageException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
@@ -26,6 +27,7 @@ import java.io.IOException;
 @Component
 @Profile("postgres")
 @RequiredArgsConstructor
+@Slf4j
 public class VanTcpMessageDispatcher {
 
     private final ObjectMapper objectMapper;
@@ -43,6 +45,7 @@ public class VanTcpMessageDispatcher {
      */
     public byte[] dispatch(byte[] payload) {
         String messageType = readMessageType(payload);
+        log.debug("[van-tcp][received] messageType={}", messageType);
 
         return switch (messageType) {
             case "APPROVAL" -> approvalTcpHandler.handle(payload);

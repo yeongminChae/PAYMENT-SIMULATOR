@@ -42,6 +42,11 @@ public class PaymentCancelRepositoryImpl implements PaymentCancelRepository {
     }
 
     @Override
+    public int deletePendingCancel(String posTrx, String originalPosTrx, int originalAttemptSeq) {
+        return mapper.deletePendingCancel(posTrx, originalPosTrx, originalAttemptSeq);
+    }
+
+    @Override
     public Optional<PaymentCancel> updateCancelResult(CancelResultUpdateParam param) {
         return mapper.updateCancelResult(param);
     }

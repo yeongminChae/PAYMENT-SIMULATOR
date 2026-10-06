@@ -3,7 +3,7 @@ package com.chaeyeongmin.payment_sim.payment.application.inquiry.service.impl;
 import com.chaeyeongmin.payment_sim.payment.api.inquiry.CancelInquiryRequest;
 import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelResponse;
 import com.chaeyeongmin.payment_sim.payment.application.inquiry.service.PaymentCancelInquiryService;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.PaymentCancelTransactionService;
+import com.chaeyeongmin.payment_sim.payment.application.inquiry.transaction.CancelInquiryTxService;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
 import com.chaeyeongmin.payment_sim.payment.domain.cancel.PaymentCancel;
@@ -15,19 +15,21 @@ import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryResultCode;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class PaymentCancelInquiryServiceImpl implements PaymentCancelInquiryService {
 
-    private final PaymentCancelTransactionService transactionService;
+    private final CancelInquiryTxService transactionService;
     private final PaymentCancelRepository cancelRepository;
     private final VanInquiryAssembler assembler;
     private final VanGateway gateway;
 
     @Override
-    public CancelResponse inquiry(CancelInquiryRequest request) {
+    public CancelResponse inquire(CancelInquiryRequest request) {
 
         // cancel inquiry는 cancel posTrx(CURRENT_TRX_NO) 기준이다.
         // row 자체가 없으면 VAN에도 물어볼 대상이 없으므로 여기서 NOT_FOUND로 끝낸다.
@@ -75,17 +77,23 @@ public class PaymentCancelInquiryServiceImpl implements PaymentCancelInquiryServ
     }
 
     private CancelResponse resolveUnknownTimeout(PaymentCancel cancel) {
+        log.info("[cancel-inquiry][unknown-timeout] cancelPosTrx={}, originalPosTrx={}, originalAttemptSeq={}",
+                cancel.posTrx(), cancel.originalPosTrx(), cancel.originalAttemptSeq());
         // R5 공용 Inquiry protocol에서 CANCEL 조회는 targetAttemptSeq를 보내지 않는다.
         // assembler가 approval 전용 값(vanTrxId/cardLast4)도 비워서 TCP boundary로 넘긴다.
         VanInquiryRequest request = assembler.getCancelInquiryRequest(cancel.posTrx());
+        log.info("[cancel-inquiry][van-requested] cancelPosTrx={}", cancel.posTrx());
 
         final VanInquiryResponse response;
         try {
             response = gateway.inquiry(request);
+            log.info("[cancel-inquiry][van-result-received] cancelPosTrx={}, resultCode={}, status={}, vanTrxId={}",
+                    cancel.posTrx(), response.resultCode(), response.status(), response.vanTrxId());
 
         } catch (VanGatewayTimeoutException e) {
             // 조회 자체가 timeout.
             // 기존 UNKNOWN_TIMEOUT 사실은 바뀌지 않는다.
+            log.warn("[cancel-inquiry][timeout] cancelPosTrx={}", cancel.posTrx());
             return retryLater(cancel);
         }
 
@@ -94,7 +102,7 @@ public class PaymentCancelInquiryServiceImpl implements PaymentCancelInquiryServ
         if (response.resultCode() == VanInquiryResultCode.NOT_FOUND) return retryLater(cancel);
 
         // DB 상태 전이는 transaction service에 맡겨 네트워크 I/O와 DB transaction 경계를 분리한다.
-        return transactionService.finalizeCancelInquiry(cancel, response);
+        return transactionService.applyResolvedResult(cancel, response);
     }
 
 }

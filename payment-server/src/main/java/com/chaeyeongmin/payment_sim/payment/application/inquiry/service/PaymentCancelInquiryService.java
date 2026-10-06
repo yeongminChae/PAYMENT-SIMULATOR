@@ -17,5 +17,5 @@ public interface PaymentCancelInquiryService {
      * cancel posTrx 기준으로 저장된 취소 상태를 조회하거나,
      * UNKNOWN_TIMEOUT이면 VAN Inquiry(CANCEL) 결과로 복구를 시도한다.
      */
-    CancelResponse inquiry(CancelInquiryRequest request);
+    CancelResponse inquire(CancelInquiryRequest request);
 }

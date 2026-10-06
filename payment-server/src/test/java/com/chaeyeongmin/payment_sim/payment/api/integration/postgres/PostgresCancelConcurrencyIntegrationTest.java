@@ -8,7 +8,6 @@ import com.chaeyeongmin.payment_sim.payment.api.approval.ApproveResponse;
 import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelResponse;
 import com.chaeyeongmin.payment_sim.payment.application.approval.service.PaymentApprovalService;
 import com.chaeyeongmin.payment_sim.payment.application.cancel.service.PaymentCancelService;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.PaymentCancelTransactionService;
 import com.chaeyeongmin.payment_sim.payment.domain.cancel.CancelStatus;
 import com.chaeyeongmin.payment_sim.payment.domain.event.PaymentEventType;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentFinalStatus;

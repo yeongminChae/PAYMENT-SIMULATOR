@@ -1,7 +1,7 @@
 package com.chaeyeongmin.payment_sim.payment.api.integration;
 
 import com.chaeyeongmin.payment_sim.payment.domain.card.CardFingerprintPolicy;
-import com.chaeyeongmin.payment_sim.van.gateway.impl.SimulatedVanGateway;
+import com.chaeyeongmin.payment_sim.van.gateway.impl.TestVanGateway;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -37,23 +37,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * - 기존 PaymentFlowIntegrationTest와 분리된 SQLite 파일을 사용한다.
  * - 각 테스트 전후로 이 클래스가 사용하는 posTrx만 삭제해 반복 실행과 실행 순서 변경 영향을 줄인다.
  */
-// @SuppressWarnings
-// - SimulatedVanGateway는 Release 6부터 deprecated + forRemoval=true 상태다.
-// - 이 테스트는 과거 in-process VAN 시뮬레이터 동작을 회귀 검증하기 위해
-//   의도적으로 legacy 클래스를 사용하므로 deprecation/removal 경고만 억제한다.
-@SuppressWarnings({"deprecation", "removal"})
-
 @SpringBootTest
 @AutoConfigureMockMvc
-// @Import(SimulatedVanGateway.class)
-// - Release 6부터 SimulatedVanGateway는 @Component가 제거되어 production Bean으로 자동 등록되지 않는다.
-// - 이 legacy 통합 테스트에서만 과거 시뮬레이터를 명시적으로 Spring Bean으로 등록한다.
-@Import(SimulatedVanGateway.class)
+// @Import(TestVanGateway.class)
+// - 이 통합 테스트에서만 deterministic fake VAN을 명시적으로 Spring Bean으로 등록한다.
+@Import(TestVanGateway.class)
 // @TestPropertySource
 // - 이 테스트 전용 설정으로 application.yml 값을 덮어쓴다.
 // - datasource는 테스트 전용 SQLite 파일을 사용한다.
 // - payment.van.mode=simulated로 설정해 기본값 tcp인 TcpVanGateway가 활성화되지 않도록 하고,
-//   위에서 @Import한 SimulatedVanGateway만 VanGateway 구현체로 사용하게 한다.
+//   위에서 @Import한 TestVanGateway만 VanGateway 구현체로 사용하게 한다.
 @TestPropertySource(properties = {
         "spring.datasource.url=jdbc:sqlite:./build/mvp2-payment-flow-integration-test.db",
         "payment.van.mode=simulated"

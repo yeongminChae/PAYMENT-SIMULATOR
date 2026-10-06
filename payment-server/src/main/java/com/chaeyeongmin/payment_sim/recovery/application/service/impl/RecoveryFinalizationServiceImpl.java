@@ -271,7 +271,7 @@ public class RecoveryFinalizationServiceImpl implements RecoveryFinalizationServ
         // 같은 망취소 거래번호가 맞더라도 원승인 정보가 다르면 잘못된 거래다.
         if (reversal.originalPosTrx().equals(intended.originalPosTrx()) == false
                 || reversal.originalAttemptSeq() != intended.originalAttemptSeq()) {
-            throw new IllegalStateException("RECOVERY_CANCEL_TARGET_IDENTITY_MISMATCH");
+            throw new IllegalStateException("RECOVERY_REVERSAL_TARGET_IDENTITY_MISMATCH");
         }
 
         ReversalStatus dbStatus = reversal.reversalStatus();
