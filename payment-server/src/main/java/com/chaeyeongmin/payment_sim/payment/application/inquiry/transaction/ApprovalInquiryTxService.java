@@ -72,7 +72,7 @@ public class ApprovalInquiryTxService {
 
         }
 
-        log.warn("[inquiry][update-miss] targetType=APPROVAL, posTrx={}, attemptSeq={}, vanTrxId={}",
+        log.info("[inquiry][update-miss] targetType=APPROVAL, posTrx={}, attemptSeq={}, vanTrxId={}",
                 posTrx, attemptSeq, vanInquiryResponse.vanTrxId());
         return handleUpdateUnknownToFinalMiss(
                 posTrx,

@@ -93,7 +93,7 @@ public class PaymentCancelInquiryServiceImpl implements PaymentCancelInquiryServ
         } catch (VanGatewayTimeoutException e) {
             // 조회 자체가 timeout.
             // 기존 UNKNOWN_TIMEOUT 사실은 바뀌지 않는다.
-            log.warn("[cancel-inquiry][timeout] cancelPosTrx={}", cancel.posTrx(), e);
+            log.warn("[cancel-inquiry][timeout] cancelPosTrx={}", cancel.posTrx());
             return retryLater(cancel);
         }
 

@@ -45,7 +45,7 @@ public class VanTcpMessageDispatcher {
      */
     public byte[] dispatch(byte[] payload) {
         String messageType = readMessageType(payload);
-        log.info("[van-tcp][received] messageType={}", messageType);
+        log.debug("[van-tcp][received] messageType={}", messageType);
 
         return switch (messageType) {
             case "APPROVAL" -> approvalTcpHandler.handle(payload);

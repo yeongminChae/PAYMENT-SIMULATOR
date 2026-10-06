@@ -55,10 +55,8 @@ public class PaymentReversalServiceImpl implements PaymentReversalService {
         // - UNKNOWN_TIMEOUT 원승인만 reversal 대상이며, 신규 요청은 PENDING row를 먼저 만든다.
         // - completed=true면 이미 DB 기준으로 응답이 확정된 경로라 VAN을 호출하지 않는다.
         ReversalPrepareResult prepared = prepareTxService.prepare(request);
-        log.info("[reversal][prepared] reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}, completed={}",
-                prepared.reversalPosTrx(), prepared.originalPosTrx(), prepared.originalAttemptSeq(), prepared.isCompleted());
         if (prepared.isCompleted()) {
-            log.info("[reversal][completed] reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}, status={}",
+            log.info("[reversal][no-van-response] reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}, status={}",
                     prepared.reversalPosTrx(), prepared.originalPosTrx(), prepared.originalAttemptSeq(),
                     prepared.completedResponse().reversalStatus());
             return prepared.completedResponse();
@@ -90,14 +88,14 @@ public class PaymentReversalServiceImpl implements PaymentReversalService {
             // Socket.connect 단계에서 실패해 request bytes가 전송되지 않은 경우다.
             // - VAN에 reversal이 전달되지 않았으므로 방금 만든 PENDING row를 정리해 동일 요청 재시도를 허용한다.
             log.warn("[reversal][request-not-sent] reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}",
-                    prepared.reversalPosTrx(), prepared.originalPosTrx(), prepared.originalAttemptSeq(), e);
+                    prepared.reversalPosTrx(), prepared.originalPosTrx(), prepared.originalAttemptSeq());
             return prepareTxService.cleanupRequestNotSent(prepared);
 
         } catch (VanGatewayTimeoutException e) {
             // 요청은 VAN에 전달됐을 수 있지만 응답을 받지 못했다.
             // - 성공/거절 여부를 추측하지 않고 PENDING 상태를 유지해 후속 요청의 중복 VAN 호출을 막는다.
             log.warn("[reversal][timeout-pending] reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}",
-                    prepared.reversalPosTrx(), prepared.originalPosTrx(), prepared.originalAttemptSeq(), e);
+                    prepared.reversalPosTrx(), prepared.originalPosTrx(), prepared.originalAttemptSeq());
             return ReversalResponse.retryLater(
                     prepared.reversalPosTrx(),
                     prepared.originalPosTrx(),

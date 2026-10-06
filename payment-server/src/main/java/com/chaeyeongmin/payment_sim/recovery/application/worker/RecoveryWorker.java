@@ -172,13 +172,13 @@ public class RecoveryWorker {
 
         if (resultType == RecoveryWorkerResultType.MANUAL_REVIEW
                 || resultType == RecoveryWorkerResultType.OWNERSHIP_LOST) {
-            log.warn("{} taskId={}, targetType={}, targetTrxNo={}, targetAttemptSeq={}, retryCount={}, resultType={}",
+            log.warn("{} taskId={}, targetType={}, targetTrxNo={}, targetAttemptSeq={}, retryCountBeforeTransition={}, resultType={}",
                     message, task.id(), task.targetType(), task.targetTrxNo(), task.targetAttemptSeq(),
                     task.retryCount(), resultType);
             return;
         }
 
-        log.info("{} taskId={}, targetType={}, targetTrxNo={}, targetAttemptSeq={}, retryCount={}, resultType={}",
+        log.info("{} taskId={}, targetType={}, targetTrxNo={}, targetAttemptSeq={}, retryCountBeforeTransition={}, resultType={}",
                 message, task.id(), task.targetType(), task.targetTrxNo(), task.targetAttemptSeq(),
                 task.retryCount(), resultType);
     }

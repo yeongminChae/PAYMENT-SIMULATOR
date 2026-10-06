@@ -89,7 +89,7 @@ public class CancelInquiryTxService {
         // 같은 UNKNOWN_TIMEOUT row에 동시에 inquiry가 들어오면 한 요청만 update에 성공할 수 있다.
         // update miss 시에는 cancel posTrx로 재조회해서 이미 확정된 DB 상태를 정본으로 응답한다.
         Optional<PaymentCancel> reread = cancelRepository.findByPosTrx(cancel.posTrx());
-        log.warn("[cancel-inquiry][update-miss] cancelPosTrx={}, rereadPresent={}",
+        log.info("[cancel-inquiry][update-miss] cancelPosTrx={}, rereadPresent={}",
                 cancel.posTrx(), reread.isPresent());
 
         if (reread.isEmpty()) {
