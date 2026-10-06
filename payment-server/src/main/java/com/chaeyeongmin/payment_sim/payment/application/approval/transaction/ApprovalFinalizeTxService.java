@@ -7,7 +7,7 @@ import com.chaeyeongmin.payment_sim.payment.api.approval.ApproveResponse;
 import com.chaeyeongmin.payment_sim.payment.application.approval.support.ApprovalEventRecorder;
 import com.chaeyeongmin.payment_sim.payment.application.approval.support.ApprovalResponseFactory;
 import com.chaeyeongmin.payment_sim.payment.application.approval.support.AttemptResultUpdateParamFactory;
-import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.model.PaymentApprovalPrepareResult;
+import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.model.ApprovalPrepareResult;
 import com.chaeyeongmin.payment_sim.payment.application.card.support.CardSummaryFactory;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentFinalStatus;
@@ -25,13 +25,13 @@ import java.util.Optional;
  *
  * <p>
  * 업무 경계:
- * - finalizeApproval(): VAN 결과 조건부 확정, update miss 후 DB 재조회/방어 응답
- * - finalizeUnknownTimeout(): VAN timeout 관측 결과를 UNKNOWN_TIMEOUT으로 조건부 확정
+ * - applyVanResult(): VAN 결과 조건부 확정, update miss 후 DB 재조회/방어 응답
+ * - markUnknownTimeout(): VAN timeout 관측 결과를 UNKNOWN_TIMEOUT으로 조건부 확정
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class PaymentApprovalFinalizeTransactionService {
+public class ApprovalFinalizeTxService {
 
     private final PaymentAttemptRepository repository;
     private final ApprovalEventRecorder eventRecorder;
@@ -47,8 +47,8 @@ public class PaymentApprovalFinalizeTransactionService {
      * - DB에 이미 확정 결과가 있다면 VAN 응답보다 DB 값을 우선한다.
      */
     @Transactional
-    public ApproveResponse finalizeApproval(
-            PaymentApprovalPrepareResult prepared,
+    public ApproveResponse applyVanResult(
+            ApprovalPrepareResult prepared,
             VanApproveResponse vanResponse
     ) {
         String trx = prepared.posTrx();
@@ -172,8 +172,8 @@ public class PaymentApprovalFinalizeTransactionService {
      * - UPDATE 0건이면 DB를 재조회하고, 이미 확정된 상태가 있다면 DB 값을 우선한다.
      */
     @Transactional
-    public ApproveResponse finalizeUnknownTimeout(
-            PaymentApprovalPrepareResult prepared
+    public ApproveResponse markUnknownTimeout(
+            ApprovalPrepareResult prepared
     ) {
         String trx = prepared.posTrx();
         int attemptSeq = prepared.attemptSeq();

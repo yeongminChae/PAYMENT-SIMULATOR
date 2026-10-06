@@ -8,8 +8,8 @@ import com.chaeyeongmin.payment_sim.payment.application.approval.support.Approva
 import com.chaeyeongmin.payment_sim.payment.application.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.payment.application.card.service.BinCatalogService;
 import com.chaeyeongmin.payment_sim.payment.application.approval.service.PaymentApprovalService;
-import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.PaymentApprovalFinalizeTransactionService;
-import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.PaymentApprovalPrepareTransactionService;
+import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.ApprovalFinalizeTxService;
+import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.ApprovalPrepareTxService;
 import com.chaeyeongmin.payment_sim.payment.api.approval.ApproveRequestValidator;
 import com.chaeyeongmin.payment_sim.common.api.ResultCode;
 import com.chaeyeongmin.payment_sim.common.exception.BusinessException;
@@ -54,8 +54,8 @@ class PaymentApprovalServiceImplIdempotencyTest {
     private BinCatalogService binCatalogService;
     private PaymentExternalInfoRepository paymentExternalInfoRepository;
     private CardFingerprintPolicy cardFingerprintPolicy;
-    private PaymentApprovalPrepareTransactionService prepareTransactionService;
-    private PaymentApprovalFinalizeTransactionService finalizeTransactionService;
+    private ApprovalPrepareTxService prepareTransactionService;
+    private ApprovalFinalizeTxService finalizeTransactionService;
 
     @BeforeEach
     void setUp() {
@@ -68,7 +68,7 @@ class PaymentApprovalServiceImplIdempotencyTest {
         binCatalogService = mock(BinCatalogService.class);
         paymentExternalInfoRepository = mock(PaymentExternalInfoRepository.class);
         cardFingerprintPolicy = mock(CardFingerprintPolicy.class);
-        prepareTransactionService = new PaymentApprovalPrepareTransactionService(
+        prepareTransactionService = new ApprovalPrepareTxService(
                 binCatalogService,
                 repository,
                 paymentExternalInfoRepository,
@@ -76,7 +76,7 @@ class PaymentApprovalServiceImplIdempotencyTest {
                 approvalEventRecorder,
                 new ApprovalResponseFactory()
         );
-        finalizeTransactionService = new PaymentApprovalFinalizeTransactionService(
+        finalizeTransactionService = new ApprovalFinalizeTxService(
                 repository,
                 approvalEventRecorder,
                 new ApprovalResponseFactory()

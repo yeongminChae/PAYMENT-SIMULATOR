@@ -47,7 +47,7 @@ public class PaymentReversalServiceImpl implements PaymentReversalService {
      * 최종 결과를 단정하지 않고 retryLater로 응답하며, 후속 요청은 DB 상태를 기준으로 처리한다.
      */
     @Override
-    public ReversalResponse reversal(ReversalRequest request) {
+    public ReversalResponse reverse(ReversalRequest request) {
         // R1~R4: DB 기준 reversal 준비 트랜잭션.
         // - reversalPosTrx payload 충돌 검증, 원승인 lock, 원승인 상태 확인, 기존 reversal 재응답을 담당한다.
         // - UNKNOWN_TIMEOUT 원승인만 reversal 대상이며, 신규 요청은 PENDING row를 먼저 만든다.

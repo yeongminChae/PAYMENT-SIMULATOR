@@ -137,10 +137,10 @@ class PostgresUnknownTimeoutIntegrationTest {
         InquiryRequest inquiryRequest = new InquiryRequest(POS_TRX, approve.attemptSeq());
 
         // 첫 inquiry는 UNKNOWN_TIMEOUT row를 VAN 조회 대상으로 삼아 APPROVED로 확정한다.
-        InquiryResponse firstInquiry = inquiryService.inquiry(inquiryRequest);
+        InquiryResponse firstInquiry = inquiryService.inquire(inquiryRequest);
 
         // 이미 APPROVED로 확정된 뒤에는 DB 재응답이어야 하므로 VAN inquiry 호출 수가 늘면 안 된다.
-        InquiryResponse duplicatedInquiry = inquiryService.inquiry(inquiryRequest);
+        InquiryResponse duplicatedInquiry = inquiryService.inquire(inquiryRequest);
 
         assertAll(
                 () -> assertEquals(PaymentFinalStatus.UNKNOWN_TIMEOUT, approve.finalStatus()),
@@ -183,7 +183,7 @@ class PostgresUnknownTimeoutIntegrationTest {
         ApproveResponse duplicatedApprove = approvalService.approve(approveRequest());
 
         // VAN inquiry도 미확정이면 조회 서비스는 응답만 UNKNOWN_TIMEOUT으로 내리고 DB 상태는 유지한다.
-        InquiryResponse inquiry = inquiryService.inquiry(new InquiryRequest(POS_TRX, approve.attemptSeq()));
+        InquiryResponse inquiry = inquiryService.inquire(new InquiryRequest(POS_TRX, approve.attemptSeq()));
 
         assertAll(
                 () -> assertEquals(PaymentFinalStatus.UNKNOWN_TIMEOUT, approve.finalStatus()),

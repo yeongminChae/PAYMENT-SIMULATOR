@@ -5,7 +5,7 @@ import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentAttemptUpdatedRo
 import com.chaeyeongmin.payment_sim.infra.repository.dto.PaymentEventLogInsertParam;
 import com.chaeyeongmin.payment_sim.payment.application.common.PaymentResultCodeMapper;
 import com.chaeyeongmin.payment_sim.payment.application.common.VanDeclineCodeMapper;
-import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.model.PaymentApprovalPrepareResult;
+import com.chaeyeongmin.payment_sim.payment.application.approval.transaction.model.ApprovalPrepareResult;
 import com.chaeyeongmin.payment_sim.payment.application.event.PaymentEventLogRecorder;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentFinalStatus;
@@ -20,7 +20,7 @@ public class ApprovalEventRecorder {
 
     private final PaymentEventLogRecorder paymentEventLogRecorder;
 
-    public void recordVanApproveRequested(PaymentApprovalPrepareResult prepared) {
+    public void recordVanApproveRequested(ApprovalPrepareResult prepared) {
         insertApproveEvent(
                 PaymentEventType.APPROVE_VAN_REQUESTED,
                 prepared.posTrx(),
@@ -35,7 +35,7 @@ public class ApprovalEventRecorder {
     }
 
     public void recordVanApproveResultReceived(
-            PaymentApprovalPrepareResult prepared,
+            ApprovalPrepareResult prepared,
             VanApproveResponse vanResponse
     ) {
         insertApproveEvent(

@@ -4,7 +4,7 @@ import com.chaeyeongmin.payment_sim.infra.repository.PaymentCancelRepository;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.CancelInsertParam;
 import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelRequest;
 import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelResponse;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.model.PaymentCancelPrepareResult;
+import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.model.CancelPrepareResult;
 import com.chaeyeongmin.payment_sim.payment.application.common.PaymentResultCodeMapper;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.payment.domain.cancel.CancelStatus;
@@ -40,7 +40,7 @@ public class CancelReservationHandler {
      * 원거래 기준 기존 취소 row가 있으면 해당 상태로 응답을 확정한다.
      * 기존 row가 존재하는 요청은 VAN cancel을 다시 호출하지 않는다.
      */
-    public Optional<PaymentCancelPrepareResult> completeIfExistingCancelByOriginal(
+    public Optional<CancelPrepareResult> reuseExistingByOriginal(
             CancelRequest request,
             String posTrx,
             String originalPosTrx,
@@ -84,7 +84,7 @@ public class CancelReservationHandler {
                     "cancel result reused by original"
             );
 
-            return Optional.of(PaymentCancelPrepareResult.completed(response));
+            return Optional.of(CancelPrepareResult.completed(response));
         }
 
         return Optional.empty();
@@ -125,7 +125,7 @@ public class CancelReservationHandler {
      * insert 충돌 또는 실패 시 원거래 기준으로 기존 row를 재조회하여
      * 중복 요청을 복구하고 VAN 재호출을 방지한다.
      */
-    public PaymentCancelPrepareResult insertPendingCancelOrRecover(
+    public CancelPrepareResult reserveOrRecover(
             CancelRequest request,
             String posTrx,
             String originalPosTrx,
@@ -159,8 +159,8 @@ public class CancelReservationHandler {
                     e
             );
 
-            return PaymentCancelPrepareResult.completed(
-                    handleInsertPendingMiss(
+            return CancelPrepareResult.completed(
+                    recoverInsertMiss(
                             request,
                             posTrx,
                             originalPosTrx,
@@ -192,7 +192,7 @@ public class CancelReservationHandler {
                     "cancel pending created"
             );
 
-            return PaymentCancelPrepareResult.created(
+            return CancelPrepareResult.created(
                     posTrx,
                     originalPosTrx,
                     originalAttemptSeq,
@@ -201,8 +201,8 @@ public class CancelReservationHandler {
 
         }
 
-        return PaymentCancelPrepareResult.completed(
-                handleInsertPendingMiss(
+        return CancelPrepareResult.completed(
+                recoverInsertMiss(
                         request,
                         posTrx,
                         originalPosTrx,
@@ -217,7 +217,7 @@ public class CancelReservationHandler {
      * <p>기존 row가 있으면 해당 상태로 응답하고,
      * row도 확인되지 않으면 RETRY_LATER로 방어한다.
      */
-    private CancelResponse handleInsertPendingMiss(
+    private CancelResponse recoverInsertMiss(
             CancelRequest request,
             String posTrx,
             String originalPosTrx,

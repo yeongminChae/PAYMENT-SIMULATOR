@@ -8,7 +8,7 @@ import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelRequest;
 import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelResponse;
 import com.chaeyeongmin.payment_sim.payment.application.cancel.support.CancelEventRecorder;
 import com.chaeyeongmin.payment_sim.payment.application.cancel.support.CancelReservationHandler;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.model.PaymentCancelPrepareResult;
+import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.model.CancelPrepareResult;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentFinalStatus;
 import com.chaeyeongmin.payment_sim.payment.domain.cancel.CancelCardVerificationPolicy;
@@ -30,7 +30,7 @@ import java.util.Optional;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class PaymentCancelPrepareTransactionService {
+public class CancelPrepareTxService {
 
     private final PaymentCancelRepository cancelRepository;
     private final PaymentAttemptRepository attemptRepository;
@@ -46,7 +46,7 @@ public class PaymentCancelPrepareTransactionService {
      * 호출자는 VAN 취소를 호출하면 안 된다.
      */
     @Transactional
-    public PaymentCancelPrepareResult prepare(CancelRequest request) {
+    public CancelPrepareResult prepare(CancelRequest request) {
         String posTrx = request.posTrx();
         String originalPosTrx = request.originalPosTrx();
         int originalAttemptSeq = request.originalAttemptSeq();
@@ -55,7 +55,7 @@ public class PaymentCancelPrepareTransactionService {
         // - 이미 처리된 취소 거래번호는 lock을 기다리지 않고 곧바로 CONFLICT로 거른다.
         // - 단, 이 결과만으로 최종 판단하지 않는다. lock 대기 중 다른 요청이 같은 posTrx를 만들 수 있으므로
         //   originalPosTrx lock 획득 뒤 한 번 더 확인한다.
-        assertCancelPosTrxNotUsed(posTrx, originalPosTrx, originalAttemptSeq);
+        assertPosTrxAvailable(posTrx, originalPosTrx, originalAttemptSeq);
 
         acquireOriginalPosTrxLock(originalPosTrx);
 
@@ -66,19 +66,19 @@ public class PaymentCancelPrepareTransactionService {
         // - 이 검사는 원거래 조회보다 먼저 수행한다.
         //   같은 cancel posTrx를 다른 original에 붙여 재사용하는 요청도 원거래 존재 여부와 무관하게 실패해야 하기 때문이다.
         // - lock 이후 재검사이므로, 기다리는 동안 앞선 요청이 만든 cancel row까지 반영해 최종 판단한다.
-        assertCancelPosTrxNotUsed(posTrx, originalPosTrx, originalAttemptSeq);
+        assertPosTrxAvailable(posTrx, originalPosTrx, originalAttemptSeq);
 
         PaymentAttempt originalAttempt =
-                findOriginalAttemptOrThrow(posTrx, originalPosTrx, originalAttemptSeq);
+                getOriginalAttemptOrThrow(posTrx, originalPosTrx, originalAttemptSeq);
 
-        Optional<PaymentCancelPrepareResult> notAllowedResult =
-                completeIfOriginalNotApproved(posTrx, originalPosTrx, originalAttemptSeq, originalAttempt);
+        Optional<CancelPrepareResult> notAllowedResult =
+                resolveNotAllowed(posTrx, originalPosTrx, originalAttemptSeq, originalAttempt);
         if (notAllowedResult.isPresent()) return notAllowedResult.get();
 
         assertCardMatches(request, posTrx, originalPosTrx, originalAttemptSeq, originalAttempt);
 
-        Optional<PaymentCancelPrepareResult> existingCancelResult =
-                reservationHandler.completeIfExistingCancelByOriginal(
+        Optional<CancelPrepareResult> existingCancelResult =
+                reservationHandler.reuseExistingByOriginal(
                         request,
                         posTrx,
                         originalPosTrx,
@@ -86,7 +86,7 @@ public class PaymentCancelPrepareTransactionService {
 
         if (existingCancelResult.isPresent()) return existingCancelResult.get();
 
-        return reservationHandler.insertPendingCancelOrRecover(
+        return reservationHandler.reserveOrRecover(
                 request,
                 posTrx,
                 originalPosTrx,
@@ -116,7 +116,7 @@ public class PaymentCancelPrepareTransactionService {
     /**
      * 취소 대상 원승인 attempt를 조회하고, 존재하지 않으면 취소 row 생성 없이 NOT_FOUND로 중단한다.
      */
-    private PaymentAttempt findOriginalAttemptOrThrow(
+    private PaymentAttempt getOriginalAttemptOrThrow(
             String posTrx,
             String originalPosTrx,
             int originalAttemptSeq
@@ -159,7 +159,7 @@ public class PaymentCancelPrepareTransactionService {
     /**
      * 원승인 attempt가 취소 가능한 APPROVED 상태인지 검사하고, 불가하면 응답을 즉시 확정한다.
      */
-    private Optional<PaymentCancelPrepareResult> completeIfOriginalNotApproved(
+    private Optional<CancelPrepareResult> resolveNotAllowed(
             String posTrx,
             String originalPosTrx,
             int originalAttemptSeq,
@@ -195,7 +195,7 @@ public class PaymentCancelPrepareTransactionService {
             );
 
             return Optional.of(
-                    PaymentCancelPrepareResult.completed(
+                    CancelPrepareResult.completed(
                             CancelResponse.cancelNotAllowed(
                                     posTrx,
                                     originalPosTrx,
@@ -263,7 +263,7 @@ public class PaymentCancelPrepareTransactionService {
      * <p>
      * 같은 원거래 재요청이라도 cancel posTrx 자체는 1회용 거래번호이므로 재사용을 허용하지 않는다.
      */
-    private void assertCancelPosTrxNotUsed(
+    private void assertPosTrxAvailable(
             String posTrx,
             String originalPosTrx,
             int originalAttemptSeq

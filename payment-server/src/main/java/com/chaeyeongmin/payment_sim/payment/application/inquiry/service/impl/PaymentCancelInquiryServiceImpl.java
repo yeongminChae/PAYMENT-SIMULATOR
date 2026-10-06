@@ -27,7 +27,7 @@ public class PaymentCancelInquiryServiceImpl implements PaymentCancelInquiryServ
     private final VanGateway gateway;
 
     @Override
-    public CancelResponse inquiry(CancelInquiryRequest request) {
+    public CancelResponse inquire(CancelInquiryRequest request) {
 
         // cancel inquiry는 cancel posTrx(CURRENT_TRX_NO) 기준이다.
         // row 자체가 없으면 VAN에도 물어볼 대상이 없으므로 여기서 NOT_FOUND로 끝낸다.

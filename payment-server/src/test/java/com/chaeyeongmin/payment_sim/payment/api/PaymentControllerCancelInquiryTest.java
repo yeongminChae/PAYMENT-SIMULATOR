@@ -44,13 +44,13 @@ class PaymentControllerCancelInquiryTest {
                 "2301-20260808-9999-0001",
                 1
         );
-        when(cancelInquiryService.inquiry(request)).thenReturn(serviceResponse);
+        when(cancelInquiryService.inquire(request)).thenReturn(serviceResponse);
 
         ApiResponse<CancelResponse> response = controller.cancelInquiry(request);
 
         assertThat(response.getResult_code()).isEqualTo("RETRY_LATER");
         assertThat(response.getData()).isSameAs(serviceResponse);
         assertThat(response.getData().cancelStatus()).isEqualTo(CancelResultStatus.RETRY_LATER);
-        verify(cancelInquiryService).inquiry(request);
+        verify(cancelInquiryService).inquire(request);
     }
 }

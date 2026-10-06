@@ -14,10 +14,10 @@ import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentAttempt;
  *
  * <p>
  * 상태는 두 가지다.
- * - created: 신규 PENDING row를 만든 요청. VAN cancel 호출 후 finalizeCancel로 내려간다.
+ * - created: 신규 PENDING row를 만든 요청. VAN cancel 호출 후 applyVanResult로 내려간다.
  * - completed: prepare 단계에서 이미 응답이 확정된 요청. VAN cancel을 호출하면 안 된다.
  */
-public record PaymentCancelPrepareResult(
+public record CancelPrepareResult(
         String posTrx,
         String originalPosTrx,
         int originalAttemptSeq,
@@ -39,7 +39,7 @@ public record PaymentCancelPrepareResult(
      * 호출자는 이 값으로 트랜잭션 밖에서 VAN cancel을 호출하고,
      * TX2에서 같은 cancel posTrx와 original 식별자로 결과를 확정한다.
      */
-    public static PaymentCancelPrepareResult created(
+    public static CancelPrepareResult created(
             String posTrx,
             String originalPosTrx,
             int originalAttemptSeq,
@@ -52,7 +52,7 @@ public record PaymentCancelPrepareResult(
             );
         }
 
-        return new PaymentCancelPrepareResult(
+        return new CancelPrepareResult(
                 posTrx,
                 originalPosTrx,
                 originalAttemptSeq,
@@ -70,7 +70,7 @@ public record PaymentCancelPrepareResult(
      * VAN cancel을 호출하면 안 되는 경로에서 사용한다.
      * 호출자는 completedResponse를 그대로 반환하고 외부 호출/TX2로 내려가지 않는다.
      */
-    public static PaymentCancelPrepareResult completed(CancelResponse completedResponse) {
+    public static CancelPrepareResult completed(CancelResponse completedResponse) {
         if (completedResponse == null) {
             throw new BusinessException(
                     ResultCode.INTERNAL_ERROR,
@@ -78,7 +78,7 @@ public record PaymentCancelPrepareResult(
             );
         }
 
-        return new PaymentCancelPrepareResult(
+        return new CancelPrepareResult(
                 completedResponse.posTrx(),
                 completedResponse.originalPosTrx(),
                 completedResponse.originalAttemptSeq(),

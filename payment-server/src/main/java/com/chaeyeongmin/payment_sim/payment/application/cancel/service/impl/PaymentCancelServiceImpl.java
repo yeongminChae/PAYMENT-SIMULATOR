@@ -6,9 +6,9 @@ import com.chaeyeongmin.payment_sim.payment.application.cancel.service.PaymentCa
 import com.chaeyeongmin.payment_sim.payment.application.cancel.support.CancelEventRecorder;
 import com.chaeyeongmin.payment_sim.payment.application.common.PaymentResultCodeMapper;
 import com.chaeyeongmin.payment_sim.payment.application.common.VanDeclineCodeMapper;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.PaymentCancelFinalizeTransactionService;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.PaymentCancelPrepareTransactionService;
-import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.model.PaymentCancelPrepareResult;
+import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.CancelFinalizeTxService;
+import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.CancelPrepareTxService;
+import com.chaeyeongmin.payment_sim.payment.application.cancel.transaction.model.CancelPrepareResult;
 import com.chaeyeongmin.payment_sim.payment.api.cancel.CancelRequestValidator;
 import com.chaeyeongmin.payment_sim.payment.domain.cancel.CancelStatus;
 import com.chaeyeongmin.payment_sim.payment.domain.event.PaymentEventType;
@@ -42,8 +42,8 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class PaymentCancelServiceImpl implements PaymentCancelService {
 
-    private final PaymentCancelPrepareTransactionService prepareTransactionService;
-    private final PaymentCancelFinalizeTransactionService finalizeTransactionService;
+    private final CancelPrepareTxService prepareTransactionService;
+    private final CancelFinalizeTxService finalizeTransactionService;
     private final VanGateway vanGateway;
     private final CancelRequestValidator validator;
     private final VanCancelAssembler vanCancelAssembler;
@@ -72,7 +72,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // - 이 단계에서 completed=true가 돌아오면 이미 DB 기준으로 응답이 확정된 경로다.
         //   예: 취소 불가, 기존 취소 재응답, PENDING insert 경합 복구.
         // - completed=false인 요청만 트랜잭션 밖에서 VAN 취소를 호출한다.
-        PaymentCancelPrepareResult prepared = prepareTransactionService.prepare(request);
+        CancelPrepareResult prepared = prepareTransactionService.prepare(request);
         if (prepared.isCompleted()) return prepared.completedResponse();
 
         String posTrx = prepared.posTrx();
@@ -115,7 +115,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
             // VAN timeout은 성공/거절을 알 수 없는 상태다.
             // - 외부 취소가 실제 처리됐을 수 있으므로 결과를 추측하지 않는다.
             // - PENDING row를 UNKNOWN_TIMEOUT으로 바꿔 후속 요청의 중복 VAN 호출을 막고 retryLater로 응답한다.
-            return finalizeTransactionService.finalizeUnknownTimeout(prepared);
+            return finalizeTransactionService.markUnknownTimeout(prepared);
         }
 
         CancelStatus vanFinalStatus = vanCancelResponse.cancelStatus();
@@ -137,7 +137,7 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
         // - C5에서 PENDING row를 선점한 요청만 여기까지 내려온다.
         // - PENDING row가 없으면 후속 요청에서 중복 취소를 막을 근거가 약하므로,
         //   prepare()가 created 상태를 반환한 경우에만 VAN 결과를 최종 상태로 반영한다.
-        return finalizeTransactionService.finalizeCancel(prepared, vanCancelResponse);
+        return finalizeTransactionService.applyVanResult(prepared, vanCancelResponse);
 
     }
 

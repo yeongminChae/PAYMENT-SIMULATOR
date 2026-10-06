@@ -38,7 +38,7 @@ class PaymentInquiryServiceImplTest {
      * latest       : paymentAttemptRepository.findByPosTrxAndAttemptSeq(...)가 DB에서 읽어온 것처럼 돌려주는 기존 attempt row
      * vanInquiryReq: 서비스가 VAN 조회를 호출하기 위해 assembler에게 만들어 달라고 하는 요청 DTO
      * vanInquiryRes: gateway.inquiry(...)가 VAN에서 받은 것처럼 돌려주는 응답 DTO
-     * res          : service.inquiry(...)의 최종 API 응답
+     * res          : service.inquire(...)의 최종 API 응답
      *
      * 비교 기준:
      * - DB가 이미 APPROVED/DECLINED/PROCESSING이면 res는 latest 기준이어야 한다.
@@ -88,7 +88,7 @@ class PaymentInquiryServiceImplTest {
      * <p>
      * [시나리오]
      * - Given: validator.validate()가 INVALID 계열 예외를 던진다
-     * - When : service.inquiry() 호출
+     * - When : service.inquire() 호출
      * - Then : 예외가 그대로 전파된다
      * - And  : Q2에서 종료되므로 repository / vanGateway / vanInquiryAssembler 호출이 없어야 한다
      * <p>
@@ -108,7 +108,7 @@ class PaymentInquiryServiceImplTest {
         // when + then
         BusinessException exception = assertThrows(
                 BusinessException.class,
-                () -> service.inquiry(baseReq)
+                () -> service.inquire(baseReq)
         );
 
         assertEquals(ResultCode.INVALID, exception.getResultCode());
@@ -124,7 +124,7 @@ class PaymentInquiryServiceImplTest {
      * <p>
      * [시나리오]
      * - Given: paymentAttemptRepository.findByPosTrxAndAttemptSeq(posTrx, attemptSeq)가 Optional.empty()를 반환한다
-     * - When : service.inquiry() 호출
+     * - When : service.inquire() 호출
      * - Then : BusinessException(ResultCode.NOT_FOUND)이 발생한다
      * - And  : 조회 대상이 없으므로 VAN inquiry 호출이 없어야 한다
      * <p>
@@ -143,7 +143,7 @@ class PaymentInquiryServiceImplTest {
         // when + then
         BusinessException exception = assertThrows(
                 BusinessException.class,
-                () -> service.inquiry(baseReq)
+                () -> service.inquire(baseReq)
         );
 
         assertEquals(ResultCode.NOT_FOUND, exception.getResultCode());
@@ -160,7 +160,7 @@ class PaymentInquiryServiceImplTest {
      * <p>
      * [시나리오]
      * - Given: DB attempt finalStatus=APPROVED
-     * - When : service.inquiry() 호출
+     * - When : service.inquire() 호출
      * - Then : DB 값 기준으로 APPROVED 응답을 반환한다(Q9)
      * - And  : 이미 확정된 건이므로 VAN inquiry 호출이 없어야 한다
      * - And  : updateUnknownToFinal 호출도 없어야 한다
@@ -189,7 +189,7 @@ class PaymentInquiryServiceImplTest {
                 .thenReturn(Optional.of(latest));
 
         // when
-        InquiryResponse res = service.inquiry(baseReq);
+        InquiryResponse res = service.inquire(baseReq);
 
         // then
         assertEquals(PaymentFinalStatus.APPROVED, res.finalStatus());
@@ -210,7 +210,7 @@ class PaymentInquiryServiceImplTest {
      * <p>
      * [시나리오]
      * - Given: DB attempt finalStatus=DECLINED
-     * - When : service.inquiry() 호출
+     * - When : service.inquire() 호출
      * - Then : DB 값 기준으로 DECLINED 응답을 반환한다(Q9)
      * - And  : 이미 확정된 건이므로 VAN inquiry 호출이 없어야 한다
      * - And  : updateUnknownToFinal 호출도 없어야 한다
@@ -237,7 +237,7 @@ class PaymentInquiryServiceImplTest {
                 .thenReturn(Optional.of(latest));
 
         // when
-        InquiryResponse res = service.inquiry(baseReq);
+        InquiryResponse res = service.inquire(baseReq);
 
         // then
         assertEquals(PaymentFinalStatus.DECLINED, res.finalStatus());
@@ -258,7 +258,7 @@ class PaymentInquiryServiceImplTest {
      * <p>
      * [시나리오]
      * - Given: DB attempt finalStatus=PROCESSING
-     * - When : service.inquiry() 호출
+     * - When : service.inquire() 호출
      * - Then : retryLater 성격의 PROCESSING 응답을 반환한다(Q10)
      * - And  : 아직 처리중이므로 VAN inquiry 호출이 없어야 한다
      * - And  : updateUnknownToFinal 호출도 없어야 한다
@@ -285,7 +285,7 @@ class PaymentInquiryServiceImplTest {
                 .thenReturn(Optional.of(latest));
 
         // when
-        InquiryResponse res = service.inquiry(baseReq);
+        InquiryResponse res = service.inquire(baseReq);
 
         // then
         assertEquals(PaymentFinalStatus.PROCESSING, res.finalStatus());
@@ -305,7 +305,7 @@ class PaymentInquiryServiceImplTest {
      * - Given: DB attempt finalStatus=UNKNOWN_TIMEOUT
      * - And  : VAN inquiry 결과 finalStatus=APPROVED
      * - And  : transactionService가 DB 확정 처리 후 APPROVED 응답을 반환한다
-     * - When : service.inquiry() 호출
+     * - When : service.inquire() 호출
      * - Then : transactionService 응답을 그대로 반환한다
      * - And  : DB 확정 처리는 transactionService에 위임한다
      * <p>
@@ -372,7 +372,7 @@ class PaymentInquiryServiceImplTest {
         )).thenReturn(finalizedResponse);
 
         // when
-        InquiryResponse res = service.inquiry(baseReq);
+        InquiryResponse res = service.inquire(baseReq);
 
         // then
         assertEquals(finalizedResponse, res);
@@ -393,7 +393,7 @@ class PaymentInquiryServiceImplTest {
      * - Given: DB attempt finalStatus=UNKNOWN_TIMEOUT
      * - And  : VAN inquiry 결과 finalStatus=DECLINED
      * - And  : transactionService가 DB 확정 처리 후 DECLINED 응답을 반환한다
-     * - When : service.inquiry() 호출
+     * - When : service.inquire() 호출
      * - Then : transactionService 응답을 그대로 반환한다
      * - And  : DB 확정 처리는 transactionService에 위임한다
      * <p>
@@ -454,7 +454,7 @@ class PaymentInquiryServiceImplTest {
         )).thenReturn(finalizedResponse);
 
         // when
-        InquiryResponse res = service.inquiry(baseReq);
+        InquiryResponse res = service.inquire(baseReq);
 
         // then
         assertEquals(finalizedResponse, res);
@@ -475,7 +475,7 @@ class PaymentInquiryServiceImplTest {
      * [시나리오]
      * - Given: DB attempt finalStatus=UNKNOWN_TIMEOUT
      * - And  : VAN inquiry 결과도 finalStatus=UNKNOWN_TIMEOUT
-     * - When : service.inquiry() 호출
+     * - When : service.inquire() 호출
      * - Then : UNKNOWN_TIMEOUT 응답을 반환한다(Q8)
      * - And  : DB 상태 유지 케이스이므로 updateUnknownToFinal 호출이 없어야 한다
      * <p>
@@ -523,7 +523,7 @@ class PaymentInquiryServiceImplTest {
                 .thenReturn(vanInquiryRes);
 
         // when
-        InquiryResponse res = service.inquiry(baseReq);
+        InquiryResponse res = service.inquire(baseReq);
 
         // then
         assertEquals(PaymentFinalStatus.UNKNOWN_TIMEOUT, res.finalStatus());
