@@ -28,6 +28,7 @@ import com.chaeyeongmin.payment_sim.van.client.assembler.VanCancelAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelResponse;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
+import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayRequestNotSentException;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -221,6 +222,44 @@ class PaymentCancelServiceImplTest {
                 eq("VAN cancel result received")
         );
         verify(finalizeTransactionService).applyVanResult(prepared, vanResponse);
+    }
+
+    @Test
+    @DisplayName("VAN 취소 요청이 전송되지 않으면 PENDING cleanup 후 RETRY_LATER를 반환한다")
+    void cancel_vanRequestNotSent_shouldCleanupAndReturnRetryLater() {
+        PaymentAttempt originalAttempt = originalApprovedAttempt();
+        CancelPrepareResult prepared = CancelPrepareResult.created(
+                baseReq.posTrx(),
+                baseReq.originalPosTrx(),
+                baseReq.originalAttemptSeq(),
+                originalAttempt
+        );
+        VanCancelRequest vanRequest = vanCancelRequest();
+        CancelResponse retryLaterResponse = CancelResponse.retryLater(
+                baseReq.posTrx(),
+                baseReq.originalPosTrx(),
+                baseReq.originalAttemptSeq()
+        );
+
+        when(prepareTransactionService.prepare(baseReq)).thenReturn(prepared);
+        when(vanCancelAssembler.assemble(
+                prepared.posTrx(),
+                prepared.originalPosTrx(),
+                prepared.originalAttemptSeq(),
+                prepared.originalAttempt()
+        )).thenReturn(vanRequest);
+        doThrow(new VanGatewayRequestNotSentException(new RuntimeException("connect failed")))
+                .when(vanGateway)
+                .cancel(vanRequest);
+        when(prepareTransactionService.cleanupRequestNotSent(prepared)).thenReturn(retryLaterResponse);
+
+        CancelResponse response = service.cancel(baseReq);
+
+        assertSame(retryLaterResponse, response);
+        assertEquals(CancelResultStatus.RETRY_LATER, response.cancelStatus());
+        verify(prepareTransactionService).cleanupRequestNotSent(prepared);
+        verify(finalizeTransactionService, never()).markUnknownTimeout(any());
+        verify(finalizeTransactionService, never()).applyVanResult(any(), any());
     }
 
     @Test

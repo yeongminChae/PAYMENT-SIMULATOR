@@ -16,6 +16,7 @@ import com.chaeyeongmin.payment_sim.van.client.assembler.VanCancelAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelRequest;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanCancelResponse;
 import com.chaeyeongmin.payment_sim.van.gateway.VanGateway;
+import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayRequestNotSentException;
 import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -110,6 +111,9 @@ public class PaymentCancelServiceImpl implements PaymentCancelService {
 
         try {
             vanCancelResponse = vanGateway.cancel(vanCancelRequest);
+
+        } catch (VanGatewayRequestNotSentException e) {
+            return prepareTransactionService.cleanupRequestNotSent(prepared);
 
         } catch (VanGatewayTimeoutException e) {
             // VAN timeout은 성공/거절을 알 수 없는 상태다.

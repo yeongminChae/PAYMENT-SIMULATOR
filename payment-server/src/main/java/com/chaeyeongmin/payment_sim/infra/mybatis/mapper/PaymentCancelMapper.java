@@ -40,6 +40,15 @@ public interface PaymentCancelMapper {
     );
 
     /**
+     * request-not-sent로 확정된 신규 PENDING cancel row만 삭제한다.
+     */
+    int deletePendingCancel(
+            @Param("posTrx") String posTrx,
+            @Param("originalPosTrx") String originalPosTrx,
+            @Param("originalAttemptSeq") int originalAttemptSeq
+    );
+
+    /**
      * PENDING cancel row를 VAN 최종 결과로 확정한다.
      */
     Optional<PaymentCancel> updateCancelResult(
