@@ -22,7 +22,7 @@ import java.util.Optional;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class PaymentInquiryTransactionService {
+public class ApprovalInquiryTxService {
 
     private final PaymentInquiryRepository paymentInquiryRepository;
     private final PaymentAttemptRepository paymentAttemptRepository;
@@ -33,7 +33,7 @@ public class PaymentInquiryTransactionService {
      * 응답은 VAN 응답 자체가 아니라 update RETURNING 또는 reread로 확인한 DB 저장값을 source of truth로 사용한다.
      */
     @Transactional
-    public InquiryResponse finalizeResolvedInquiry(
+    public InquiryResponse applyResolvedResult(
             String posTrx,
             int attemptSeq,
             VanInquiryResponse vanInquiryResponse,

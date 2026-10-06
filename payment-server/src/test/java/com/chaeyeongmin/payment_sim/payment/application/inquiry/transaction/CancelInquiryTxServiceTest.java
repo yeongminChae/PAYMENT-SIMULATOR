@@ -37,7 +37,7 @@ import static org.mockito.Mockito.when;
  * 다른 요청이 먼저 확정했다는 뜻이다. 이때 기존 재취소 응답 규칙을 쓰지 않고,
  * 현재 DB 상태를 inquiry 응답으로 그대로 돌려주는지가 핵심이다.
  */
-class PaymentCancelInquiryTransactionServiceTest {
+class CancelInquiryTxServiceTest {
 
     private static final String CANCEL_POS_TRX = "2376-20260903-9991-2001";
     private static final String ORIGINAL_POS_TRX = "2376-20260903-9991-1001";
@@ -45,25 +45,25 @@ class PaymentCancelInquiryTransactionServiceTest {
     private static final String VAN_CANCEL_TRX_ID = "VAN-CANCEL-INQUIRY-0001";
     private static final String CANCEL_APPROVAL_NO = "CANCEL-APPROVAL-0001";
 
-    private PaymentCancelInquiryTransactionService transactionService;
+    private CancelInquiryTxService transactionService;
     private PaymentCancelRepository cancelRepository;
 
     @BeforeEach
     void setUp() {
         cancelRepository = mock(PaymentCancelRepository.class);
-        transactionService = new PaymentCancelInquiryTransactionService(cancelRepository);
+        transactionService = new CancelInquiryTxService(cancelRepository);
     }
 
     @Test
     @DisplayName("UNKNOWN_TIMEOUT + VAN CANCELLED이고 update 성공이면 DB updated row 기준 CANCELLED 응답을 반환한다")
-    void finalizeResolvedInquiry_cancelledAndUpdateSuccess_shouldReturnUpdatedCancelled() {
+    void applyResolvedResult_cancelledAndUpdateSuccess_shouldReturnUpdatedCancelled() {
         PaymentCancel unknownTimeout = cancel(CancelStatus.UNKNOWN_TIMEOUT, null, "TIMEOUT");
         PaymentCancel updated = cancel(CancelStatus.CANCELLED, CANCEL_APPROVAL_NO, null);
 
         when(cancelRepository.updateUnknownTimeoutToFinal(any(CancelResultUpdateParam.class)))
                 .thenReturn(Optional.of(updated));
 
-        CancelResponse response = transactionService.finalizeResolvedInquiry(
+        CancelResponse response = transactionService.applyResolvedResult(
                 unknownTimeout,
                 vanCancelledResponse()
         );
@@ -82,14 +82,14 @@ class PaymentCancelInquiryTransactionServiceTest {
 
     @Test
     @DisplayName("UNKNOWN_TIMEOUT + VAN CANCEL_DECLINED이고 update 성공이면 DB updated row 기준 CANCEL_DECLINED 응답을 반환한다")
-    void finalizeResolvedInquiry_declinedAndUpdateSuccess_shouldReturnUpdatedDeclined() {
+    void applyResolvedResult_declinedAndUpdateSuccess_shouldReturnUpdatedDeclined() {
         PaymentCancel unknownTimeout = cancel(CancelStatus.UNKNOWN_TIMEOUT, null, "TIMEOUT");
         PaymentCancel updated = cancel(CancelStatus.CANCEL_DECLINED, null, VanDeclineCode.DO_NOT_HONOR.code());
 
         when(cancelRepository.updateUnknownTimeoutToFinal(any(CancelResultUpdateParam.class)))
                 .thenReturn(Optional.of(updated));
 
-        CancelResponse response = transactionService.finalizeResolvedInquiry(
+        CancelResponse response = transactionService.applyResolvedResult(
                 unknownTimeout,
                 vanCancelDeclinedResponse()
         );
@@ -108,7 +108,7 @@ class PaymentCancelInquiryTransactionServiceTest {
 
     @Test
     @DisplayName("update miss면 posTrx로 재조회하고 이미 CANCELLED면 DB reread 기준 CANCELLED 응답을 반환한다")
-    void finalizeResolvedInquiry_updateMissAndRereadCancelled_shouldReturnRereadCancelled() {
+    void applyResolvedResult_updateMissAndRereadCancelled_shouldReturnRereadCancelled() {
         PaymentCancel unknownTimeout = cancel(CancelStatus.UNKNOWN_TIMEOUT, null, "TIMEOUT");
         PaymentCancel rereadCancelled = cancel(CancelStatus.CANCELLED, CANCEL_APPROVAL_NO, null);
 
@@ -117,7 +117,7 @@ class PaymentCancelInquiryTransactionServiceTest {
         when(cancelRepository.findByPosTrx(CANCEL_POS_TRX))
                 .thenReturn(Optional.of(rereadCancelled));
 
-        CancelResponse response = transactionService.finalizeResolvedInquiry(
+        CancelResponse response = transactionService.applyResolvedResult(
                 unknownTimeout,
                 vanCancelledResponse()
         );
@@ -130,7 +130,7 @@ class PaymentCancelInquiryTransactionServiceTest {
 
     @Test
     @DisplayName("update miss면 posTrx로 재조회하고 이미 CANCEL_DECLINED면 DB reread 기준 CANCEL_DECLINED 응답을 반환한다")
-    void finalizeResolvedInquiry_updateMissAndRereadDeclined_shouldReturnRereadDeclined() {
+    void applyResolvedResult_updateMissAndRereadDeclined_shouldReturnRereadDeclined() {
         PaymentCancel unknownTimeout = cancel(CancelStatus.UNKNOWN_TIMEOUT, null, "TIMEOUT");
         PaymentCancel rereadDeclined = cancel(CancelStatus.CANCEL_DECLINED, null, VanDeclineCode.DO_NOT_HONOR.code());
 
@@ -139,7 +139,7 @@ class PaymentCancelInquiryTransactionServiceTest {
         when(cancelRepository.findByPosTrx(CANCEL_POS_TRX))
                 .thenReturn(Optional.of(rereadDeclined));
 
-        CancelResponse response = transactionService.finalizeResolvedInquiry(
+        CancelResponse response = transactionService.applyResolvedResult(
                 unknownTimeout,
                 vanCancelDeclinedResponse()
         );
@@ -152,7 +152,7 @@ class PaymentCancelInquiryTransactionServiceTest {
 
     @Test
     @DisplayName("update miss 후 reread row가 없으면 RETRY_LATER 방어 응답을 반환한다")
-    void finalizeResolvedInquiry_updateMissAndRereadEmpty_shouldReturnRetryLater() {
+    void applyResolvedResult_updateMissAndRereadEmpty_shouldReturnRetryLater() {
         PaymentCancel unknownTimeout = cancel(CancelStatus.UNKNOWN_TIMEOUT, null, "TIMEOUT");
 
         when(cancelRepository.updateUnknownTimeoutToFinal(any(CancelResultUpdateParam.class)))
@@ -160,7 +160,7 @@ class PaymentCancelInquiryTransactionServiceTest {
         when(cancelRepository.findByPosTrx(CANCEL_POS_TRX))
                 .thenReturn(Optional.empty());
 
-        CancelResponse response = transactionService.finalizeResolvedInquiry(
+        CancelResponse response = transactionService.applyResolvedResult(
                 unknownTimeout,
                 vanCancelledResponse()
         );
@@ -172,10 +172,10 @@ class PaymentCancelInquiryTransactionServiceTest {
 
     @Test
     @DisplayName("cancel이 null이면 기존 정책대로 INTERNAL_ERROR 예외를 던진다")
-    void finalizeResolvedInquiry_nullCancel_shouldThrowInternalError() {
+    void applyResolvedResult_nullCancel_shouldThrowInternalError() {
         BusinessException exception = assertThrows(
                 BusinessException.class,
-                () -> transactionService.finalizeResolvedInquiry(null, vanCancelledResponse())
+                () -> transactionService.applyResolvedResult(null, vanCancelledResponse())
         );
 
         assertEquals(ResultCode.INTERNAL_ERROR, exception.getResultCode());
@@ -184,12 +184,12 @@ class PaymentCancelInquiryTransactionServiceTest {
 
     @Test
     @DisplayName("cancel이 UNKNOWN_TIMEOUT이 아니면 기존 정책대로 INTERNAL_ERROR 예외를 던진다")
-    void finalizeResolvedInquiry_notUnknownTimeoutCancel_shouldThrowInternalError() {
+    void applyResolvedResult_notUnknownTimeoutCancel_shouldThrowInternalError() {
         PaymentCancel cancel = cancel(CancelStatus.CANCELLED, CANCEL_APPROVAL_NO, null);
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
-                () -> transactionService.finalizeResolvedInquiry(cancel, vanCancelledResponse())
+                () -> transactionService.applyResolvedResult(cancel, vanCancelledResponse())
         );
 
         assertEquals(ResultCode.INTERNAL_ERROR, exception.getResultCode());
@@ -198,12 +198,12 @@ class PaymentCancelInquiryTransactionServiceTest {
 
     @Test
     @DisplayName("VAN resultCode가 SUCCESS가 아니면 기존 정책대로 INTERNAL_ERROR 예외를 던진다")
-    void finalizeResolvedInquiry_invalidResultCode_shouldThrowInternalError() {
+    void applyResolvedResult_invalidResultCode_shouldThrowInternalError() {
         PaymentCancel cancel = cancel(CancelStatus.UNKNOWN_TIMEOUT, null, "TIMEOUT");
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
-                () -> transactionService.finalizeResolvedInquiry(cancel, vanNotFoundResponse())
+                () -> transactionService.applyResolvedResult(cancel, vanNotFoundResponse())
         );
 
         assertEquals(ResultCode.INTERNAL_ERROR, exception.getResultCode());
@@ -212,7 +212,7 @@ class PaymentCancelInquiryTransactionServiceTest {
 
     @Test
     @DisplayName("VAN targetType이 CANCEL이 아니면 기존 정책대로 INTERNAL_ERROR 예외를 던진다")
-    void finalizeResolvedInquiry_invalidTargetType_shouldThrowInternalError() {
+    void applyResolvedResult_invalidTargetType_shouldThrowInternalError() {
         PaymentCancel cancel = cancel(CancelStatus.UNKNOWN_TIMEOUT, null, "TIMEOUT");
         VanInquiryResponse response = baseVanResponse()
                 .targetType(VanInquiryTargetType.APPROVAL)
@@ -225,7 +225,7 @@ class PaymentCancelInquiryTransactionServiceTest {
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
-                () -> transactionService.finalizeResolvedInquiry(cancel, response)
+                () -> transactionService.applyResolvedResult(cancel, response)
         );
 
         assertEquals(ResultCode.INTERNAL_ERROR, exception.getResultCode());
@@ -234,7 +234,7 @@ class PaymentCancelInquiryTransactionServiceTest {
 
     @Test
     @DisplayName("VAN targetTrx가 cancel posTrx와 다르면 기존 정책대로 INTERNAL_ERROR 예외를 던진다")
-    void finalizeResolvedInquiry_invalidTargetTrx_shouldThrowInternalError() {
+    void applyResolvedResult_invalidTargetTrx_shouldThrowInternalError() {
         PaymentCancel cancel = cancel(CancelStatus.UNKNOWN_TIMEOUT, null, "TIMEOUT");
         VanInquiryResponse response = baseVanResponse()
                 .targetTrxNo("OTHER-CANCEL-POS-TRX")
@@ -247,7 +247,7 @@ class PaymentCancelInquiryTransactionServiceTest {
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
-                () -> transactionService.finalizeResolvedInquiry(cancel, response)
+                () -> transactionService.applyResolvedResult(cancel, response)
         );
 
         assertEquals(ResultCode.INTERNAL_ERROR, exception.getResultCode());
@@ -256,7 +256,7 @@ class PaymentCancelInquiryTransactionServiceTest {
 
     @Test
     @DisplayName("VAN status가 취소 최종 상태가 아니면 기존 정책대로 INTERNAL_ERROR 예외를 던진다")
-    void finalizeResolvedInquiry_invalidStatus_shouldThrowInternalError() {
+    void applyResolvedResult_invalidStatus_shouldThrowInternalError() {
         PaymentCancel cancel = cancel(CancelStatus.UNKNOWN_TIMEOUT, null, "TIMEOUT");
         VanInquiryResponse response = baseVanResponse()
                 .resultCode(VanInquiryResultCode.SUCCESS)
@@ -268,7 +268,7 @@ class PaymentCancelInquiryTransactionServiceTest {
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
-                () -> transactionService.finalizeResolvedInquiry(cancel, response)
+                () -> transactionService.applyResolvedResult(cancel, response)
         );
 
         assertEquals(ResultCode.INTERNAL_ERROR, exception.getResultCode());
