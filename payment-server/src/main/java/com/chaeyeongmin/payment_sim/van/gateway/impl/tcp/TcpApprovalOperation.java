@@ -17,6 +17,7 @@ import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutExcep
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -32,6 +33,7 @@ import java.io.IOException;
 @Component
 @ConditionalOnProperty(name = "payment.van.mode", havingValue = "tcp")
 @RequiredArgsConstructor
+@Slf4j
 public class TcpApprovalOperation {
 
     private static final String PROTOCOL_VERSION = "1";
@@ -53,16 +55,26 @@ public class TcpApprovalOperation {
     public VanApproveResponse execute(VanApproveRequest request) {
         try {
             VanApprovalTcpRequest tcpRequest = toTcpRequest(request);
+            log.info("[van][approval][request] vanRequestId={}, posTrx={}, attemptSeq={}",
+                    tcpRequest.requestId(), tcpRequest.posTrx(), tcpRequest.attemptSeq());
             byte[] requestPayload = writeRequest(tcpRequest);
             byte[] responsePayload = vanTcpClient.send(requestPayload);
             VanApprovalTcpResponse tcpResponse = readApprovalResponse(responsePayload);
 
             validateApprovalResponse(tcpRequest, tcpResponse);
-            return toApproveResponse(request, tcpResponse);
+            VanApproveResponse response = toApproveResponse(request, tcpResponse);
+            log.info("[van][approval][response] vanRequestId={}, posTrx={}, attemptSeq={}, status={}, vanTrxId={}, approvalNo={}, declineCode={}",
+                    tcpRequest.requestId(), response.posTrx(), response.attemptSeq(), response.finalStatus(),
+                    response.vanTrxId(), response.approvalNo(), response.declineCode());
+            return response;
 
         } catch (VanTcpRequestNotSentException e) {
+            log.warn("[van][approval][request-not-sent] vanRequestId={}, posTrx={}, attemptSeq={}",
+                    approvalRequestId(request), request.posTrx(), request.attemptSeq(), e);
             throw new VanGatewayRequestNotSentException(e);
         } catch (VanTcpResponseTimeoutException e) {
+            log.warn("[van][approval][timeout] vanRequestId={}, posTrx={}, attemptSeq={}",
+                    approvalRequestId(request), request.posTrx(), request.attemptSeq(), e);
             throw new VanGatewayTimeoutException(e);
         }
     }

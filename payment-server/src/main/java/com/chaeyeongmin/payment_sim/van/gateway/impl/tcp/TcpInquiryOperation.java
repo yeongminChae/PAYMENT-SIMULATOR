@@ -16,6 +16,7 @@ import com.chaeyeongmin.payment_sim.van.gateway.exception.VanGatewayTimeoutExcep
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -33,6 +34,7 @@ import java.util.Objects;
 @Component
 @ConditionalOnProperty(name = "payment.van.mode", havingValue = "tcp")
 @RequiredArgsConstructor
+@Slf4j
 public class TcpInquiryOperation {
 
     private static final String PROTOCOL_VERSION = "1";
@@ -55,16 +57,27 @@ public class TcpInquiryOperation {
     public VanInquiryResponse execute(VanInquiryRequest request) {
         try {
             VanInquiryTcpRequest tcpRequest = toTcpRequest(request);
+            log.info("[van][inquiry][request] vanRequestId={}, targetType={}, targetTrxNo={}, targetAttemptSeq={}",
+                    tcpRequest.requestId(), tcpRequest.targetType(), tcpRequest.targetTrxNo(), tcpRequest.targetAttemptSeq());
             byte[] requestPayload = writeRequest(tcpRequest);
             byte[] responsePayload = vanTcpClient.send(requestPayload);
             VanInquiryTcpResponse tcpResponse = readInquiryResponse(responsePayload);
 
             validateInquiryResponse(tcpRequest, tcpResponse);
-            return toInquiryResponse(tcpResponse);
+            VanInquiryResponse response = toInquiryResponse(tcpResponse);
+            log.info("[van][inquiry][response] vanRequestId={}, targetType={}, targetTrxNo={}, targetAttemptSeq={}, resultCode={}, status={}, vanTrxId={}, approvalNo={}, cancelApprovalNo={}, reversalApprovalNo={}, declineCode={}",
+                    tcpRequest.requestId(), response.targetType(), response.targetTrxNo(), response.targetAttemptSeq(),
+                    response.resultCode(), response.status(), response.vanTrxId(), response.approvalNo(),
+                    response.cancelApprovalNo(), response.reversalApprovalNo(), response.declineCode());
+            return response;
 
         } catch (VanTcpRequestNotSentException e) {
+            log.warn("[van][inquiry][request-not-sent] vanRequestId={}, targetType={}, targetTrxNo={}, targetAttemptSeq={}",
+                    inquiryRequestId(request), request.targetType(), request.targetTrxNo(), request.targetAttemptSeq(), e);
             throw new VanGatewayRequestNotSentException(e);
         } catch (VanTcpResponseTimeoutException e) {
+            log.warn("[van][inquiry][timeout] vanRequestId={}, targetType={}, targetTrxNo={}, targetAttemptSeq={}",
+                    inquiryRequestId(request), request.targetType(), request.targetTrxNo(), request.targetAttemptSeq(), e);
             throw new VanGatewayTimeoutException(e);
         }
     }
