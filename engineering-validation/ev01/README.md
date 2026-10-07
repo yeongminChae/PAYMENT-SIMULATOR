@@ -101,7 +101,8 @@ run에서만 허용한다. 기본 생성 번호는 VAN protocol 형식(`dddd-yyy
 - `environment.txt`: 커밋, 도구 버전, 파라미터. DB URL과 PAN은 기록하지 않는다.
 - `k6-summary.json`: 성능 원본(요청 수, p50/p95/p99/max, HTTP failure, APPROVED/PROCESSING/unexpected).
 - `payment-assertion.txt`, `van-assertion.txt`: DB correctness assertion 결과.
-- `van-log-assertion.txt`: 정확한 `posTrx`의 `[van-tcp][approval][received]` 로그 수.
+- `van-log-assertion.txt`: run 직전 기준 line 이후 새 로그에서 정확한 `posTrx`의 `[van-tcp][approval][received]` 로그 수.
+- `van-log-delta.txt`: 기준점 이후 새로 추가된 VAN 로그. 파일 교체/rotation/truncate 또는 prefix 변경 시 fail-fast한다.
 - `db-waits.csv`: `pg_stat_activity`의 point-in-time sample(active connection/wait event/lock wait).
 - `run-summary.txt`: PASS run의 wall-clock duration과 evidence 인덱스.
 

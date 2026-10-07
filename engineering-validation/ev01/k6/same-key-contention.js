@@ -105,7 +105,11 @@ export default function () {
 export function handleSummary(data) {
   return {
     stdout: textSummary(data),
-    [summaryPath]: JSON.stringify(data, null, 2),
+    [summaryPath]: JSON.stringify({
+      ...data,
+      // k6 owns this elapsed duration; wrappers use it instead of coarse shell clocks.
+      ev01_test_run_duration_ms: data.state?.testRunDurationMs ?? null,
+    }, null, 2),
   };
 }
 
