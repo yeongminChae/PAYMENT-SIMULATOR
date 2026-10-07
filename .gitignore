@@ -16,6 +16,8 @@ data/
 
 # Logs (folder + legacy patterns)
 logs/
+engineering-validation/ev01/results/A/*/
+!engineering-validation/ev01/results/A/.gitkeep
 # Log file
 *.log
 

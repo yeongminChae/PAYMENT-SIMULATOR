@@ -16,6 +16,14 @@ if (!posTrx) {
   throw new Error('POS_TRX is required. Use a fresh posTrx for every measured run.');
 }
 
+if (!Number.isInteger(vus) || vus < 1) {
+  throw new Error('VUS must be a positive integer.');
+}
+
+if (!Number.isInteger(amount) || amount < 1) {
+  throw new Error('AMOUNT must be a positive integer.');
+}
+
 const approved = new Counter('ev01_approved');
 const processing = new Counter('ev01_processing');
 const unexpectedBusinessResult = new Counter('ev01_unexpected_business_result');
@@ -32,6 +40,8 @@ export const options = {
     },
   },
   thresholds: {
+    // per-vu-iterations with iterations=1 must emit exactly one request per VU.
+    http_reqs: [`count==${vus}`],
     http_req_failed: ['rate==0'],
     checks: ['rate==1'],
     ev01_unexpected_business_result: ['count==0'],
