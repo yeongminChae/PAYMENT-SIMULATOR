@@ -18,6 +18,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+/**
+ * 취소 조회 유스케이스를 조립한다.
+ *
+ * <p>
+ * 이미 확정된 cancel은 DB 상태를 그대로 응답하고, UNKNOWN_TIMEOUT만 VAN Inquiry 대상으로 보낸다.
+ * VAN I/O는 트랜잭션 밖에서 수행하며, 확정 결과의 DB 전이는 {@link CancelInquiryTxService}에 위임한다.
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -79,7 +86,7 @@ public class PaymentCancelInquiryServiceImpl implements PaymentCancelInquiryServ
     private CancelResponse resolveUnknownTimeout(PaymentCancel cancel) {
         log.info("[cancel-inquiry][unknown-timeout] cancelPosTrx={}, originalPosTrx={}, originalAttemptSeq={}",
                 cancel.posTrx(), cancel.originalPosTrx(), cancel.originalAttemptSeq());
-        // R5 공용 Inquiry protocol에서 CANCEL 조회는 targetAttemptSeq를 보내지 않는다.
+        // 공용 Inquiry protocol에서 CANCEL 조회는 targetAttemptSeq를 보내지 않는다.
         // assembler가 approval 전용 값(vanTrxId/cardLast4)도 비워서 TCP boundary로 넘긴다.
         VanInquiryRequest request = assembler.getCancelInquiryRequest(cancel.posTrx());
         log.info("[cancel-inquiry][van-requested] cancelPosTrx={}", cancel.posTrx());

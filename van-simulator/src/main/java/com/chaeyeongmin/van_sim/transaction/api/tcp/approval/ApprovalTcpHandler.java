@@ -51,7 +51,7 @@ public class ApprovalTcpHandler {
         log.info("[van-tcp][approval][received] requestId={}, posTrx={}, attemptSeq={}",
                 approvalRequest.requestId(), approvalRequest.posTrx(), approvalRequest.attemptSeq());
 
-        // 취소 요청 전문 객체 값 체크
+        // 승인 요청 전문의 최소 프로토콜 계약을 검증한다.
         validate(approvalRequest);
 
         // 승인 요청 전문에 담긴 거래 정보를 서비스 계층이 처리할 수 있는 커맨드 모델로 변환한다.

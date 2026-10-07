@@ -88,10 +88,10 @@ public class ApprovalPrepareTxService {
 
             // A4 분기 기준:
             // - APPROVED / UNKNOWN_TIMEOUT / PROCESSING: 이미 진행 중이거나 결론이 난 요청이므로 VAN 재호출 금지.
-            // - DECLINED: 승인 거절은 같은 posTrx로 다시 시도할 수 있게 열어둔 MVP 정책.
+            // - DECLINED: 승인 거절은 같은 posTrx로 다시 시도할 수 있게 열어둔 현재 정책.
             //   따라서 DECLINED일 때만 아래 A3 신규 attempt 발급 흐름으로 내려간다.
             if (status != PaymentFinalStatus.DECLINED) {
-                // MVP2 승인 멱등성 기준:
+                // 승인 멱등성 기준:
                 // - posTrx가 같아도 "같은 승인 요청"이라고 보려면 payload까지 같아야 한다.
                 // - 신규 row는 cardFingerprint로 같은 카드를 판단한다.
                 // - legacy row처럼 fingerprint가 없을 때만 amount/cardBin/cardLast4 비교로 fallback한다.

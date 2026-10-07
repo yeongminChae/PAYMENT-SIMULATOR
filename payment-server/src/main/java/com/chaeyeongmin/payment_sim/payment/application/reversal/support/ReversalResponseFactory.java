@@ -4,6 +4,13 @@ import com.chaeyeongmin.payment_sim.payment.api.reversal.ReversalResponse;
 import com.chaeyeongmin.payment_sim.payment.domain.reversal.PaymentReversal;
 import org.springframework.stereotype.Component;
 
+/**
+ * PAYMENT_REVERSAL row의 현재 상태와 호출 맥락을 Reversal API 응답으로 변환한다.
+ *
+ * <p>
+ * 같은 current 거래 재요청, 같은 original에 대한 별도 거래 재요청, VAN finalize 직후를
+ * 구분해 REVERSED와 ALREADY_REVERSED의 응답 의미가 섞이지 않도록 한다.
+ */
 @Component
 public class ReversalResponseFactory {
 
