@@ -22,6 +22,7 @@ const unexpectedBusinessResult = new Counter('ev01_unexpected_business_result');
 const invalidResponse = new Counter('ev01_invalid_response');
 
 export const options = {
+  summaryTrendStats: ['avg', 'min', 'med', 'p(95)', 'p(99)', 'max'],
   scenarios: {
     same_key_contention: {
       executor: 'per-vu-iterations',
@@ -32,6 +33,9 @@ export const options = {
   },
   thresholds: {
     http_req_failed: ['rate==0'],
+    checks: ['rate==1'],
+    ev01_unexpected_business_result: ['count==0'],
+    ev01_invalid_response: ['count==0'],
   },
 };
 
