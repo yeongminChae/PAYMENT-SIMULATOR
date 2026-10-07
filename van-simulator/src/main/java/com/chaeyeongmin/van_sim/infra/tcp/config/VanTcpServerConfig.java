@@ -16,7 +16,7 @@ import org.springframework.integration.ip.tcp.serializer.ByteArrayLengthHeaderSe
  * 이 설정은 TCP 연결 계층만 담당하고, 전문 해석과 업무 처리는
  * {@link VanTcpMessageDispatcher} 이후의 업무별 핸들러에 위임한다.
  * <p>
- * Release 4부터는 같은 TCP port에서 APPROVAL과 INQUIRY를 함께 처리한다.
+ * 현재는 같은 TCP port에서 APPROVAL, INQUIRY, CANCEL, REVERSAL을 함께 처리한다.
  * 실제 업무 구분은 inbound gateway가 아니라 {@link VanTcpMessageDispatcher}가 messageType으로 수행한다.
  */
 @Configuration

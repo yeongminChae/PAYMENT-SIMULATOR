@@ -19,6 +19,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 
+/**
+ * Approval UNKNOWN_TIMEOUT에 대한 VAN Inquiry 확정 결과를 DB에 반영하는 TX 경계다.
+ *
+ * <p>
+ * UNKNOWN_TIMEOUT row만 조건부로 최종 상태로 전이하고, update miss 시 DB를 재조회해
+ * 실제 저장 상태를 source of truth로 응답한다. 외부 VAN I/O는 이 클래스에서 수행하지 않는다.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor

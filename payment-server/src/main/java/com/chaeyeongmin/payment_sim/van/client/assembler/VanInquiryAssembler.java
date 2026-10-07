@@ -39,7 +39,7 @@ public class VanInquiryAssembler {
     }
 
     /**
-     * VAN Inquiry(CANCEL) 요청을 R5 공용 Inquiry 계약으로 구성한다.
+     * VAN Inquiry(CANCEL) 요청을 공용 Inquiry 계약으로 구성한다.
      *
      * <p>
      * CANCEL 조회의 targetTrxNo는 cancelPosTrx이고 targetAttemptSeq는 null이어야 한다.

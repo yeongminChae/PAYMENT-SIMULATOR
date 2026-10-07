@@ -14,12 +14,21 @@ import com.chaeyeongmin.payment_sim.van.client.dto.VanApproveResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+/**
+ * 승인 유스케이스에서 발생하는 주요 업무 이벤트를 PAYMENT_EVENT_LOG에 기록한다.
+ *
+ * <p>
+ * 승인 attempt 생성/재사용/충돌, VAN 요청·응답, 최종 확정과 timeout/update-miss 상태를
+ * 구조화 이벤트로 남긴다. PAN/CVC/raw payload는 다루지 않으며,
+ * 실제 저장 방식은 {@link PaymentEventLogRecorder}에 위임한다.
+ */
 @Component
 @RequiredArgsConstructor
 public class ApprovalEventRecorder {
 
     private final PaymentEventLogRecorder paymentEventLogRecorder;
 
+    /** TX1 준비가 끝난 승인 건이 VAN 호출 단계로 넘어갔음을 기록한다. */
     public void recordVanApproveRequested(ApprovalPrepareResult prepared) {
         insertApproveEvent(
                 PaymentEventType.APPROVE_VAN_REQUESTED,
@@ -34,6 +43,7 @@ public class ApprovalEventRecorder {
         );
     }
 
+    /** VAN 승인 응답을 정상 수신했음을 응답 상태와 외부 식별자 기준으로 기록한다. */
     public void recordVanApproveResultReceived(
             ApprovalPrepareResult prepared,
             VanApproveResponse vanResponse
@@ -51,6 +61,7 @@ public class ApprovalEventRecorder {
         );
     }
 
+    /** 같은 posTrx·payload 재요청에 대해 기존 DB 승인 결과를 재사용했음을 기록한다. */
     public void recordApprovalReused(
             String trx,
             PaymentAttempt latest,
@@ -69,6 +80,7 @@ public class ApprovalEventRecorder {
         );
     }
 
+    /** 같은 posTrx가 다른 payload로 재사용되어 승인 요청을 차단했음을 기록한다. */
     public void recordApprovalConflict(
             String trx,
             PaymentAttempt latest,
@@ -87,6 +99,7 @@ public class ApprovalEventRecorder {
         );
     }
 
+    /** 신규 PROCESSING approval attempt가 생성됐음을 기록한다. */
     public void recordApprovalAttemptCreated(String trx, int attemptSeq) {
         insertApproveEvent(
                 PaymentEventType.APPROVE_ATTEMPT_CREATED,
@@ -101,6 +114,7 @@ public class ApprovalEventRecorder {
         );
     }
 
+    /** VAN 결과가 Payment DB의 최종 승인 상태로 확정됐음을 기록한다. */
     public void recordApprovalFinalized(
             String trx,
             int attemptSeq,
@@ -119,6 +133,7 @@ public class ApprovalEventRecorder {
         );
     }
 
+    /** VAN 응답 수신 후 finalize update miss에서 확정 상태를 확인하지 못했음을 기록한다. */
     public void recordApprovalUnknownAfterFinalizeUpdateMiss(
             String trx,
             int attemptSeq,
@@ -137,6 +152,7 @@ public class ApprovalEventRecorder {
         );
     }
 
+    /** VAN read timeout을 UNKNOWN_TIMEOUT으로 DB에 확정했음을 기록한다. */
     public void recordApprovalTimeoutFinalized(
             String trx,
             int attemptSeq,
@@ -155,6 +171,7 @@ public class ApprovalEventRecorder {
         );
     }
 
+    /** timeout 확정 update miss 후에도 저장 상태를 확정하지 못했음을 기록한다. */
     public void recordApprovalUnknownAfterTimeoutUpdateMiss(String trx, int attemptSeq) {
         insertApproveEvent(
                 PaymentEventType.APPROVE_UNKNOWN_TIMEOUT,

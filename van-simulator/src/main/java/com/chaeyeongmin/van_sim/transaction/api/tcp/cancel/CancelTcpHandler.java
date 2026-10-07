@@ -17,6 +17,13 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 
+/**
+ * 취소 TCP 요청 전문을 CancelService에 연결하는 진입 핸들러다.
+ *
+ * <p>
+ * JSON payload 역직렬화, 프로토콜 검증, 서비스 호출, 응답 전문 직렬화를 담당한다.
+ * DROP_RESPONSE 시나리오는 원장 처리가 commit된 뒤 TCP 응답만 유실시키도록 적용한다.
+ */
 @Component
 @Profile("postgres")
 @RequiredArgsConstructor
@@ -32,13 +39,14 @@ public class CancelTcpHandler {
     private final CancelScenarioRegistry registry;
     private final PosTrxProtocolValidator posTrxProtocolValidator;
 
+    /** 취소 TCP 요청 payload를 처리하고 응답 payload를 반환한다. */
     public byte[] handle(byte[] payload) {
         // TCP 서버가 수신한 원본 JSON 바이트 payload를 취소 요청 전문 객체로 역직렬화한다.
         CancelRequestMessage cancelRequest = readCancelRequest(payload);
         log.info("[van-tcp][cancel][received] requestId={}, cancelPosTrx={}, originalPosTrx={}, originalAttemptSeq={}",
                 cancelRequest.requestId(), cancelRequest.cancelPosTrx(), cancelRequest.originalPosTrx(), cancelRequest.originalAttemptSeq());
 
-        // 취소 요청 전문 객체 값 체크
+        // 취소 요청 전문의 최소 프로토콜 계약을 검증한다.
         validate(cancelRequest);
 
         // 취소 요청 전문에 담긴 거래 정보를 서비스 계층이 처리할 수 있는 커맨드 모델로 변환한다.

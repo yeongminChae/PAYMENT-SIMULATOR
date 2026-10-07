@@ -15,6 +15,13 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 
+/**
+ * 망취소 TCP 요청 전문을 ReversalService에 연결하는 진입 핸들러다.
+ *
+ * <p>
+ * JSON payload 역직렬화, 프로토콜 검증, 서비스 호출, 응답 전문 직렬화를 담당한다.
+ * 원장 처리 transaction이 끝난 뒤 결과를 TCP 응답 전문으로 변환한다.
+ */
 @Component
 @Profile("postgres")
 @RequiredArgsConstructor
@@ -29,13 +36,14 @@ public class ReversalTcpHandler {
     private final ReversalService service;
     private final PosTrxProtocolValidator posTrxProtocolValidator;
 
+    /** 망취소 TCP 요청 payload를 처리하고 응답 payload를 반환한다. */
     public byte[] handle(byte[] payload) {
         // TCP 서버가 수신한 원본 JSON 바이트 payload를 reversal 요청 전문 객체로 역직렬화한다.
         ReversalRequestMessage reversalRequest = readReversalRequest(payload);
         log.info("[van-tcp][reversal][received] requestId={}, reversalPosTrx={}, originalPosTrx={}, originalAttemptSeq={}",
                 reversalRequest.requestId(), reversalRequest.reversalPosTrx(), reversalRequest.originalPosTrx(), reversalRequest.originalAttemptSeq());
 
-        // reversal 요청 전문 객체 값 체크
+        // 망취소 요청 전문의 최소 프로토콜 계약을 검증한다.
         validate(reversalRequest);
 
         // reversal 요청 전문에 담긴 거래 정보를 서비스 계층이 처리할 수 있는 커맨드 모델로 변환한다.

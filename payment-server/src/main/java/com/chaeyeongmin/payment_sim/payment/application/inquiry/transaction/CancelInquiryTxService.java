@@ -18,6 +18,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 
+/**
+ * Cancel UNKNOWN_TIMEOUT에 대한 VAN Inquiry 확정 결과를 DB에 반영하는 TX 경계다.
+ *
+ * <p>
+ * 일반 cancel finalize의 PENDING 전이와 분리해 UNKNOWN_TIMEOUT row만 조건부로 갱신한다.
+ * update miss가 발생하면 cancel row를 다시 읽고 실제 DB 상태를 기준으로 응답한다.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -25,6 +32,12 @@ public class CancelInquiryTxService {
 
     private final PaymentCancelRepository cancelRepository;
 
+    /**
+     * VAN Inquiry(CANCEL)가 확정 결과를 반환한 경우 UNKNOWN_TIMEOUT cancel row를 최종 상태로 전이한다.
+     *
+     * <p>
+     * 조건부 update가 실패하면 동시 Inquiry가 먼저 확정했을 수 있으므로 DB를 재조회한다.
+     */
     @Transactional
     public CancelResponse applyResolvedResult(
             PaymentCancel cancel,
