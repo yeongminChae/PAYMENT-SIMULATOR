@@ -119,7 +119,7 @@ for ((trial=1; trial<=repeat; trial++)); do
     echo "started_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   } > "$result_dir/environment.txt"
 
-  "$ev_dir/scripts/sample-payment-db-waits.sh" "$payment_db_url" "$result_dir/db-waits.csv" "$sample_interval" 2>"$result_dir/db-waits.stderr" &
+  bash "$ev_dir/scripts/sample-payment-db-waits.sh" "$payment_db_url" "$result_dir/db-waits.csv" "$sample_interval" 2>"$result_dir/db-waits.stderr" &
   sampler_pid=$!
   sleep 0.1
   kill -0 "$sampler_pid" || { cat "$result_dir/db-waits.stderr" >&2; exit 1; }
