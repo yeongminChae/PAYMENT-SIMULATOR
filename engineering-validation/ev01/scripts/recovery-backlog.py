@@ -42,7 +42,7 @@ def query(kind, sql):
     # 같은 접속 세션에서 서버가 보고한 실제 DB를 검사한 뒤에만 SQL을 실행한다.
     guard="DO $$ BEGIN IF current_database() <> '%s' OR inet_server_port() <> 5432 THEN RAISE EXCEPTION 'C DB identity mismatch'; END IF; END $$;\n" % expected
     result = subprocess.run(
-        ['psql',value,'-X','-q','-v','ON_ERROR_STOP=1'],input=guard+sql,text=True,capture_output=True,env=env,timeout=60)
+        ['psql',value,'-X','-q','-A','-t','-v','ON_ERROR_STOP=1'],input=guard+sql,text=True,capture_output=True,env=env,timeout=60)
     if result.returncode: raise RuntimeError(kind+' SQL failed; credentials/stderr omitted')
     return result.stdout
 
@@ -52,7 +52,9 @@ def rows(kind, select):
 
 
 def verify_van_database():
-    # macOS lsof의 실제 VAN PID 소켓을 PostgreSQL backend client_port와 대조한다.
+    # macOS PID socket과 DB backend를 직접 대조한다. NAT/SSH forwarding이
+    # source port를 바꾼 경우에는 C VAN 프로세스 전용 ApplicationName과
+    # socket/backend 개수, 전 backend의 실제 DB를 함께 대조한다.
     pid=os.environ['VAN_JAVA_PID']
     sockets=subprocess.check_output(['lsof','-nP','-a','-p',pid,'-iTCP','-sTCP:ESTABLISHED','-Fn'],text=True)
     ports=set()
@@ -60,11 +62,27 @@ def verify_van_database():
         match=re.search(r':(\d+)->(?:127\.0\.0\.1|\[::1\]):5433$',line)
         if match: ports.add(int(match[1]))
     if not ports: raise ValueError('Cannot prove VAN PID connection to localhost:5433; refuse C writes/job')
-    backends=rows('van',"SELECT datname,client_port FROM pg_stat_activity WHERE backend_type='client backend'")
+    backends=rows('van',"SELECT datname,client_port,application_name,state FROM pg_stat_activity WHERE backend_type='client backend'")
     matched=[r for r in backends if r['client_port'] in ports]
-    if {r['client_port'] for r in matched}!=ports or any(r['datname']!='van_sim_ev01_c' for r in matched):
-        raise ValueError('VAN PID is not exclusively connected to dedicated C VAN DB')
-    return matched
+    if {r['client_port'] for r in matched}==ports and all(r['datname']=='van_sim_ev01_c' for r in matched):
+        return dict(method='lsof-client-port',van_pid=int(pid),local_ports=sorted(ports),backends=matched)
+
+    # A local SSH/Colima forwarding hop creates new TCP source ports, so direct
+    # port equality is not available. Require an explicit per-process marker in
+    # the VAN JDBC URL and exact socket/backend cardinality; never accept a DB
+    # name or a marker alone.
+    application_name=os.environ.get('EV01_C_VAN_APPLICATION_NAME','')
+    if not re.fullmatch(r'EV01C-[A-Za-z0-9-]{8,64}',application_name):
+        raise ValueError('VAN PID/backend ports do not match and no valid per-process ApplicationName proof was supplied')
+    process=subprocess.run(['ps','eww','-p',pid,'-o','command='],text=True,capture_output=True)
+    if process.returncode or application_name not in process.stdout:
+        raise ValueError('VAN PID does not carry the expected ApplicationName configuration')
+    tagged=[r for r in backends if r['application_name']==application_name]
+    if (len(tagged)!=len(ports) or not tagged or
+            any(r['datname']!='van_sim_ev01_c' for r in tagged)):
+        raise ValueError('VAN ApplicationName backend count/DB does not match VAN PID sockets')
+    return dict(method='application-name+socket-count',van_pid=int(pid),application_name=application_name,
+                host_local_ports=sorted(ports),backend_ports=sorted(r['client_port'] for r in tagged),backends=tagged)
 
 
 def manifest(date, base, count, mixed):
@@ -165,6 +183,20 @@ def snapshot(out,label,items):
     return data
 
 
+def parse_db_timestamp(value):
+    """Normalize PostgreSQL JSON timestamps for the bundled Python 3.10 runtime."""
+    match=re.fullmatch(
+        r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|[+-]\d{2}(?::?\d{2})?)?',
+        value)
+    if not match: raise ValueError('invalid database timestamp')
+    base,fraction,zone=match.groups()
+    if fraction: base+='.'+fraction[:6].ljust(6,'0')
+    if zone=='Z': zone='+00:00'
+    elif zone and len(zone)==3: zone+=':00'
+    elif zone and len(zone)==5 and ':' not in zone: zone=zone[:3]+':'+zone[3:]
+    return dt.datetime.fromisoformat(base+(zone or ''))
+
+
 def validate(items, data, before=False):
     issues=[]
     if not before and any(row.get('assertion_ok')!='t' for row in data.get('sql_assertions',[])):
@@ -205,7 +237,8 @@ def validate(items, data, before=False):
             if not histories or [r['try_no'] for r in sorted(histories,key=lambda h:h['try_no'])]!=list(range(1,len(histories)+1)):
                 issues.append(f['target']+': history missing/nonsequential')
             for h in histories:
-                if h['result']!=f['expected_task'] or not h['finished_at'] or h['finished_at']<h['started_at']:
+                if (h['result']!=f['expected_task'] or not h['finished_at'] or
+                        parse_db_timestamp(h['finished_at'])<parse_db_timestamp(h['started_at'])):
                     issues.append(f['target']+': history result/time mismatch')
             if f['expected_task']=='RESOLVED':
                 for name,expected in [('approval_no' if f['type']=='APPROVAL' else f['type'].lower()+'_approval_no',f['approval_no']),
@@ -308,14 +341,14 @@ def summarize(out,items,errors,first=None,second=None):
     if first:
         result['task_statuses']=dict(collections.Counter(t['recovery_status'] for t in first['tasks']))
         result['remaining_backlog']=first['global_backlog']
-        durations=[(dt.datetime.fromisoformat(h['finished_at'])-dt.datetime.fromisoformat(h['started_at'])).total_seconds()
+        durations=[(parse_db_timestamp(h['finished_at'])-parse_db_timestamp(h['started_at'])).total_seconds()
                    for h in first['history'] if h['finished_at']]
         result['history_duration_count']=len(durations)
         with (out/'task-durations.csv').open('w') as stream:
             writer=csv.writer(stream); writer.writerow(['task_id','try_no','started_at','finished_at','result','duration_seconds'])
             for h in first['history']:
                 writer.writerow([h['recovery_task_id'],h['try_no'],h['started_at'],h['finished_at'],h['result'],
-                    (dt.datetime.fromisoformat(h['finished_at'])-dt.datetime.fromisoformat(h['started_at'])).total_seconds() if h['finished_at'] else ''])
+                    (parse_db_timestamp(h['finished_at'])-parse_db_timestamp(h['started_at'])).total_seconds() if h['finished_at'] else ''])
     try:
         execution=json.loads((out/'job-1.json').read_text()); result['job']=execution
         result['discovered_candidates']=sum(len(execution.get(k,[])) for k in ('approvalCandidates','cancelCandidates','reversalCandidates'))

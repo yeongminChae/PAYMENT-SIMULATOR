@@ -54,7 +54,7 @@ def delta(path, baseline, output):
 
 
 def query(db, sql):
-    result = subprocess.run(['psql', db, '-X', '-q', '-v', 'ON_ERROR_STOP=1'],
+    result = subprocess.run(['psql', db, '-X', '-q', '-A', '-t', '-v', 'ON_ERROR_STOP=1'],
                             input=sql, text=True, capture_output=True)
     if result.returncode:
         raise RuntimeError('psql failed (exit %s); credentials omitted' % result.returncode)

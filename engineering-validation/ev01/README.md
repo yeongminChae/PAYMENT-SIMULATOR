@@ -267,7 +267,9 @@ docker exec payment-postgres psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
 docker exec van-postgres psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
   -c 'CREATE DATABASE van_sim_ev01_c'
 # 별도 터미널 — C 전용 VAN DB로 다시 기동
-VAN_DB_URL='jdbc:postgresql://localhost:5433/van_sim_ev01_c' \
+export EV01_C_VAN_APPLICATION_NAME="EV01C-$(date -u +%Y%m%dT%H%M%S)-$$"
+printf '%s\n' "$EV01_C_VAN_APPLICATION_NAME"   # copy this exact value to the test terminal
+VAN_DB_URL="jdbc:postgresql://localhost:5433/van_sim_ev01_c?ApplicationName=${EV01_C_VAN_APPLICATION_NAME}" \
   LOG_DIR="$PWD/logs/ev01-c" ./gradlew :van-simulator:bootRun --args='--spring.profiles.active=postgres'
 ```
 
@@ -279,6 +281,7 @@ schema가 부분 생성된 경우 자동 수선하지 않고 실패한다. VAN s
 export EV01_C_ALLOW_WRITE=YES
 export C_PAYMENT_DB_URL='postgresql://postgres:postgres@localhost:5432/payment_sim_ev01_c'
 export C_VAN_DB_URL='postgresql://postgres:postgres@localhost:5433/van_sim_ev01_c'
+export EV01_C_VAN_APPLICATION_NAME='<copy the exact EV01C-... value printed/exported in the VAN terminal>'
 export VAN_JAVA_PID=23456   # C 전용 VAN의 실제 Java PID로 치환
 # 실행 전 확인 (JDK에는 javac가 있어야 함)
 java -version
@@ -359,6 +362,8 @@ raw results/B/C는 Git에서 제외한다. Job 로그와 fixture SQL은 공개 �
 5. 동일 C VAN에서 C2 `--mixed --smoke`. 이후 RETRY_WAIT 원본은 그대로 보존한다.
 
 C 환경에는 `EV01_C_ALLOW_WRITE`, `C_PAYMENT_DB_URL`, `C_VAN_DB_URL`, `VAN_JAVA_PID`가 필수다.
+NAT/SSH forwarding으로 VAN source port가 바뀌는 환경에서는 VAN 기동 때 만든 동일한
+`EV01_C_VAN_APPLICATION_NAME`도 실행 터미널에 전달한다.
 JDK 21을 선택하려면 macOS에서 `export JAVA_HOME=$(/usr/libexec/java_home -v 21)` 후
 `export PATH="$JAVA_HOME/bin:$PATH"`를 실행한다. 임의 `JAVA_TOOL_OPTIONS`, `JDK_JAVA_OPTIONS`,
 `SPRING_APPLICATION_JSON`, Gradle JVM override가 남아 있지 않은지 확인한다. pool/lease/timeout 성능 튜닝은 하지 않는다.
@@ -367,10 +372,14 @@ B에는 앞서 명시한 CARD_SECRET_KEY/POSTGRES_PASSWORD와 실제 Java PID �
 C Python은 같은 psql 세션의 `current_database()`/실제 server port 확인 뒤에만 SQL을 실행한다.
 Java는 Boot 초기화 전에 실제 JDBC DB를 확인하고, command-line datasource URL과 Hikari connection-init-sql로
 DB 이름을 강제 검사한 뒤 Job 직전 Spring JdbcTemplate 접속도 재확인한다. 환경변수만으로 전환을 가정하지 않는다.
-VAN은 `lsof`(macOS 기본 제공)의 실제 PID 연결 포트를 `pg_stat_activity.client_port/datname`과 대조한다.
-확인 결과는 `van-db-identity.json`에 저장한다. Colima/Docker NAT가 source port를 변환해 매핑을 입증할 수
-없거나 PostgreSQL 통계 조회 권한이 부족하면 **실행을 거부**한다. 이 경우 guard를 해제하지 말고 연결
-관찰 방법을 보완한 뒤 진행해야 한다. 현재 이 NAT 경로는 실제 macOS에서 미검증이다.
+VAN은 `lsof`(macOS 기본 제공)의 실제 PID 연결 포트와 `pg_stat_activity.client_port/datname`을 직접
+대조한다. NAT/SSH forwarding이 source port를 변환하면 VAN JDBC URL에 per-process
+`ApplicationName=EV01C-...`를 지정하고 같은 값을 `EV01_C_VAN_APPLICATION_NAME`으로 전달한다.
+guard는 VAN PID의 localhost:5433 socket 개수와 고유 ApplicationName backend 개수를 비교하고, 그 표식의
+실제 PID 환경 포함 여부 및 모든 backend가 `van_sim_ev01_c`에 연결됐는지 확인한다. 표식 누락/불일치/
+중복/개수 불일치/다른 DB가 있으면 fixture/job을 거부한다. 프로세스 환경 원문은 출력하거나 저장하지
+않는다. 결과는 검증 방식과 socket/backend 식별자를 `van-db-identity.json`에 기록한다.
+직접 port 매핑과 이 보강 검증 모두 증명되지 않으면 guard를 우회하지 말고 실행을 중단한다.
 
 ### 맥북으로 미커밋 변경 전달
 

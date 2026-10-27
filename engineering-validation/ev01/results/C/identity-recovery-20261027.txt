@@ -1,0 +1,20 @@
+EV-01 DB identity diagnosis and recovery
+Date: 2026-10-27
+
+Cause:
+- Both Colima and Docker Desktop had a running Compose project named payment-sim with containers named payment-postgres and van-postgres, but separate Docker daemons and separate volumes.
+- The active macOS listeners on ports 5432/5433 belonged to Docker Desktop com.docker.backend (PID 41951). The EV-01 scripts selected the Colima Docker context, while Java/psql localhost connections reached Docker Desktop.
+- The prior INVALID B cohort remains in the Docker Desktop volumes: 1203 payment_attempt rows and 1203 van_approval rows. Those volumes and rows were preserved.
+- Colima config had network.address=false; its VM published ports were not exposed on macOS localhost after the Docker Desktop containers stopped.
+
+Recovery:
+- Stopped only Docker Desktop's duplicate payment-postgres and van-postgres containers. They remain stopped; no volume/container/database was deleted.
+- Kept Colima Compose containers running and established SSH local forwards through the existing Colima SSH control connection: localhost:5432 -> Colima guest 127.0.0.1:5432; localhost:5433 -> Colima guest 127.0.0.1:5433.
+- Verified host endpoints return payment_sim/van_sim and both C databases, system_identifier 7700965760585932837, with server addresses matching Colima container IPs. Application JDBC sessions and psql assertions then reached the same Colima databases.
+- C VAN PID identity is verified by localhost:5433 sockets, a unique ApplicationName present in that Java PID's environment, exact socket/backend connection count, and all tagged backend rows in van_sim_ev01_c. Environment text itself is not recorded.
+
+Operational state:
+- Docker Desktop duplicate containers remain stopped with their volumes/data intact.
+- Colima PostgreSQL containers remain up.
+- The local SSH forwarding connection is active for localhost DB access.
+- C2 leaves six RETRY_WAIT tasks in the dedicated C DB by design. No subsequent C run may proceed against that DB without a fresh supported clean C DB.
