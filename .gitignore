@@ -18,6 +18,11 @@ data/
 logs/
 engineering-validation/ev01/results/A/*/
 !engineering-validation/ev01/results/A/.gitkeep
+engineering-validation/ev01/results/B/*/
+!engineering-validation/ev01/results/B/.gitkeep
+engineering-validation/ev01/results/C/*/
+!engineering-validation/ev01/results/C/.gitkeep
+engineering-validation/ev01/scripts/__pycache__/
 # Log file
 *.log
 
