@@ -1,0 +1,10 @@
+// Production build 파일은 바꾸지 않고 test runtime classpath로 명시적 1회 launcher를 실행한다.
+gradle.projectsEvaluated {
+    def payment = gradle.rootProject.project(':payment-server')
+    payment.tasks.register('ev01RecoveryLaunch', JavaExec) {
+        dependsOn payment.tasks.named('testClasses')
+        classpath = payment.sourceSets.test.runtimeClasspath
+        mainClass = 'com.chaeyeongmin.payment_sim.recovery.ev01.Ev01RecoveryLauncher'
+        javaLauncher = payment.javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    }
+}
