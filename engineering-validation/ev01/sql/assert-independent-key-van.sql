@@ -1,5 +1,9 @@
 \set ON_ERROR_STOP on
 -- ev01_requests는 요청 직전 intent 목록을 담은 세션 temp table이다.
+-- 요청별 LEFT JOIN으로 원장 누락도 보존한다. 같은 posTrx의 다른 attemptSeq가 있어도 van_count로 탐지한다.
+-- APPROVED/attemptSeq=1/승인번호/VAN 거래번호가 모두 맞아야 assertion_ok=true다.
+-- 원장 row 1개는 TCP 호출 1회를 증명하지 않는다. Python의 checkpoint delta 로그 검증을 함께 사용한다.
+-- false row도 CSV로 반환하고 최종 non-zero 판정은 evidence collector가 수행한다.
 COPY (
  WITH requested AS (
    SELECT pos_trx, attempt_seq, count(*) AS request_count FROM ev01_requests GROUP BY pos_trx, attempt_seq

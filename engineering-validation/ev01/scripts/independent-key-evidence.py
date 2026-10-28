@@ -1,4 +1,6 @@
 """B 전용 표준 라이브러리 도구. production schema 변경 없이 영구 예약과 증거 수집."""
+# wrapper가 reserve/fresh/checkpoint/collect를 호출한다. DB URL은 환경변수로 읽고 결과에 복사하지 않는다.
+# CLI 인자/서버 준비는 README, 거래별 판정 조건은 각 함수와 SQL에 설명한다.
 import collections
 import csv
 import datetime
@@ -12,6 +14,8 @@ import subprocess
 import sys
 
 
+# root/date 아래 영구 슬롯을 만들고 시작 posNo를 반환한다.
+# 같은 로컬 ledger를 공유하는 프로세스끼리만 보호하며 실패한 예약도 반환하지 않는다.
 def reserve(root, date, vus):
     datetime.datetime.strptime(date, '%Y%m%d')
     if vus not in (10, 25, 50, 100, 200):
@@ -28,6 +32,7 @@ def reserve(root, date, vus):
     raise ValueError('daily posNo range exhausted; retain reservation records')
 
 
+# 로그 식별자·길이·prefix hash를 반환한다. 부분 line에서는 기준점을 확정하지 않는다.
 def checkpoint(path):
     with open(path, 'rb') as stream:
         stat = os.fstat(stream.fileno())
@@ -38,6 +43,8 @@ def checkpoint(path):
                     sha256=hashlib.sha256(prefix).hexdigest())
 
 
+# 기준점 뒤 byte만 output에 저장한다. 파일 교체·축소·prefix 변경은 예외다.
+# 시작/끝 상태의 일관성 검사이며 중간의 모든 파일 시스템 이벤트를 감시하지는 않는다.
 def delta(path, baseline, output):
     with open(path, 'rb') as stream:
         stat = os.fstat(stream.fileno())
@@ -53,6 +60,7 @@ def delta(path, baseline, output):
         Path(output).write_bytes(appended)
 
 
+# SQL stdout을 반환하고 실패는 예외로 전달한다. credential이 섞일 수 있는 stderr는 보관하지 않는다.
 def query(db, sql):
     result = subprocess.run(['psql', db, '-X', '-q', '-v', 'ON_ERROR_STOP=1'],
                             input=sql, text=True, capture_output=True)
@@ -61,6 +69,8 @@ def query(db, sql):
     return result.stdout
 
 
+# 예약 슬롯 전체를 양쪽 DB에서 확인한다. 사용 VU 밖의 과거 자료도 충돌로 간주한다.
+# 조회 이후 외부 writer의 쓰기를 잠그는 기능은 아니다.
 def check_fresh(date, base):
     datetime.datetime.strptime(date, '%Y%m%d')
     if base not in range(0, 10000, 200): raise ValueError('invalid reservation')
@@ -72,6 +82,8 @@ def check_fresh(date, base):
                 raise ValueError('reserved range collides with existing %s; no load sent' % table)
 
 
+# 요청 목록을 세션 temp table에 넣고 DB별 CSV와 오류 목록을 반환한다.
+# 한쪽 DB 수집 실패 후에도 다른 DB를 시도한다. config가 있으면 미요청 식별자도 찾는다.
 def sql_evidence(out, ev_dir, keys, config=None):
     datasets, errors = {}, []
     for kind, env in [('payment', 'PAYMENT_DB_URL'), ('van', 'VAN_DB_URL')]:
@@ -101,6 +113,8 @@ def sql_evidence(out, ev_dir, keys, config=None):
     return datasets, errors
 
 
+# SQL row·HTTP 결과·TCP 수신 수를 대조해 문제 목록을 반환한다. I/O는 없다.
+# HTTP 실패만으로 VAN 승인 미발생을 추정하지 않는다.
 def transaction_issues(p, v, response, tcp_count):
     issues = []
     if p.get('assertion_ok') != 't': issues.append('payment missing/duplicate/non-approved/mismatch')
@@ -113,6 +127,8 @@ def transaction_issues(p, v, response, tcp_count):
     return issues
 
 
+# run 원본을 읽어 요청 목록·거래별 대조·요약을 저장하고 PASS=0/FAIL=1을 반환한다.
+# intent는 전송 직전 기록이므로 응답 부재 시 실제 전송 여부가 미확정이다.
 def collect(directory, ev_dir):
     out = Path(directory)
     config = json.loads((out / 'environment.json').read_text())

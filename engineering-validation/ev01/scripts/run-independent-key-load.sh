@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# B 실행 순서: 사전 점검 → 영구 예약/충돌 검사 → sampler+k6 → settle → 거래별 evidence 대조.
+# PAYMENT_JAVA_PID/VAN_JAVA_PID는 실제 application JVM을 지정한다. 상세 기동 명령은 README에 둔다.
+# 준비 실패는 즉시 종료하지만 k6 실패 이후에는 가능한 증거를 모은 뒤 non-zero로 종료한다.
+
 usage() { cat <<'EOF'
 Usage: run-independent-key-load.sh --vus 10|25|50|100|200 [options]
   --repeat N              60-second trials per VU level (default: 3)
@@ -42,6 +46,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$smoke" == true ]]; then vus=10; repeat=1; duration=5s; fi
+# Smoke는 옵션 일부만 바꾸는 별도 측정 조건이다. 결과를 60초 본 측정과 합치지 않는다.
 case "$vus" in 10|25|50|100|200) ;; *) echo '--vus must be 10, 25, 50, 100, or 200' >&2; exit 64;; esac
 case "$repeat" in ''|*[!0-9]*|0) echo '--repeat must be positive' >&2; exit 64;; esac
 [[ "$amount" =~ ^[1-9][0-9]*$ ]] || { echo 'amount must be positive integer' >&2; exit 64; }
@@ -72,6 +77,7 @@ for ((trial=1; trial<=repeat; trial++)); do
   mkdir -p "$ev_dir/results/B"
   result_dir="$ev_dir/results/B/$run_id"
   mkdir "$result_dir"
+  # -p 없이 생성해 기존 run 원본을 조용히 덮어쓰지 않는다.
   seconds=60; [[ "$smoke" == true ]] && seconds=5
   python3 "$evidence" checkpoint "$van_log_file" "$result_dir/environment.json" "$biz_date" "$pos_no_base" "$vus" "$seconds" "$settle_seconds"
   {
@@ -84,6 +90,7 @@ for ((trial=1; trial<=repeat; trial++)); do
   : > "$result_dir/stage-status.txt"
   db_pid=''; system_pid=''
   cleanup() {
+    # 종료 대상은 이 run에서 생성한 sampler PID뿐이다. Java 서버·DB·영구 예약은 정리하지 않는다.
     for pid in "$db_pid" "$system_pid"; do
       [[ -z "$pid" ]] || { kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; }
     done
@@ -107,6 +114,7 @@ for ((trial=1; trial<=repeat; trial++)); do
       echo "$name=FAIL" >> "$result_dir/stage-status.txt"
   done
   sleep "$settle_seconds"
+  # sampler 종료 뒤 settle 동안의 확정은 DB snapshot에 들어갈 수 있으므로 측정 구간 응답률과 구분한다.
   collect_code=0
   python3 "$evidence" collect "$result_dir" "$ev_dir" > "$result_dir/evidence-output.txt" 2>&1 || collect_code=$?
   if [[ "$collect_code" != 0 ]]; then

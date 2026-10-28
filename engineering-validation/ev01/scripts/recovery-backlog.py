@@ -1,4 +1,6 @@
 """C fixture/manifest/검증. SQL은 fixture 준비에만 쓰고 복구는 실제 recoveryJob에 위임한다."""
+# Bash wrapper가 CLI를 전달한다. C_PAYMENT_DB_URL/C_VAN_DB_URL/EV01_C_ALLOW_WRITE/VAN_JAVA_PID가
+# 실제 DB·실행 승인·VAN 관찰 대상을 결정한다. 상세 값과 기동 순서는 README를 따른다.
 import argparse
 import collections
 import csv
@@ -23,6 +25,8 @@ b = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(b)
 
 
+# C URL의 host/port/DB명/options를 검사해 파싱 결과를 반환한다.
+# 문자열 허용 검사이며 실제 서버 식별 검사는 query()와 Java launcher가 별도로 수행한다.
 def db_url(value, kind):
     parsed = urlsplit(value)
     name, port = ('payment_sim_ev01_c',5432) if kind=='payment' else ('van_sim_ev01_c',5433)
@@ -32,6 +36,8 @@ def db_url(value, kind):
     return parsed
 
 
+# 실제 DB guard와 SQL을 같은 psql 세션에서 실행해 stdout을 반환한다.
+# 서버 내부 port 5432와 호스트 VAN 연결 port 5433을 구분하며 fixture INSERT도 이 경로를 거친다.
 def query(kind, sql):
     value = os.environ['C_' + kind.upper() + '_DB_URL']
     db_url(value,kind)
@@ -47,10 +53,13 @@ def query(kind, sql):
     return result.stdout
 
 
+# 조회 결과를 JSON row 목록으로 반환한다. 빈 목록은 상위에서 manifest와 대조한다.
 def rows(kind, select):
     return json.loads(query(kind,"SELECT coalesce(json_agg(x),'[]'::json) FROM ("+select+") x;").strip())
 
 
+# 실제 VAN PID 소켓과 PostgreSQL backend를 대조해 연결 목록을 반환한다.
+# 환경변수 선언은 연결 증거가 아니다. NAT/권한 문제로 대조할 수 없어도 실행을 거부한다.
 def verify_van_database():
     # macOS lsof의 실제 VAN PID 소켓을 PostgreSQL backend client_port와 대조한다.
     pid=os.environ['VAN_JAVA_PID']
@@ -67,6 +76,8 @@ def verify_van_database():
     return matched
 
 
+# DB 접근 없이 fixture 식별자와 초기/기대 상태 목록을 만든다.
+# 승인은 target=original, 취소·망취소는 별도 원승인을 참조한다. mixed는 10건 Smoke만 허용한다.
 def manifest(date, base, count, mixed):
     dt.datetime.strptime(date,'%Y%m%d')
     if base not in range(0,10000,200) or count not in (10,100,500,1000): raise ValueError('fixture bounds')
@@ -87,12 +98,14 @@ def manifest(date, base, count, mixed):
     return result
 
 
+# 내부 fixture 값을 SQL literal로 변환한다. DB 실행이나 테이블/컬럼 식별자 검증은 하지 않는다.
 def literal(x):
     if x is None: return 'NULL'
     if isinstance(x,int): return str(x)
     return "'"+str(x).replace("'","''")+"'"
 
 
+# INSERT 문자열만 만든다. old=True는 Discovery 후보가 되도록 시각을 하루 전으로 둔다.
 def insert(table, values, old=False):
     columns=list(values); vals=[literal(values[c]) for c in columns]
     if old:
@@ -100,6 +113,8 @@ def insert(table, values, old=False):
     return 'INSERT INTO '+table+' ('+','.join(columns)+') VALUES ('+','.join(vals)+');\n'
 
 
+# Payment/VAN transaction SQL 두 개를 반환한다. 이 함수 자체는 DB를 변경하지 않는다.
+# 두 DB commit은 분산 transaction이 아니므로 실행 도중 부분 성공할 수 있다.
 def fixture_sql(items):
     payment='BEGIN;\n'; van='BEGIN;\n'
     for f in items:
@@ -136,6 +151,8 @@ def fixture_sql(items):
     return payment+'COMMIT;\n',van+'COMMIT;\n'
 
 
+# 대상과 원승인 증거를 label별 파일에 저장하고 dict로 반환한다.
+# Task/History는 fixture 범위, global backlog와 Batch는 격리된 C DB 전체를 관찰한다.
 def snapshot(out,label,items):
     keys={f['target'] for f in items}|{f['original'] for f in items}
     where=','.join(literal(k) for k in sorted(keys))
@@ -165,6 +182,8 @@ def snapshot(out,label,items):
     return data
 
 
+# manifest와 snapshot을 식별자별로 비교해 문제 목록을 반환한다. DB 갱신은 없다.
+# before=True는 초기 상태, 이후에는 최종 원장·Task 소유권 반납·History·원승인 참조를 검사한다.
 def validate(items, data, before=False):
     issues=[]
     if not before and any(row.get('assertion_ok')!='t' for row in data.get('sql_assertions',[])):
@@ -215,6 +234,8 @@ def validate(items, data, before=False):
     return issues
 
 
+# Job/두 Step의 종료·상태·시간을 검사해 문제 목록을 반환한다.
+# 첫 실행에서는 실제 후보와 Discovery 직후 PENDING Task를 manifest와 대조한다.
 def validate_job(evidence, items, first=True):
     issues=[]
     if evidence.get('status')!='COMPLETED' or not evidence.get('end'): issues.append('Job incomplete')
@@ -232,6 +253,8 @@ def validate_job(evidence, items, first=True):
     return issues
 
 
+# 새 process group의 명령 로그와 종료/timeout 정보를 남긴다.
+# 중단 시 group 종료를 시도하며 DB Job metadata를 완료로 조작하거나 자동 재실행하지 않는다.
 def run_command(command, env, output, timeout):
     # timeout 뒤에도 결과 수집을 계속한다. process group을 종료해 Gradle 자식 JVM도 남기지 않는다.
     with open(output,'w') as stream:
@@ -251,6 +274,8 @@ def run_command(command, env, output, timeout):
                     os.killpg(process.pid,signal.SIGKILL); process.wait()
 
 
+# 검사된 C 환경으로 Gradle test launcher를 실행하고 Job evidence를 반환한다.
+# prepare는 schema 준비 경로다. Job/Step 시간은 Gradle·JVM 기동 시간과 구분한다.
 def job(out, number, timeout, prepare=False):
     verify_van_database()
     url=db_url(os.environ['C_PAYMENT_DB_URL'],'payment')
@@ -265,6 +290,7 @@ def job(out, number, timeout, prepare=False):
     # 샘플러는 Gradle launcher가 기록한 실제 Payment Java PID를 사용한다.
     stop=__import__('threading').Event()
     def sample():
+        # 빠른 RUNNING 전이는 표본 사이에 끝날 수 있다. 표본 부재는 claim 미발생의 증거가 아니다.
         while not stop.wait(0.5):
             try:
                 pidfile=out/('job-%s.json.pid'%number)
@@ -291,8 +317,10 @@ def job(out, number, timeout, prepare=False):
     return evidence
 
 
+# 미확정 거래·비완료 Task·활성 Batch가 있으면 예외로 중단한다.
+# Job에 fixture 범위 필터가 없어 전역 스캔 전에 검사하며 외부 writer를 DB lock으로 막지는 않는다.
 def assert_isolated():
-    # recoveryJob는 global scan이므로 fixture 이외의 미확정 거래/활성 Task를 절대로 처리하지 않는다.
+    # recoveryJob가 global scan하므로, 실행 전에 기존 미확정 거래/활성 Task가 없는지 검사한다.
     checks=["SELECT pos_trx FROM payment_attempt WHERE final_status IS NULL OR final_status='UNKNOWN_TIMEOUT'",
         "SELECT current_trx_no FROM payment_cancel WHERE cancel_status IN ('PENDING','UNKNOWN_TIMEOUT')",
         "SELECT current_trx_no FROM payment_reversal WHERE reversal_status='PENDING'",
@@ -302,11 +330,14 @@ def assert_isolated():
         if rows('payment',select): raise ValueError('foreign/unresolved backlog or running batch job; use clean dedicated C DB')
 
 
+# 오류와 첫 Job/Step 증거로 요약·보고서·History duration CSV를 저장한다.
+# 없는 측정값은 추정하지 않는다. second 인자는 현재 함수에서 직접 집계하지 않는다.
 def summarize(out,items,errors,first=None,second=None):
     result=dict(status='FAIL' if errors else 'PASS',errors=errors,count=len(items),
                 synthetic_network_failure=True,workers=1,p95_p99='not computed without verified per-task duration cohort')
     if first:
         result['task_statuses']=dict(collections.Counter(t['recovery_status'] for t in first['tasks']))
+        # task별 History 원본은 남기지만 현재 p95/p99를 계산하거나 운영 TPS로 일반화하지 않는다.
         result['remaining_backlog']=first['global_backlog']
         durations=[(dt.datetime.fromisoformat(h['finished_at'])-dt.datetime.fromisoformat(h['started_at'])).total_seconds()
                    for h in first['history'] if h['finished_at']]
@@ -331,6 +362,8 @@ def summarize(out,items,errors,first=None,second=None):
     (out/'report.md').write_text('# EV-01 C '+out.name+'\n\nSynthetic UNKNOWN_TIMEOUT fixture; not a measured network outage. Single Worker.\n\n```json\n'+json.dumps(metrics,indent=2)+'\n```\n\nSee fixture-manifest.json, pre/post/replay.json, job-*.json, task-durations.csv and task-state-samples.jsonl. Wait states are samples, not cumulative lock wait duration.\n')
 
 
+# 예약→준비→Job→검증→조건부 재실행을 run 디렉터리에 기록하고 오류가 있으면 True를 반환한다.
+# fixture 쓰기 부작용이 있으며 실패 시에도 예약과 부분 원본을 보존한다.
 def trial(args):
     date=dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d')
     ledger=os.environ.get('EV01_C_RESERVATION_DIR',str(Path.home()/'.payment-simulator/ev01-c-reservations'))
@@ -341,6 +374,7 @@ def trial(args):
     (out/'fixture-manifest.json').write_text(json.dumps(items,indent=2))
     errors=[]; samplers=[]; first=None; second=None; prepared=False
     def attempt(label,action):
+        # 정상 측정을 계속하는 복구가 아니라, 한 수집 실패 때문에 나머지 원본까지 잃지 않기 위한 경계다.
         try: return action()
         except Exception as exc:
             errors.append(label+': '+str(exc)); return None
@@ -447,6 +481,8 @@ def trial(args):
     return bool(errors)
 
 
+# CLI/opt-in을 검사하고 로컬 marker와 포트를 확보한 뒤 bounded trial을 실행한다.
+# 첫 실패에서 다음 trial을 중단하고 marker를 보존한다. 원격 머신 실행까지 보호하지는 않는다.
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--count',type=int,choices=[10,100,500,1000],default=100)

@@ -1,3 +1,5 @@
+// B의 HTTP workload만 수행한다. 번호 예약·DB 대조·최종 PASS/FAIL 집계는 wrapper/Python이 담당한다.
+// wrapper가 BIZ_DATE/POS_NO_BASE/VUS/DURATION/SUMMARY_PATH를 전달한다. 실행 순서는 README를 참고한다.
 import http from 'k6/http';
 import { check } from 'k6';
 import { Counter } from 'k6/metrics';
@@ -24,6 +26,7 @@ if (!Number.isInteger(posNoBase) || posNoBase < 0 || posNoBase + vus - 1 > 9999)
 if (!Number.isInteger(amount) || amount < 1) throw new Error('AMOUNT must be a positive integer.');
 
 const approved = new Counter('ev01_approved');
+// 업무 상태 분포와 HTTP 실패는 별개다. 분류 가능한 미확정 응답도 baseline 합격을 의미하지 않는다.
 const declined = new Counter('ev01_declined');
 const unknownTimeout = new Counter('ev01_unknown_timeout');
 const processing = new Counter('ev01_processing');
@@ -38,9 +41,11 @@ export const options = {
       vus,
       duration,
       gracefulStop: '15s',
+      // duration 뒤에는 새 iteration을 시작하지 않고 이미 시작한 요청의 종료를 기다린다.
     },
   },
   thresholds: {
+    // check는 응답 형식/상태 조합을 검사한다. 아래 Counter threshold는 APPROVED 외 baseline 결과를 거부한다.
     http_req_failed: ['rate==0'],
     checks: ['rate==1'],
     ev01_invalid_response: ['count==0'],
@@ -62,6 +67,7 @@ export default function () {
   const startedMs = Date.now() - exec.scenario.startTime;
   console.log(JSON.stringify({ event: 'request', posTrx, attemptSeq: 1, startedMs }));
   const response = http.post(`${baseUrl}/api/v1/payments/approve`, JSON.stringify({
+    // PAN은 전송 payload에서만 사용한다. console evidence에는 식별자와 상태만 기록한다.
     posTrx,
     amount,
     card: { pan, expiryYyMm },
@@ -94,6 +100,7 @@ export default function () {
 }
 
 export function handleSummary(data) {
+  // JSON은 drain 응답까지 포함한 k6 원본이다. 측정 구간 내 처리량은 event 시각으로 별도 계산한다.
   return {
     stdout: textSummary(data),
     [summaryPath]: JSON.stringify({
@@ -110,6 +117,7 @@ export function handleSummary(data) {
 }
 
 function textSummary(data) {
+  // 터미널 확인용 출력이다. DB 최종 승인과 TCP 호출 단일성은 이 요약만으로 판정하지 않는다.
   const durationValues = data.metrics.http_req_duration?.values || {};
   return [
     '', 'EV-01 B / independent-key load', `vus=${vus}, duration=${duration}`,

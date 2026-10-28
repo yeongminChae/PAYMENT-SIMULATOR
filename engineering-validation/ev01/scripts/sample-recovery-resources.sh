@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+# C의 VAN 호스트 JVM과 PostgreSQL 컨테이너를 관찰한다. Payment는 Job별 PID로 Python에서 수집한다.
+# 입력 CSV를 초기화하므로 run마다 별도 파일이 필요하다. docker stats 소요시간 때문에 주기는 1초보다 길 수 있다.
 output=${1:?output CSV required}
 : "${VAN_JAVA_PID:?dedicated VAN Java PID required}"
 printf 'observed_at_utc,source,id,cpu_pct,rss_kb,memory_usage\n' > "$output"

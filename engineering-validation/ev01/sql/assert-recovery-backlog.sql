@@ -1,5 +1,10 @@
 \set ON_ERROR_STOP on
 -- manifest에서 만든 temp table을 기준으로 대상별 Task/History를 검증한다.
+-- 입력 ev01_c_expected는 target 종류·원승인·기대 Task 상태다. fixture가 없어지더라도 행을 출력한다.
+-- Task 수 1개뿐 아니라 원승인/attemptSeq 일치와 claimToken/lease 반납까지 확인한다.
+-- History는 아직 실행 전이거나 종료되지 않은 경우, 결과가 기대 상태와 다른 경우를 실패로 남긴다.
+-- 여기의 history_count>=1은 SQL 최소 조건이다. Python이 tryNo 연속성과 RESOLVED 재실행 중복을 추가 대조한다.
+-- SQL은 상태를 바꾸지 않으며 assertion_ok=false도 보존한다. 원장·VAN 응답·TCP 횟수 판정은 별도 Python 경로다.
 COPY (
   WITH evidence AS (
     SELECT f.*,

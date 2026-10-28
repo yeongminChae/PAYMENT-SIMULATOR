@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+# 입력: 출력 CSV와 interval, 두 호스트 Java PID. wrapper가 run 전용 파일 경로를 전달한다.
+# ps CPU/RSS와 Docker CPU/메모리는 관찰 기준이 다르므로 source를 구분하고 합산하지 않는다.
 output=${1:?output csv required}
 interval=${2:?interval required}
 : "${PAYMENT_JAVA_PID:?host Payment Java PID required}"
 : "${VAN_JAVA_PID:?host VAN Java PID required}"
 printf 'observed_at_utc,source,id,cpu_pct,rss_kb,memory_usage\n' > "$output"
+# 새 run의 파일을 초기화한다. 기존 측정 파일을 이 sampler에 다시 전달하지 않는다.
 while true; do
   now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   for item in "payment:$PAYMENT_JAVA_PID" "van:$VAN_JAVA_PID"; do
