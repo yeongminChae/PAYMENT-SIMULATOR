@@ -58,7 +58,7 @@ def resolved_fixture(items,p):
             (i,f['type'],f['target'],1 if f['type']=='APPROVAL' else None,f['original'],f['expected_task'],
              0 if f['expected_task']=='RESOLVED' else 1,None if f['expected_task']=='RESOLVED' else '2030-01-01'))
         p.execute('INSERT INTO payment_recovery_history(recovery_task_id,try_no,result,started_at,finished_at) VALUES (?,1,?,?,?)',
-                  (i,f['expected_task'],'2026-01-01 00:00:00','2026-01-01 00:00:01'))
+                  (i,f['expected_task'],'2026-01-01T00:00:00','2026-01-01T00:00:01'))
 
 
 class RecoveryTests(unittest.TestCase):
@@ -70,14 +70,61 @@ class RecoveryTests(unittest.TestCase):
                 self.assertLess(sql.index('current_database()'),sql.index('INSERT INTO'))
 
     def test_van_actual_connection_guard(self):
-        with patch.dict(os.environ,VAN_JAVA_PID='123'):
+        with patch.dict(os.environ,VAN_JAVA_PID='123',EV01_C_VAN_APPLICATION_NAME=''):
             with patch.object(c.subprocess,'check_output',return_value='n127.0.0.1:45678->127.0.0.1:5433\n'):
                 with patch.object(c,'rows',return_value=[dict(client_port=45678,datname='van_sim')]):
                     with self.assertRaises(ValueError): c.verify_van_database()
                 with patch.object(c,'rows',return_value=[dict(client_port=45678,datname='van_sim_ev01_c')]):
-                    self.assertEqual(len(c.verify_van_database()),1)
+                    result=c.verify_van_database()
+                    self.assertEqual(result['method'],'lsof-client-port')
+                    self.assertEqual(result['van_pid'],123)
+                    self.assertEqual(result['local_ports'],[45678])
+                    self.assertEqual(result['backends'],[dict(client_port=45678,datname='van_sim_ev01_c')])
                 with patch.object(c,'rows',return_value=[]):
                     with self.assertRaises(ValueError): c.verify_van_database()
+
+    def test_van_nat_connection_guard(self):
+        marker='EV01C-unittest-20261028'
+        sockets='n127.0.0.1:45678->127.0.0.1:5433\nn127.0.0.1:45679->127.0.0.1:5433\n'
+        backends=[dict(client_port=port,datname='van_sim_ev01_c',application_name=marker)
+                  for port in (60000,60001)]
+        process=SimpleNamespace(returncode=0,stdout='ApplicationName='+marker)
+        def verify(tag=marker,wire=sockets,rows=backends,pid_config=process):
+            with patch.dict(os.environ,VAN_JAVA_PID='123',EV01_C_VAN_APPLICATION_NAME=tag), \
+                    patch.object(c.subprocess,'check_output',return_value=wire), \
+                    patch.object(c,'rows',return_value=rows), \
+                    patch.object(c.subprocess,'run',return_value=pid_config):
+                return c.verify_van_database()
+        result=verify()
+        self.assertEqual(result['method'],'application-name+socket-count')
+        self.assertEqual(result['host_local_ports'],[45678,45679])
+        self.assertEqual(result['backend_ports'],[60000,60001])
+        self.assertEqual(result['backends'],backends)
+        cases={
+            'missing marker':dict(tag=''),
+            'invalid marker':dict(tag='bad'),
+            'PID marker mismatch':dict(pid_config=SimpleNamespace(returncode=0,stdout='other')),
+            'PID inspection failure':dict(pid_config=SimpleNamespace(returncode=1,stdout='')),
+            'no socket':dict(wire=''),
+            'no backend':dict(rows=[]),
+            'count mismatch':dict(rows=backends[:1]),
+            'wrong database':dict(rows=[backends[0],dict(backends[1],datname='van_sim')]),
+            'backend marker mismatch':dict(rows=[dict(row,application_name='other') for row in backends]),
+        }
+        for name,arguments in cases.items():
+            with self.subTest(name=name),self.assertRaises(ValueError): verify(**arguments)
+
+    def test_database_timestamp_normalization(self):
+        expected=c.dt.datetime(2026,10,27,23,37,17,142830)
+        for value in ('2026-10-27T23:37:17.14283','2026-10-27T23:37:17.142830'):
+            with self.subTest(value=value): self.assertEqual(c.parse_db_timestamp(value),expected)
+        self.assertEqual(c.parse_db_timestamp('2026-10-27T23:37:17.1').microsecond,100000)
+        self.assertEqual(c.parse_db_timestamp('2026-10-27T23:37:17').microsecond,0)
+        for zone in ('Z','+00:00','+0000','+00'):
+            with self.subTest(zone=zone):
+                self.assertEqual(c.parse_db_timestamp('2026-10-27T23:37:17'+zone).utcoffset(),c.dt.timedelta(0))
+        for invalid in ('2026-01-01 00:00:00','not-a-timestamp','2026-02-30T00:00:00'):
+            with self.subTest(invalid=invalid),self.assertRaises(ValueError): c.parse_db_timestamp(invalid)
 
     def test_url_guard(self):
         c.db_url('postgresql://postgres:postgres@localhost:5432/payment_sim_ev01_c','payment')
