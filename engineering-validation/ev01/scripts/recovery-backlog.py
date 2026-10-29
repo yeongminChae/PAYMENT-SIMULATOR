@@ -498,7 +498,7 @@ def main():
         parser.error('VAN_JAVA_PID must identify the dedicated VAN Java process')
     if not subprocess.check_output(['docker','context','show'],text=True).strip().startswith('colima'):
         parser.error('Select Colima Docker context first')
-    subprocess.run(['docker','inspect','payment-postgres','van-postgres'],stdout=subprocess.DEVNULL,check=True)
+    subprocess.run(['docker','inspect',os.environ.get('EV01_C_PAYMENT_CONTAINER','payment-postgres'),os.environ.get('EV01_C_VAN_CONTAINER','van-postgres')],stdout=subprocess.DEVNULL,check=True)
     # 8080을 점유하는 Payment 서버를 중지해야 한다. C 중에는 B 서버를 기동할 수 없다.
     guard=socket.socket(); guard.bind(('localhost',8080)); guard.listen(1)
     active=Path.home()/'.payment-simulator/ev01-c-active'
