@@ -31,10 +31,23 @@ public final class B13RecoveryLauncher {
             require(result.put(row.path("posTrx").asText(),outcome)==null,"duplicate target");
             if (outcome.equals("APPROVED")) approved++;
         }
-        require(result.size()==13 && approved==11,"13/11/2 required"); return result;
+        require(result.size()==13 && approved==11,"13/11/2 required");
+        Set<String> fixed=Set.of("2416-0007","2428-0007","2447-0007","2459-0007","2463-0006","2533-0007","2535-0007","2537-0007","2544-0007","2565-0007","2571-0007","2574-0007","2575-0007");
+        require(result.keySet().equals(fixed.stream().map(k->"2376-20261029-"+k).collect(java.util.stream.Collectors.toSet())),"fixed B13 set mismatch");
+        require("NOT_FOUND".equals(result.get("2376-20261029-2447-0007")) && "NOT_FOUND".equals(result.get("2376-20261029-2544-0007")),"fixed B13 outcome mismatch");
+        return result;
     }
     static void topology(Path config) throws Exception {
         require(new ProcessBuilder("python3","engineering-validation/ev01/b13/isolation.py","--check",config.toString()).inheritIO().start().waitFor()==0,"live Docker boundary mismatch");
+    }
+    static VanGateway inquiryOnly(InvocationHandler inquiry) {
+        return (VanGateway) Proxy.newProxyInstance(VanGateway.class.getClassLoader(),new Class[]{VanGateway.class},(proxy,method,args)->{
+            if(method.getDeclaringClass()==Object.class) {
+                return switch(method.getName()) {case "toString" -> "B13 Inquiry-only gateway"; case "hashCode" -> System.identityHashCode(proxy); case "equals" -> proxy==args[0]; default -> throw new IllegalStateException("Object method");};
+            }
+            require(method.getName().equals("inquiry"),"non-Inquiry VAN call blocked");
+            return inquiry.invoke(proxy,method,args);
+        });
     }
     static String connectionGuard(JsonNode cfg) {
         JsonNode id=cfg.get("identity");
@@ -70,8 +83,8 @@ public final class B13RecoveryLauncher {
     }
     static void write(Path path, Object value) throws Exception { JSON.writerWithDefaultPrettyPrinter().writeValue(path.toFile(),value); }
     static void backend(JdbcTemplate van, JsonNode cfg) {
-        var rows=van.queryForList("SELECT datname,client_addr::text FROM pg_stat_activity WHERE application_name=?",cfg.path("tcp").path("applicationName").asText());
-        require(!rows.isEmpty() && rows.stream().allMatch(r->cfg.path("van").path("identity").path("database").asText().equals(r.get("datname")) && cfg.path("tcp").path("address").asText().equals(r.get("client_addr"))),"VAN backend proof missing/mismatched");
+        var rows=van.queryForList("SELECT datname,client_addr::text,usename FROM pg_stat_activity WHERE application_name=?",cfg.path("tcp").path("applicationName").asText());
+        require(!rows.isEmpty() && rows.stream().allMatch(r->cfg.path("van").path("identity").path("database").asText().equals(r.get("datname")) && cfg.path("tcp").path("address").asText().equals(r.get("client_addr")) && cfg.path("tcp").path("dbUser").asText().equals(r.get("usename"))),"VAN backend proof missing/mismatched");
     }
     public static void main(String[] args) throws Exception {
         require("YES".equals(System.getenv("B13_ALLOW_WRITE")),"B13 opt-in required");
@@ -82,9 +95,12 @@ public final class B13RecoveryLauncher {
         require(cfg.path("tcp").path("port").asInt()==19090,"B13 TCP endpoint mismatch");
         require(Files.exists(out.resolve("docker-before.json")),"Docker attestation required");
         require(!Files.exists(out.resolve("pre.json")),"output reuse forbidden");
+        // Atomic, persistent one-shot reservation: never remove/reuse a failed invocation directory.
+        Files.createFile(out.resolve("invocation.claim"));
         var expected=targets(JSON.readTree(Path.of("engineering-validation/ev01/b13/targets.json").toFile()));
         topology(cfgPath);
         JdbcTemplate payment=connect(cfg.get("payment"),System.getenv("B13_PAYMENT_PASSWORD"));
+        require(Boolean.TRUE.equals(payment.queryForObject("SELECT pg_try_advisory_lock(130113,13)",Boolean.class)),"another B13 launcher owns this database");
         JdbcTemplate van=connect(cfg.get("van"),System.getenv("B13_VAN_PASSWORD"));
         backend(van,cfg);
         var beforeVan=vanRows(van); var beforeLedger=vanLedger(van); var before=attempts(payment);
@@ -112,18 +128,19 @@ public final class B13RecoveryLauncher {
             .initializers(c->c.getBeanFactory().addBeanPostProcessor(new BeanPostProcessor(){
                 @Override public Object postProcessAfterInitialization(Object bean,String name) {
                     if (!(bean instanceof VanGateway)) return bean;
-                    return Proxy.newProxyInstance(VanGateway.class.getClassLoader(),new Class[]{VanGateway.class},(proxy,method,a)->{
+                    return inquiryOnly((proxy,method,a)->{
                         if (method.getDeclaringClass()==Object.class) return method.invoke(bean,a);
                         require(method.getName().equals("inquiry"),"non-Inquiry VAN call blocked");
                         var request=(VanInquiryRequest)a[0];
                         require(request.targetType()==VanInquiryTargetType.APPROVAL && request.attemptSeq()==1 && expected.containsKey(request.posTrx()),"foreign Inquiry blocked");
-                        identity(van,cfg.get("van")); backend(van,cfg);
+                        topology(cfgPath); identity(van,cfg.get("van")); backend(van,cfg);
                         VanInquiryResponse response;
                         try {response=(VanInquiryResponse)method.invoke(bean,a);}catch(InvocationTargetException e){throw e.getCause();}
                         inquiries.add(Map.of("request",request,"response",response)); write(out.resolve("inquiries.json"),inquiries);
                         require(response.targetType()==request.targetType() && request.targetTrxNo().equals(response.targetTrxNo()) && Objects.equals(request.targetAttemptSeq(),response.targetAttemptSeq()),"Inquiry identity mismatch");
                         if (expected.get(request.posTrx()).equals("NOT_FOUND")) require(response.resultCode()==VanInquiryResultCode.NOT_FOUND,"NOT_FOUND expected");
                         else {var row=find(beforeVan,"pos_trx",request.posTrx()); require(response.resultCode()==VanInquiryResultCode.SUCCESS && response.status().name().equals("APPROVED") && row.get("approval_no").equals(response.approvalNo()) && row.get("van_trx_id").equals(response.vanTrxId()),"Inquiry ledger mismatch");}
+                        topology(cfgPath);
                         require(beforeLedger.equals(vanLedger(van)),"VAN ledger changed"); return response;
                     });
                 }

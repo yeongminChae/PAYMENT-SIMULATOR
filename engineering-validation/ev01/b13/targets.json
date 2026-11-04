@@ -1,0 +1,67 @@
+[
+  {
+    "posTrx": "2376-20261029-2416-0007",
+    "attemptSeq": 1,
+    "outcome": "APPROVED"
+  },
+  {
+    "posTrx": "2376-20261029-2428-0007",
+    "attemptSeq": 1,
+    "outcome": "APPROVED"
+  },
+  {
+    "posTrx": "2376-20261029-2447-0007",
+    "attemptSeq": 1,
+    "outcome": "NOT_FOUND"
+  },
+  {
+    "posTrx": "2376-20261029-2459-0007",
+    "attemptSeq": 1,
+    "outcome": "APPROVED"
+  },
+  {
+    "posTrx": "2376-20261029-2463-0006",
+    "attemptSeq": 1,
+    "outcome": "APPROVED"
+  },
+  {
+    "posTrx": "2376-20261029-2533-0007",
+    "attemptSeq": 1,
+    "outcome": "APPROVED"
+  },
+  {
+    "posTrx": "2376-20261029-2535-0007",
+    "attemptSeq": 1,
+    "outcome": "APPROVED"
+  },
+  {
+    "posTrx": "2376-20261029-2537-0007",
+    "attemptSeq": 1,
+    "outcome": "APPROVED"
+  },
+  {
+    "posTrx": "2376-20261029-2544-0007",
+    "attemptSeq": 1,
+    "outcome": "NOT_FOUND"
+  },
+  {
+    "posTrx": "2376-20261029-2565-0007",
+    "attemptSeq": 1,
+    "outcome": "APPROVED"
+  },
+  {
+    "posTrx": "2376-20261029-2571-0007",
+    "attemptSeq": 1,
+    "outcome": "APPROVED"
+  },
+  {
+    "posTrx": "2376-20261029-2574-0007",
+    "attemptSeq": 1,
+    "outcome": "APPROVED"
+  },
+  {
+    "posTrx": "2376-20261029-2575-0007",
+    "attemptSeq": 1,
+    "outcome": "APPROVED"
+  }
+]

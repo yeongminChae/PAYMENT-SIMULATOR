@@ -1,90 +1,78 @@
-> 2026-11-04 변경: B13RecoveryLauncher는 이제 Job을 정확히 1회만 호출한다.
-> 고정 연결은 Payment `127.0.0.1:15432/payment_sim`, VAN `127.0.0.1:15433/van_sim`, TCP `19090`이다.
-> 아래 이전 2회/replay 절차와 run.py/compare.py는 이번 단발 런처와 호환되지 않으므로 실행하지 않는다.
-> 이번 작업은 코드와 컴파일만 검증했으며 Job/DB 접속은 수행하지 않았다.
-> 향후 명시적으로 실행할 때는 isolation.py로 별도 증거 디렉터리에 attestation을 생성하고
-> B13_CONFIG, B13_ALLOW_WRITE=YES, B13_PAYMENT_PASSWORD, B13_VAN_PASSWORD, CARD_SECRET_KEY를 설정한 뒤
-> `./gradlew -I engineering-validation/ev01/b13/launcher.gradle :payment-server:b13RecoveryLaunch`를 사용한다.
-> 컴파일만 할 때는 `:payment-server:compileTestJava`를 사용하며 Launch 태스크를 호출하지 않는다.
+# B13 Mac 호스트 VAN 단발 런처
 
-# B13 격리 Recovery 실행 도구
+2026-11-04 현재 코드. **이번 작업에서는 Mac 접속·실제 증거 생성·Recovery Job 실행을 하지 않았다.** 과거 클라우드 준비 보고서 및 2회/replay 절차는 현재 실행 절차가 아니다. `run.py`/`compare.py`는 과거 컨테이너 VAN/2회 실행용이므로 이 환경에서 사용하지 않는다.
 
-범위: 실제 B13 복사본에서 기존 recoveryJob 2회 실행. 합성 fixture 생성·운영 코드 변경·C 가드 완화 없음.
-클라우드 준비와 실제 B13 검증의 판정은 별개다. `comparison.json`이 생성되지 않으면 PASS가 아니다.
+## 고정 환경
 
-## 아키텍처와 가드
+- Payment: `ev01-b13-payment`, `127.0.0.1:15432/payment_sim`, Docker `172.19.0.2`.
+- VAN DB: `ev01-b13-van`, `127.0.0.1:15433/van_sim`, Docker `172.19.0.3`.
+- 전용 network: `ev01-b13-net`, 멤버는 위 DB 두 개만 허용.
+- VAN은 Mac 호스트 Java PID `42831`, TCP `19090`, HTTP `18081`.
+- VAN JDBC ApplicationName `EV01B13_VAN`, DB에서 보이는 NAT client_addr `172.19.0.1`.
+- 정지 원본 B 2개와 실행 중이어도 되는 C 2개를 명시적으로 보호 목록에 등록한다. 실제 이름/ID가 제공되지 않았으므로 설정 예시의 REPLACE 항목은 실행자가 조사해 채워야 한다. 이름으로 추정하거나 placeholder 컨테이너를 생성하지 않는다.
 
-DiscoveryService는 RecoveryCandidateMapper의 전역 승인/취소/망취소 predicate를 사용한다. B13 런처는 원본 보고서의 POS_TRX+attempt 13개와 조회 결과 집합이 정확히 일치할 때만 실행한다. 원장 NULL=PROCESSING이며 UNKNOWN_TIMEOUT fixture로 바꾸지 않는다.
-Worker의 claim/History TX → ApprovalRecoveryHandler의 Inquiry → FinalizationService의 잠금·claimToken·lease 확인 → Task/History 종료 TX를 그대로 사용한다. recoveryJob의 discovery/process 두 Step과 1/5/30분 retry 정책을 교체하지 않는다. 첫 실행 11 RESOLVED/2 RETRY_WAIT 및 History를 확인한 뒤 다른 JobParameters로 재실행한다. 재실행 시 이미 확정된 11건은 attempt/Task/History가 동일해야 한다. 2건은 시간이 실제로 지나면 정상 재조회할 수 있으며 승인 재전송은 허용되지 않는다. 이 도구는 retry 소진/MANUAL_REVIEW까지 기다리는 장기 시험은 수행하지 않는다.
+## 가드와 증거
 
-`isolation.py`는 명시된 Docker socket에서 B/C 정지 컨테이너와 새 Payment/VAN/TCP 컨테이너를 검사한다. 컨테이너 ID·mount Source·전용 network·network 전체 멤버·loopback 전용 비표준 포트를 확인한다. 원본 공유 mount와 privileged/PID 공유를 거절한다. 원본들은 정지 상태여야 하며 도구가 정지시키지 않는다. 보호 목록은 사전 조사로 확정한 B/C 네 DB 컨테이너를 빠짐없이 지정해야 한다. 이름만 보고 B/C로 추정하지 않는다. 물리 복사본의 system_identifier 중복 자체는 오류가 아니다.
+`isolation.py`는 현재 Mac Docker context의 daemon ID, DB container ID/mount/network/IP/포트를 실제 조회한다. 복사본 PGDATA는 독립된 쓰기 허용 named volume이어야 한다. 원본과 공유·중첩 mount, host/PID/privileged 공유, Docker socket mount, 기본 포트/공개 bind, 외부 network 멤버를 차단한다. B는 정지 필수, C는 실행 중이어도 된다. **C에는 docker inspect 외 exec/SQL/시작/종료/해시 작업을 하지 않는다.** 원본 B mount만 network=none helper의 readonly mount로 읽어 실행 전후 파일 내용 해시를 비교한다. helper는 원본 컨테이너를 시작하지 않는다. symlink/외부 tablespace가 있으면 중단한다. 실행 중 C의 전체 무결성을 파일 해시로 판정하지 않는다.
 
-컨테이너 내부 읽기 전용 psql identity와 Java JDBC의 DB명/system_identifier/data_directory/서버 IP/서버 port/user를 대조한다. Spring Hikari의 각 신규 연결에도 같은 identity SQL 가드가 적용된다. Job 직전에 live Docker 경계를 재검증한다. VAN DB의 실제 pg_stat_activity에는 전용 ApplicationName과 TCP 앱 컨테이너 IP가 함께 있어야 한다. 빈 backend는 통과하지 않는다. VAN 앱이 풀을 아직 열지 않았다면 최초 기동 시 DB 연결을 확인하고 대기한다; 확인을 위한 승인 요청은 보내지 않는다.
+B13 컨테이너 내부 psql은 고정 SELECT를 `BEGIN READ ONLY`로만 수행한다. Java direct JDBC 및 Spring Hikari 신규 연결은 DB명/system identifier/data_directory/서버 IP/port/user를 대조한다. 물리 복사본에서 system identifier가 같아도 컨테이너·mount·network·실제 서버 주소가 분리되어야 한다. Mac이 Colima context를 쓰면 해당 context를 그대로 사용한다; 다른 daemon으로 임의 전환하지 않는다.
 
-Spring schema/data/Batch schema 초기화 및 자동 Job/Scheduler는 비활성화한다. 따라서 복사본에 기존 Recovery/Batch 테이블이 없으면 BLOCKED다. 원장 스키마를 임의 초기화하지 않는다. Gateway test proxy는 Inquiry 이외 메서드를 네트워크 호출 전에 거절하며 Inquiry 대상과 응답 identity·승인번호·VAN ID를 원장과 대조한다. Inquiry 응답 계약에 amount 필드는 없으므로 amount=10000은 Payment/VAN 원장끼리 확인한다.
+호스트 증거는 PID 기동 시각, Java 실행 파일, 19090/18081의 유일한 listener 소유자, PID의 JDBC URL 설정, 15433 연결 소켓 수와 동일한 ApplicationName backend 수, backend DB/user/NAT 주소를 함께 대조한다. NAT 뒤 client_port와 Mac source port가 다를 수 있어 두 포트를 같다고 가정하지 않는다. `ps eww`의 명령/환경은 메모리에서 검증하고 저장하거나 출력하지 않는다. 비밀번호가 포함된 ps 원문을 증거로 제출하지 않는다. JDBC URL은 다음 형태만 허용한다(다른 옵션은 현재 fail closed):
 
-원본 보호 해시는 원본 mount를 별도 `postgres:17` helper의 readonly/network=none mount로 읽는다. helper는 기존 컨테이너를 시작하지 않는다. symlink가 있으면 외부 tablespace/WAL 누락 위험 때문에 중단한다. 볼륨 전체 파일 내용 해시는 실행 전후 비교하며 권한·메타데이터 전체 동일성 증명과는 구분한다. Payment/VAN 각각의 복제 전/후 논리 dump 체크섬과 복제 작업 기록은 실행자가 별도로 보존해야 한다. **내용이 다른 스냅샷이나 잘못 식별한 원본을 이 도구가 정본으로 판별해 주지는 않는다.**
+`jdbc:postgresql://127.0.0.1:15433/van_sim?ApplicationName=EV01B13_VAN`
 
-Java와 별도 Docker exec psql 스냅샷을 수집하고 `compare.py`가 Task/History/13건 원장/무관 attempt/VAN 전 원장/Job/replay/TCP 횟수와 응답을 대조한다. VAN ledger equality는 전후 INSERT/UPDATE/DELETE가 남지 않았음을 증명한다. 중간 INSERT 후 DELETE 같은 외부 writer는 전용 network와 정지 원본 경계로 배제하고, 별도 DB audit가 있다면 함께 보존한다. Python은 `-O` 실행을 거절한다.
+`localhost`도 VAN 프로세스 URL에 한해 허용한다. `lsof` 권한/프로세스 설정/풀 크기 증명이 불충분하면 차단한다. VAN이 재시작돼 PID나 포트·IP가 바뀌면 값만 임의로 바꾸지 말고 환경을 재식별하고 증거를 다시 생성한다. JVM 설정 파일에만 JDBC URL이 있어 ps에서 안 보이는 환경은 현재 지원하지 않는다.
 
-## Mac 최소 실행 단계
+런처는 증거 파일 존재만으로 통과시키지 않는다. 시작/Job 직전/각 Inquiry 전후에 실제 Docker·host 경계를 다시 읽고 최초 증거와 대조한다. 필수 원본 목록·DB identity·PID 증거가 없거나 바뀌면 중단한다. 증거는 신뢰된 로컬 실행자가 관리하는 비공개 디렉터리에 둔다.
 
-저장소 root에서 실행한다. Java **JDK** 21, Python 3, Docker, Gradle wrapper 네트워크/캐시가 필요하다. 포트 5432/5433/9090 및 기존 compose는 사용하지 않는다.
+`targets.json`은 EV-01 최종 보고서의 실제 13개 POS_TRX/attempt=1/승인11·미확인2를 고정했다. 런처 내 별도 고정 집합과도 대조하므로 임의의 다른 13개로 바꾸지 못한다. 대상의 NULL=PROCESSING, 금액10000/sequence/external 상태, VAN APPROVED11/row 부재2, 전역 Repository 후보의 정확한 집합·취소/망취소0, Task/History/Batch0을 확인한다. VAN NOT_FOUND라는 응답 자체는 향후 실제 Inquiry 때만 입증할 수 있다. 지금은 DB row 부재와 기대값을 확인하도록 구현했다.
 
-1. B/C 원본의 컨테이너 ID·volume·network·정지 상태와 기존 증빙/예약 ledger를 읽기 전용으로 확정한다. 원본을 시작하거나 원본에서 pg_dump하지 않는다. 원본에서 이미 안전하게 얻은 복사본 또는 검증된 논리 dump 두 개만 사용한다. 원본 B Payment/VAN을 복제했다는 해시·인벤토리를 기록한다. 파일에 PAN/비밀키가 있으면 별도 비공개 경로에서 취급한다.
-2. 아래 예시처럼 **새** 컨테이너/볼륨/network를 만든다. 이름이 존재하면 재사용하지 않고 중단한다. fresh volume만 사용한다. 클라우드에서도 같은 명령으로 새 격리 환경을 구성할 수 있다.
+Gateway test proxy는 Inquiry 외 승인·취소·망취소를 delegate 호출 전에 차단한다. 실제 Inquiry 응답의 대상·상태·승인번호·VAN ID와 원장을 대조한다. amount 필드는 Inquiry 응답에 없으므로 양 DB 원장끼리 확인한다. 운영 Handler/Worker/finalizer/Job은 바꾸지 않는다. Spring schema/data/Batch 초기화, Scheduler, 자동 Job은 비활성화한다. 기존 테이블이 없으면 초기화하지 않고 차단한다.
 
-```sh
-# 변수는 로컬 비공개 쉘에서 설정; 값 자체를 로그에 남기지 않는다.
-export B13_PAYMENT_PASSWORD B13_VAN_PASSWORD CARD_SECRET_KEY
-# 반드시 네 이름 모두 미존재인지 docker inspect/volume inspect/network inspect로 확인한다.
-docker network create b13-isolated
-docker volume create b13-payment-data
-docker volume create b13-van-data
-docker run -d --name b13-payment --network b13-isolated \
-  -p 127.0.0.1:15432:5432 -e POSTGRES_DB=payment_b13 \
-  -e POSTGRES_PASSWORD="$B13_PAYMENT_PASSWORD" \
-  --mount type=volume,source=b13-payment-data,target=/var/lib/postgresql/data postgres:17
-docker run -d --name b13-van --network b13-isolated \
-  -p 127.0.0.1:15433:5432 -e POSTGRES_DB=van_b13 \
-  -e POSTGRES_PASSWORD="$B13_VAN_PASSWORD" \
-  --mount type=volume,source=b13-van-data,target=/var/lib/postgresql/data postgres:17
-# pg_isready 성공 후, 보존된 B 논리 dump(custom format)를 새 DB에만 복원.
-# --clean 금지. 실패 시 컨테이너/볼륨을 보존하고 중단.
-docker exec -i b13-payment pg_restore -U postgres -d payment_b13 --no-owner --no-acl --exit-on-error < /private/path/B-payment.dump
-docker exec -i b13-van pg_restore -U postgres -d van_b13 --no-owner --no-acl --exit-on-error < /private/path/B-van.dump
-./gradlew :van-simulator:bootJar
-```
+기존 recoveryJob 호출은 정확히 한 군데이며 명시적 opt-in에서만 1회 실행한다. replay 없음. evidence의 원자적 `invocation.claim` 예약과 Payment copy 세션 advisory lock으로 중복 런처를 차단한다. 실패해도 claim/증거를 지우고 재사용하지 않는다. watchdog은 10초 이상 공백/역행 시 halt(70)해 후속 확정을 막는다. 이 경우 정상 종료가 아니므로 부분 결과/lease를 보존해야 한다. retry 정책은 1/5/30분 그대로이며 단발 실행도 1분 이상 걸리면 due retry가 같은 Job 안에서 발생할 수 있다. 첫 실행 Inquiry/History가 정확히13이 아니면 사후 검증이 실패하며 이미 commit된 작업을 되돌리지는 않는다.
 
-3. VAN 앱을 별도 `b13-tcp` 컨테이너에서 실행한다. root에서 `van-simulator/build/libs/*`의 boot jar(plain 제외) 실제 경로를 지정한다. JRE21 이미지는 승인된 공급자의 고정 digest를 권장한다. 예시 `eclipse-temurin:21-jre`는 Mac CPU 아키텍처에 맞춰 pull한다.
+## Mac 사전 조사와 실행 명령
+
+아래는 **사용자가 나중에 실행할 명령**이며 이번 코드 작성 작업에서는 실행하지 않았다. repository root에서 JDK21/Python3/Docker/lsof/ps 사용 권한이 필요하다.
+
+1. B/C 네 컨테이너의 실제 ID와 mount를 `docker ps -a`, `docker inspect`로 확인한다. B 정지/C 실행 상태를 보존한다. C를 멈추지 않는다. B13은 이미 준비된 복사본을 사용하며 이 도구는 생성/복원/초기화하지 않는다. 원본 B 복제 출처와 복제 전후 논리 무결성 증거를 별도 보존한다.
+2. config 예시를 private 경로로 복사하고 보호 목록의 REPLACE 네 항목을 정확한 이름/ID로 채운다. VAN DB user가 postgres가 아니면 `van.user`와 `tcp.dbUser` 모두 실제 값으로 맞춘다. 비밀번호는 JSON에 넣지 않는다.
 
 ```sh
-# VAN_BOOT_JAR는 절대 경로. 이 컨테이너는 원본 network/mount를 갖지 않는다.
-docker run -d --name b13-tcp --network b13-isolated \
-  -p 127.0.0.1:19090:9090 \
-  --mount "type=bind,source=$VAN_BOOT_JAR,target=/app/van.jar,readonly" \
-  -e SPRING_PROFILES_ACTIVE=postgres -e SPRING_SQL_INIT_MODE=never \
-  -e VAN_DB_URL='jdbc:postgresql://b13-van:5432/van_b13?ApplicationName=EV01B13-unique-run-id' \
-  -e VAN_DB_USERNAME=postgres -e VAN_DB_PASSWORD="$B13_VAN_PASSWORD" \
-  eclipse-temurin:21-jre java -jar /app/van.jar
+cp engineering-validation/ev01/b13/config.example.json /private/path/b13-config.json
+# 위 파일의 protectedContainers를 실제 조사 결과로 편집
+# 아직 없는 새 출력 디렉터리. 증거를 손으로 생성/수정하지 않는다.
+python3 engineering-validation/ev01/b13/isolation.py \
+  /private/path/b13-config.json /private/path/b13-evidence-new
+python3 engineering-validation/ev01/b13/isolation.py --check \
+  /private/path/b13-evidence-new/attested.json
 ```
 
-복원한 논리 DB에 대한 안전한 SELECT 결과를 원본 복제 기록과 대조한 뒤 계속한다. 앱의 health/TCP readiness·VAN backend ApplicationName을 조회한다. VAN_APP JDBC/schema 설정과 image/jar 해시를 증빙에 보존한다. 애플리케이션/사용자가 다른 writer로 접근하지 않게 한다.
+사전 도구는 Job/Inquiry를 호출하지 않는다. B13 DB에 readonly SELECT를 수행하며, 원본 B에는 readonly 파일 해시만, C에는 inspect만 수행한다. psql 인증 실패 시 통과시키지 않는다. 예시는 컨테이너 내부 loopback psql 인증이 가능한 상태를 전제로 한다. 물리 복사본의 pg_hba가 비밀번호 인증을 요구하면 비공개 인증 구성을 먼저 마련해야 한다. trust로 가드를 완화하지 않는다.
 
-4. `config.example.json`을 비공개 작업 파일로 복사하고 `protectedContainers` 네 항목을 실제 조사한 B/C 이름 또는 ID로 바꾼다. 비밀번호는 config에 쓰지 않고 환경변수로만 전달한다. 이 예시는 DB의 로컬 trust 인증을 쓰는 Docker postgres 초기 기본 설정을 전제로 한다. 기존 스냅샷 인증이 password를 요구하면 docker exec psql의 PGPASSFILE을 안전하게 구성한 뒤 도구에 반영해야 하며 인증 가드를 낮추지 않는다.
+3. 컴파일/단위 테스트만 실행하려면 다음을 사용한다. Job/DB를 호출하는 테스트는 포함하지 않는다.
 
 ```sh
 python3 -m unittest discover -s engineering-validation/ev01/b13 -p 'test_*.py'
-./gradlew :payment-server:test --tests 'com.chaeyeongmin.payment_sim.recovery.ev01.*'
-# 디렉터리는 존재하면 안 됨. 원본 저장소·증빙 경로 밖 새 경로 사용 권장.
-caffeinate -dimsu python3 engineering-validation/ev01/b13/run.py \
-  /private/path/b13-config.json /private/path/b13-evidence-new
+./gradlew -I engineering-validation/ev01/b13/launcher.gradle \
+  :payment-server:compileTestJava :payment-server:test --tests '*B13GuardTest'
 ```
 
-`run.py`는 최초 identity/원본 해시/독립 snapshot 이후 test launcher를 실행하고, 종료 후 독립 snapshot/원본 해시/TCP 로그를 수집한다. 중간 실패는 예외/비정상 종료로 남기고 PASS를 만들지 않는다. 원장 변경이 시작된 증거 디렉터리를 재사용해서 재실행하지 않는다. 실패한 복사본은 그대로 보존하고 분석한다. Java watchdog은 실행 중 10초 이상의 시계 공백/역행이면 halt(70)한다. 이는 진행 중 Job을 정상 종료한 것이 아니므로 crash/lease 증거를 보존해야 한다. caffeinate가 없는 Linux에서는 systemd-inhibit 등 호스트의 suspend 방지를 별도로 적용한다.
+4. **향후 실행을 별도로 결정한 경우에만** 아래 명령을 사용한다. 이 단계는 이번 요청의 실행 범위가 아니다.
 
-5. `comparison.json` PASS, Job 두 개의 COMPLETED, 원본 해시 동일, 13건별 결과, Inquiry 로그를 검토하고 기존 후속 문서의 실제 실행 결과를 추가한다. 증빙 누락·DB mismatch·예상 밖 상태·승인 요청은 즉시 중단한다. 원본 FAIL/INVALID는 그대로 둔다. 컨테이너/볼륨은 자동 삭제하지 않는다.
+```sh
+export B13_CONFIG=/private/path/b13-evidence-new/attested.json
+export B13_ALLOW_WRITE=YES
+# private shell에서 실제 값을 설정. 비밀번호·키를 터미널 로그에 출력하지 않는다.
+export B13_PAYMENT_PASSWORD B13_VAN_PASSWORD CARD_SECRET_KEY
+caffeinate -dimsu ./gradlew --no-daemon \
+  -I engineering-validation/ev01/b13/launcher.gradle :payment-server:b13RecoveryLaunch
+# 성공/실패에 관계없이 원본 B 내용과 live 경계 재확인
+python3 engineering-validation/ev01/b13/isolation.py --finish "$B13_CONFIG"
+```
 
-## 클라우드 전달 요건
+`job-1.json`, `post-1.json`, `inquiries.json`, `jdbc-identities.json`, `result.json` 등과 VAN 원본 TCP 로그를 보존한다. Java 결과만으로 외부 TCP/원본 무결성 전체 PASS를 주장하지 않는다. 실제 VAN 프로세스 로그의 Inquiry13/승인 요청0과 DB 전후 원장을 독립적으로 대조해야 한다. HTTP18081에는 요청을 보내지 않는다. 가드는 이 test launcher의 Gateway만 제한하므로 VAN에 접근하는 다른 클라이언트/수동 승인과 이미 실행 중인 C의 자체 writer까지 막지는 않는다. 실험 중 다른 writer를 배제하고 원본에 대한 운영 접근 권한을 통제해야 한다.
 
-클라우드에서 PostgreSQL17·JDK21 및 Testcontainers 시험이 가능하다(준비 보고서 참조). 실제 B13 전체 검증에는 checksum/출처가 있는 B Payment/VAN dump, 승인11/미확인2 상태, 원본 보존 증명, 원본 B/C 경계 증빙, 허용된 비공개 전달 방식이 필요하다. 현재 도구의 strict 보호 가드는 같은 Docker daemon에서 원본 B/C 정지 컨테이너 네 개를 요구한다. Mac 원본이 클라우드에 없으면 이 가드를 속이기 위한 placeholder 컨테이너를 만들지 않는다. 그 경우 실제 원본 보호 검증은 Mac에서 수행하고, 클라우드 실행에는 원격 원본 보존 증명을 검증하는 별도 설계/테스트가 먼저 필요하다. **복사본 dump 두 개 전달만으로 현재 도구의 전체 검증을 즉시 실행할 수 있다고 보장하지 않는다.**
+## 이번 검증 결과
+
+Python mock/합성 입력 테스트 및 Java 단위 테스트·컴파일만 실행했다. Mac의 실제 PID·Docker/DB 상태를 관측하지 않았고 진짜 docker-before/attested 증거를 생성하지 않았다. B13 Job/Inquiry는 0회다. Production/C 런처는 변경하지 않았고 commit/push도 수행하지 않았다. 자세한 시험 집계는 최종 응답 참조.
