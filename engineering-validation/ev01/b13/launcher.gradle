@@ -1,0 +1,10 @@
+gradle.projectsEvaluated {
+    def payment = gradle.rootProject.project(':payment-server')
+    payment.tasks.register('b13RecoveryLaunch', JavaExec) {
+        description = 'Explicit B13 single recoveryJob invocation; never part of build/test.'
+        dependsOn payment.tasks.named('testClasses')
+        classpath = payment.sourceSets.test.runtimeClasspath
+        mainClass = 'com.chaeyeongmin.payment_sim.recovery.ev01.B13RecoveryLauncher'
+        javaLauncher = payment.javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(21) }
+    }
+}
