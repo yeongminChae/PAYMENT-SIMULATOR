@@ -99,12 +99,12 @@ def attest(cfg):
         assert item['container']=='ev01-b13-'+kind and item['url']=='jdbc:postgresql://127.0.0.1:'+port+'/'+database
         assert c['NetworkSettings']['Networks'][net]['IPAddress']==ip, 'Docker IP mismatch'
         assert c['NetworkSettings']['Ports']['5432/tcp']==[dict(HostIp='127.0.0.1',HostPort=port)]
-        observed=query(item,"SELECT json_build_object('database',current_database(),'system',system_identifier::text,'directory',current_setting('data_directory'),'address',inet_server_addr()::text,'port',inet_server_port(),'user',current_user) FROM pg_control_system()")
+        observed=query(item,"SELECT json_build_object('database',current_database(),'system',system_identifier::text,'directory',current_setting('data_directory'),'address',host(inet_server_addr()),'port',inet_server_port(),'user',current_user) FROM pg_control_system()")
         assert observed['database']==database and observed['port']==5432
         # psql uses container loopback; JDBC uses the published network interface. Java checks that interface independently.
         observed['address']=ip
         item['identity']=observed
-    rows=query(cfg['van'],"SELECT coalesce(json_agg(x),'[]'::json) FROM (SELECT pid,datname,client_addr::text,client_port,application_name,usename FROM pg_stat_activity WHERE application_name='EV01B13_VAN' ORDER BY pid) x")
+    rows=query(cfg['van'],"SELECT coalesce(json_agg(x),'[]'::json) FROM (SELECT pid,datname,host(client_addr) AS client_addr,client_port,application_name,usename FROM pg_stat_activity WHERE application_name='EV01B13_VAN' ORDER BY pid) x")
     host=host_proof(cfg['tcp'],rows)
     selected=lambda c:{k:c[k] for k in ('Id','Mounts')} | {'networks':c['NetworkSettings']['Networks'],'ports':c['NetworkSettings']['Ports']}
     return dict(daemon=docker('info','--format','{{.ID}}').strip(),copies=[selected(c) for c in copies],

@@ -25,6 +25,13 @@ class HostProofTest(unittest.TestCase):
         result=self.proof()
         self.assertEqual(['55555'],result['localPorts'])
         self.assertNotIn('not-persisted',str(result))
+    def test_unexpected_raw_inet_text_still_fails_closed(self):
+        # SQL host(client_addr) must strip PostgreSQL's /32; do not weaken equality here.
+        self.rows[0]['client_addr']='172.19.0.1/32'
+        with self.assertRaises(AssertionError):self.proof()
+    def test_wrong_database_still_rejected(self):
+        self.rows[0]['datname']='van_sim_c'
+        with self.assertRaises(AssertionError):self.proof()
     def test_other_db_url_rejected(self):
         self.process=self.process.replace(':15433/van_sim',':5433/van_sim')
         with self.assertRaises(AssertionError):self.proof()

@@ -56,7 +56,11 @@ class IsolationTest(unittest.TestCase):
             assert args[0]=='exec' and args[1] in ('ev01-b13-payment','ev01-b13-van')
             assert 'BEGIN READ ONLY' in args[-1]
             if 'pg_control_system' in args[-1]:
+                self.assertIn('host(inet_server_addr())',args[-1])
+                self.assertNotIn('inet_server_addr()::text',args[-1])
                 return json.dumps(dict(database='payment_sim' if args[1].endswith('payment') else 'van_sim',port=5432,system='123',directory='/data',address='127.0.0.1',user='postgres'))
+            self.assertIn('host(client_addr) AS client_addr',args[-1])
+            self.assertNotIn('client_addr::text',args[-1])
             return '[]'
         with patch('isolation.docker',side_effect=fake),patch('isolation.host_proof',return_value={'pid':42831}):
             evidence=attest(cfg)

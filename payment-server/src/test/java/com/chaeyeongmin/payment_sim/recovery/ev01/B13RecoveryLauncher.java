@@ -52,13 +52,13 @@ public final class B13RecoveryLauncher {
     static String connectionGuard(JsonNode cfg) {
         JsonNode id=cfg.get("identity");
         String condition="current_database()="+literal(id.path("database").asText())+" AND current_user="+literal(id.path("user").asText())+
-            " AND inet_server_port()="+id.path("port").asInt()+" AND inet_server_addr()::text="+literal(id.path("address").asText())+" AND current_setting('data_directory')="+literal(id.path("directory").asText())+
+            " AND inet_server_port()="+id.path("port").asInt()+" AND host(inet_server_addr())="+literal(id.path("address").asText())+" AND current_setting('data_directory')="+literal(id.path("directory").asText())+
             " AND (SELECT system_identifier::text FROM pg_control_system())="+literal(id.path("system").asText());
         return "DO $$ BEGIN IF NOT ("+condition+") THEN RAISE EXCEPTION 'B13 backend mismatch'; END IF; END $$";
     }
     static String literal(String value) {return "'"+value.replace("'","''")+"'";}
     static String identitySql() {
-        return "SELECT json_build_object('database',current_database(),'system',system_identifier::text,'directory',current_setting('data_directory'),'address',inet_server_addr()::text,'port',inet_server_port(),'user',current_user)::text FROM pg_control_system()";
+        return "SELECT json_build_object('database',current_database(),'system',system_identifier::text,'directory',current_setting('data_directory'),'address',host(inet_server_addr()),'port',inet_server_port(),'user',current_user)::text FROM pg_control_system()";
     }
     static void identity(JdbcTemplate jdbc, JsonNode cfg) throws Exception {
         require(JSON.readTree(jdbc.queryForObject(identitySql(),String.class)).equals(cfg.get("identity")),"JDBC backend identity mismatch");
@@ -83,7 +83,7 @@ public final class B13RecoveryLauncher {
     }
     static void write(Path path, Object value) throws Exception { JSON.writerWithDefaultPrettyPrinter().writeValue(path.toFile(),value); }
     static void backend(JdbcTemplate van, JsonNode cfg) {
-        var rows=van.queryForList("SELECT datname,client_addr::text,usename FROM pg_stat_activity WHERE application_name=?",cfg.path("tcp").path("applicationName").asText());
+        var rows=van.queryForList("SELECT datname,host(client_addr) AS client_addr,usename FROM pg_stat_activity WHERE application_name=?",cfg.path("tcp").path("applicationName").asText());
         require(!rows.isEmpty() && rows.stream().allMatch(r->cfg.path("van").path("identity").path("database").asText().equals(r.get("datname")) && cfg.path("tcp").path("address").asText().equals(r.get("client_addr")) && cfg.path("tcp").path("dbUser").asText().equals(r.get("usename"))),"VAN backend proof missing/mismatched");
     }
     public static void main(String[] args) throws Exception {
@@ -148,7 +148,7 @@ public final class B13RecoveryLauncher {
                 "--spring.datasource.url="+cfg.path("payment").path("url").asText(),"--spring.datasource.username="+cfg.path("payment").path("user").asText(),"--spring.datasource.password="+System.getenv("B13_PAYMENT_PASSWORD"),
                 "--spring.datasource.hikari.maximum-pool-size=1","--spring.datasource.hikari.connection-init-sql="+connectionGuard(cfg.get("payment")),"--payment.van.mode=tcp","--payment.van.tcp.host=127.0.0.1","--payment.van.tcp.port="+cfg.path("tcp").path("port").asInt())) {
             JdbcTemplate spring=context.getBean(JdbcTemplate.class); identity(spring,cfg.get("payment"));
-            write(out.resolve("jdbc-identities.json"),Map.of("paymentDirect",JSON.readTree(payment.queryForObject(identitySql(),String.class)),"paymentSpring",JSON.readTree(spring.queryForObject(identitySql(),String.class)),"vanDirect",JSON.readTree(van.queryForObject(identitySql(),String.class)),"vanBackends",van.queryForList("SELECT datname,client_addr::text,application_name,pid,state FROM pg_stat_activity WHERE application_name=?",cfg.path("tcp").path("applicationName").asText())));
+            write(out.resolve("jdbc-identities.json"),Map.of("paymentDirect",JSON.readTree(payment.queryForObject(identitySql(),String.class)),"paymentSpring",JSON.readTree(spring.queryForObject(identitySql(),String.class)),"vanDirect",JSON.readTree(van.queryForObject(identitySql(),String.class)),"vanBackends",van.queryForList("SELECT datname,host(client_addr) AS client_addr,application_name,pid,state FROM pg_stat_activity WHERE application_name=?",cfg.path("tcp").path("applicationName").asText())));
             var repo=context.getBean(RecoveryCandidateRepository.class); var now=LocalDateTime.now(context.getBean(java.time.Clock.class));
             var env=context.getEnvironment();
             var unknown=org.springframework.boot.convert.DurationStyle.detectAndParse(env.getRequiredProperty("payment.recovery.discovery.unknown-timeout-age"));

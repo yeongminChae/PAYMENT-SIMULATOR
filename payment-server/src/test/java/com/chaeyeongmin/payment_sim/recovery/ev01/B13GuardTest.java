@@ -34,4 +34,26 @@ class B13GuardTest {
             assertThatThrownBy(()->B13RecoveryLauncher.connect(cfg,"unused")).isInstanceOf(IllegalStateException.class);
         }
     }
+    @Test void postgresBackendUsesHostAddressWithStableAlias() {
+        var jdbc=org.mockito.Mockito.mock(org.springframework.jdbc.core.JdbcTemplate.class);
+        String sql="SELECT datname,host(client_addr) AS client_addr,usename FROM pg_stat_activity WHERE application_name=?";
+        org.mockito.Mockito.when(jdbc.queryForList(sql,"EV01B13_VAN")).thenReturn(java.util.List.of(
+            java.util.Map.of("datname","van_sim","client_addr","172.19.0.1","usename","postgres")));
+        var cfg=B13RecoveryLauncher.JSON.createObjectNode();
+        cfg.withObject("/tcp").put("applicationName","EV01B13_VAN").put("address","172.19.0.1").put("dbUser","postgres");
+        cfg.withObject("/van/identity").put("database","van_sim");
+        B13RecoveryLauncher.backend(jdbc,cfg);
+        org.mockito.Mockito.verify(jdbc).queryForList(sql,"EV01B13_VAN");
+        for(String address:java.util.List.of("172.19.0.9","172.19.0.1/32")) {
+            org.mockito.Mockito.when(jdbc.queryForList(sql,"EV01B13_VAN")).thenReturn(java.util.List.of(
+                java.util.Map.of("datname","van_sim","client_addr",address,"usename","postgres")));
+            assertThatThrownBy(()->B13RecoveryLauncher.backend(jdbc,cfg)).hasMessageContaining("mismatched");
+        }
+    }
+    @Test void jdbcServerAddressUsesHostInIdentityAndConnectionGuard() {
+        assertThat(B13RecoveryLauncher.identitySql()).contains("host(inet_server_addr())").doesNotContain("inet_server_addr()::text");
+        var cfg=B13RecoveryLauncher.JSON.createObjectNode();
+        cfg.withObject("/identity").put("database","payment_sim").put("user","postgres").put("address","172.19.0.2").put("port",5432).put("directory","/data").put("system","123");
+        assertThat(B13RecoveryLauncher.connectionGuard(cfg)).contains("host(inet_server_addr())='172.19.0.2'").doesNotContain("inet_server_addr()::text");
+    }
 }
