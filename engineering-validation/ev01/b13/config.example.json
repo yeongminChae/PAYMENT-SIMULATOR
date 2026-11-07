@@ -1,0 +1,38 @@
+{
+  "protectedContainers": [
+    {
+      "role": "B",
+      "container": "REPLACE-B-payment"
+    },
+    {
+      "role": "B",
+      "container": "REPLACE-B-van"
+    },
+    {
+      "role": "C",
+      "container": "REPLACE-C-payment"
+    },
+    {
+      "role": "C",
+      "container": "REPLACE-C-van"
+    }
+  ],
+  "payment": {
+    "container": "ev01-b13-payment",
+    "url": "jdbc:postgresql://127.0.0.1:15432/payment_sim",
+    "user": "postgres"
+  },
+  "van": {
+    "container": "ev01-b13-van",
+    "url": "jdbc:postgresql://127.0.0.1:15433/van_sim",
+    "user": "postgres"
+  },
+  "tcp": {
+    "pid": 42831,
+    "port": 19090,
+    "httpPort": 18081,
+    "applicationName": "EV01B13_VAN",
+    "address": "172.19.0.1",
+    "dbUser": "postgres"
+  }
+}
