@@ -56,3 +56,8 @@ replay_pid*
 
 .gradle/
 .DS_Store
+
+# EV-01 retained raw evidence (summaries and harness remain tracked)
+/engineering-validation/ev01/results/final-20261029/
+/engineering-validation/ev01/results/followup-20261029/
+/engineering-validation/ev01/results/incident-analysis-20261030/
