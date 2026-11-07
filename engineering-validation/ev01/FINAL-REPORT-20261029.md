@@ -1,6 +1,6 @@
 # EV-01 최종 결과 고정
 
-실험: 2026-10-26~29(KST), 읽기 전용 장애 분석: 2026-10-30(KST).
+실험: 2026-10-26~29(KST), 읽기 전용 장애 분석: 2026-10-30(KST), 실제 B13 격리 최초 실행: 2026-11-07(KST).
 
 측정 기준 HEAD는 `695e0db30240523ca996342a73b43cb1ac57f3c3`이다. C 측정에는 당시 미커밋이던
 격리 컨테이너 선택 하네스 2행이 포함됐다. 그 diff와 파일 해시는 [요약·해시 인덱스](EVIDENCE-INDEX-20261029.json)에 고정했다.
@@ -20,7 +20,7 @@
 | B 200 VU | 1회 FAIL / 2회 FAIL 및 환경 INVALID / 3회 BLOCKED | 두 번째 회차의 미확정 거래·환경 이상으로 중단 |
 | C1 100/500/1000건 × 각 3회 | 9회 PASS, 총 4,800건 RESOLVED | synthetic UNKNOWN_TIMEOUT, 단일 Worker |
 | C2 Mixed | 설계된 10건 PASS | RESOLVED 4 / RETRY_WAIT 6, 대량 Mixed 성능 측정 아님 |
-| 실제 B PROCESSING 13건 복구 | 미실행 | 후보 분석만 수행. 후속 과제로 분리 |
+| 실제 B PROCESSING 13건 격리 복구 | 2026-11-07 최초1회 FAIL | Task RUNNING1/PENDING12, Inquiry1. 원본 B 직접 복구·재실행 없음 |
 
 PASS는 해당 실험의 정의된 검증 통과, FAIL은 실행·응답·정합성 기준 미충족, INVALID는 환경/증빙 유효성 부족,
 BLOCKED는 안전 조건 때문에 미실행 또는 판정 가능한 증빙 미완성을 뜻한다.
@@ -32,7 +32,7 @@ BLOCKED는 안전 조건 때문에 미실행 또는 판정 가능한 증빙 미�
 - 아래 `results/...`는 `engineering-validation/ev01/` 기준의 **로컬 원본 위치**다. 원격 저장소에 포함된 링크가 아니다.
 - 원본이 없는 checkout에서는 인덱스의 요약과 hash만 확인할 수 있다. hash는 로컬 원본 대조용이며 원본 재배포를 대신하지 않는다.
 - 원래 B100 FAIL 23개 파일, 이전 캠페인 증빙 및 마지막 읽기 조사 때의 기존 증빙 1,219개 파일 무결성 검증 기록을 보존했다.
-- 이 Git 정리에서는 새 부하·Inquiry·Recovery/C Job·DB 변경을 실행하지 않았다. 아래 환경 상태는 **마지막 읽기 조사 당시 기록**이다.
+- 2026-10-30 Git 고정 작업에서는 새 부하·Inquiry·Recovery/C Job·DB 변경을 실행하지 않았다. 아래 환경 상태는 **마지막 읽기 조사 당시 기록**이다.
 
 ### 로컬 증빙 위치
 
@@ -225,12 +225,12 @@ C 재현은 [README](README.md)의 전용 DB/런처/identity 절차를 따르되
 
 ## 미검증 및 후속 과제
 
-[실제 B13건 격리 Recovery 검증 과제](FOLLOWUP-B13-ISOLATED-RECOVERY.md)를 별도로 고정했다. 이번에는 실행하지 않는다.
+[실제 B13건 격리 Recovery 검증 과제](FOLLOWUP-B13-ISOLATED-RECOVERY.md)를 별도로 고정했다. 10월 보고서 고정 당시에는 미실행이었고, 11월7일 승인된 격리 최초1회 실패 결과를 아래에 추가했다.
 원본 B13건의 실제 복구·양쪽 미생성2건 처리·B200 유효3회·정확한 acquire/SQL/commit span과 단일 throughput root cause는 미완료다.
 이벤트 기록 실패가 business finalization을 막는 결합과 pre-gateway DB 실패의 보상 정책, 신뢰 가능한 outbox/transaction 경계는 향후 검토 대상이다.
 audit 오류를 무조건 무시하거나 pool/timeout을 늘리는 변경을 해결책으로 확정하지 않았다.
 
-## Git 정리 검증
+## 2026-10-30 Git 고정 검증 기록
 
 하네스 회귀: `test-recovery-backlog.py` 9개, `test-independent-key.py` 7개,
 `test-independent-key-pos-trx.mjs`, 관련 shell `bash -n`을 통과했다. 최종 `git diff --check`, 상대 링크 9개, 민감정보 패턴·개인 홈 경로 검사, 원본 1,241개 파일 hash 대조가 통과했다.
@@ -238,3 +238,49 @@ audit 오류를 무조건 무시하거나 pool/timeout을 늘리는 변경을 �
 기존 `test-recovery-backlog.py`의 반환 dict·timestamp·NAT guard 보강은 기준 커밋에 이미 포함되어 중복 수정하지 않는다.
 원본 증빙·DB·volume·reservation ledger는 삭제하거나 초기화하지 않는다.
 측정 이후의 문서 수정은 결과 판정을 바꾸지 않으며, Git 정리 커밋은 새로운 실험 결과가 아니다.
+
+## 2026-11-07 마감 및 B13 격리 실행
+
+[Working Tree 및 B13 점검 기록](CLOSEOUT-20261107.md)과 [B13 요약·원본 해시](B13-RESULT-20261107.json)를 추가했다.
+위 A/B/C의 과거 FAIL/INVALID는 변경하지 않는다. 인증된 호스트 direct JDBC/Hikari 정상·오류 identity 검증 후
+사용자 승인으로 전용 B13 Payment/VAN 복사본에만 기존 recoveryJob을 **정확히1회** 실행했다. 결과는 **FAIL**이다.
+원본 B/C는 정지 상태를 유지했고, 기본5432/5433의 접속 대상을 전환하지 않았다.
+
+| 검증 항목 | 기대 | 실제 |
+|---|---:|---:|
+| Payment APPROVED / PROCESSING | 11 / 2 | 0 / 13 |
+| Task RESOLVED / RETRY_WAIT | 11 / 2 | 0 / 0 |
+| Task RUNNING / PENDING | 0 / 0 | 1 / 12 |
+| History 전체 / 종료 | 13 / 13 | 1 / 0 |
+| VAN Inquiry 수신 / 응답 | 13 / 13 | 1 / 1 |
+| 신규 VAN 승인 요청 / 원장 변경 | 0 / 0 | 0 / 0 |
+| recoveryJob 실행 | 1 COMPLETED | 1 FAILED |
+
+Job은18:55:19.614~18:56:25.357 KST,65.743초였다. Discovery199.860ms는 완료됐고 Process65.270초는 실패했다.
+Gradle/JVM을 포함한 런처 구간은84.706초다. 실패 종료까지의 시간을 복구 처리율로 환산하지 않는다.
+첫 대상 `2376-20261029-2533-0007`의 실제 Inquiry는SUCCESS/APPROVED였지만 Payment 확정은 이루어지지 않았다.
+Task1건의 claim과 미종료 History1건, 후보 Task13건 및 Batch 이력은 부분 커밋되어 격리 DB에 보존했다.
+남은12건에는 Inquiry를 보내지 않았으므로 원장 부재2건을 실제 NOT_FOUND 응답 관측으로 표시하지 않는다.
+
+최종 예외는 `unknownFailure` 트랜잭션 생성 중 Hikari 커넥션 대기30.008초,
+`total=1, active=1, idle=0`이다. 테스트 런처가 명시한 풀 크기는1이었다. 최초 Handler 예외는
+후속 실패에 가려져 별도 스택이 남지 않았으므로 정확한 최초 실패 위치를 관측했다고 주장하지 않는다.
+읽기 전용 진단에서 NOT_SUPPORTED는 실제 바깥 트랜잭션 없이도 synchronization이 활성화되고,
+MyBatis SELECT가 커넥션을 보유한 뒤 추가 REQUIRED 트랜잭션을 열면 풀1개에서 대기가 발생했다.
+동일 SELECT-only 진단의 풀2개에서는 진입에 성공했다. 이는 실패 구조의 재현이며 **풀2개 Recovery 성공이나
+Production 수정의 필요·효과를 입증하지 않는다**. 런처 풀·Production 코드·timeout은 실행 후 바꾸지 않았다.
+단순 JdbcTemplate 진단은 재현하지 못했고, MyBatis를 포함한 후속 진단과 함께 보존했다.
+사전 identity/가드 검증이 전체 Recovery 트랜잭션 실행 검증을 대신하지 못한 한계도 드러났다.
+이 진단은 B13 하네스 풀1개 조건이며 과거 B의 풀10개 처리율 정체 원인으로 일반화하지 않는다.
+
+Payment attempt22,155건 전체와 VAN3개 원장 테이블의 전후 digest가 동일했다. 원본 B/C4개 volume은
+정지 상태에서 readonly 마운트로 파일 내용 해시를 비교해 모두 동일했고 container/state/mount도 일치했다.
+원본 C에 SQL/exec/기동/종료를 수행하지 않았다. 기존 결과1,241개 SHA-256과 예약 디렉터리도 보존했다.
+VAN 로그는 첫 요청 때 날짜 회전됐다. 초기 관측기의 비회전 가정 오류는 원래 inode/hash가 일치하는
+회전 파일과 새 로그 전체를 대조해 수신1/응답1로 바로잡았으며, 초기 감사 출력·로그도 그대로 남겼다.
+이 보정은 Job FAIL 판정을 바꾸지 않는다.
+
+실패 후 Job/Inquiry 자동 재실행, Task/lease 정리, 재승인, 원본 복구를 하지 않았다.
+원본 B 실제 복구, 격리 재검증, replay/backoff 소진/동시 worker는 미완료다.
+재검증에는 별도 승인과 새 증거·격리 계획, 하네스의 트랜잭션/풀 검증이 필요하며 현재 부분 커밋 DB나
+invocation claim을 초기화해서 재사용하지 않는다. 이후 사용자가 선별17개 파일의 세 로컬 커밋을 조건부 승인했다. Push는 미승인이다.

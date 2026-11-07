@@ -1,6 +1,6 @@
 # EV-01 실제 B 미확정 13건의 격리 Recovery 검증
 
-상태: **OPEN / 이번 Git 정리 작업에서는 미실행**. 이 문서는 후속 과제이며 자동 실행 지시가 아니다.
+상태: **OPEN / 2026-11-07 승인된 최초1회 FAIL, 재실행 미승인**. 2026-11-07 [마감 사전검증](CLOSEOUT-20261107.md)을 진행했다. 이 문서는 자동 실행 지시가 아니다.
 
 ## 입력과 마지막 확인 상태
 
@@ -29,8 +29,8 @@
   NOT_FOUND를 거절 확정이나 승인 재시도 허가로 해석하지 않는다.
 - 두 건의 요청 이벤트 INSERT 예외는 해당 호출의 gateway 진입 전 중단 증거이지만,
   현재 PROCESSING 상태의 승인 재시도를 허용하는 정책은 아니다.
-- 별도 JobParameters로 재실행해 RESOLVED 11건의 원장/History 불변을 확인한다.
-  남은 2건의 Inquiry backoff/retry 소진/MANUAL_REVIEW는 설정을 몰래 단축하지 않고 별도 검증한다.
+- 이번 승인 대상은 기존 B13 런처의 Job 정확히1회다. 성공·실패·부분 완료 모두 자동 재실행하지 않는다.
+  별도 JobParameters의 replay 불변성, 남은2건의 backoff/retry 소진/MANUAL_REVIEW는 이번에 실행하지 않고 별도 승인을 받는다.
 - claim token/lease, 중복 처리 방어, 실제 대상 집합을 검증한다. 실패하면 증빙을 남기고 중단한다.
 
 ## 범위와 완료 조건
@@ -41,4 +41,18 @@ C1 4,800건은 synthetic UNKNOWN_TIMEOUT 검증으로 실제 PROCESSING 13건의
 원본의 Inquiry/Job/거래 변경·재승인, 새 부하, Production 코드 변경은 이 문서만으로 실행하지 않는다.
 
 완료 시 원본과 복사본의 무결성/격리 증명, 13건별 전후 상태, Inquiry/TCP 원본,
-Task/History 및 replay 검증, 실패/미검증 항목을 보고서에 추가한다.
+Task/History 검증, 실패/미검증 항목을 보고서에 추가한다. 미실행 replay는 완료로 표시하지 않는다.
+
+## 2026-11-07 최초 실행 결과와 남은 과제
+
+[결과·해시](B13-RESULT-20261107.json) 기준으로 기존 recoveryJob1회는FAILED다.
+Payment PROCESSING13, Task RUNNING1/PENDING12, 미종료 History1, 실제 Inquiry1(SUCCESS/APPROVED),
+신규 승인0, VAN 원장 변경0이다. 원본 B/C의 전후 파일 내용 해시는 동일하다. 자동 재실행하지 않았다.
+2건의 NOT_FOUND 응답은 아직 관측하지 못했다. 원본13건의 원인 분류8/3/2는 그대로 유지한다.
+
+- 현재 부분 커밋 DB·Task/History·lease·invocation claim과 모든 실패 증거를 보존한다.
+- 테스트 하네스 풀1개와 MyBatis synchronization/추가 트랜잭션의 관계를 검토한다.
+  SELECT-only 풀2개 진입 성공을 실제 Recovery 성공으로 확대하지 않는다.
+- 새 회차의 격리·증거 계획과 최소 하네스 수정/회귀 테스트를 구체화한 뒤 별도 실행 승인을 받는다.
+  고정 endpoint/container/identity guard를 우회하거나 현재 실패 DB를 초기화하지 않는다.
+- 원본 B 직접 복구, replay 불변성, backoff 소진/MANUAL_REVIEW, worker 경쟁은 별도 미검증 과제로 유지한다.
