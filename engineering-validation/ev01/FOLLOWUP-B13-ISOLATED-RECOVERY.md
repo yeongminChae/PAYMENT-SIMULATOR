@@ -56,3 +56,11 @@ Payment PROCESSING13, Task RUNNING1/PENDING12, 미종료 History1, 실제 Inquir
 - 새 회차의 격리·증거 계획과 최소 하네스 수정/회귀 테스트를 구체화한 뒤 별도 실행 승인을 받는다.
   고정 endpoint/container/identity guard를 우회하거나 현재 실패 DB를 초기화하지 않는다.
 - 원본 B 직접 복구, replay 불변성, backoff 소진/MANUAL_REVIEW, worker 경쟁은 별도 미검증 과제로 유지한다.
+
+## 2026-11-15 신규 R2 완료
+
+[별도 R2 단일 실행](B13-R2-RESULT-20261115.json)은PASS다. 이전 FAIL은 그대로 유지한다.
+새 복사본에서만 APPROVED/RESOLVED11, PROCESSING/RETRY_WAIT2, Inquiry/History13을 검증했다.
+신규 승인0, VAN 원장 불변, 원본 B/C·실패 B13 무변경을 확인했다.
+격리 최초 복구 검증은 완료했지만 원본 직접 복구·미해결2건 후속 정책·replay·retry 소진·다중 worker는 남았다.
+이 기록은 추가 Job/Inquiry·원본 복구·commit/push 승인이 아니다.

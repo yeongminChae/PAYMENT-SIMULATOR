@@ -20,7 +20,7 @@
 | B 200 VU | 1회 FAIL / 2회 FAIL 및 환경 INVALID / 3회 BLOCKED | 두 번째 회차의 미확정 거래·환경 이상으로 중단 |
 | C1 100/500/1000건 × 각 3회 | 9회 PASS, 총 4,800건 RESOLVED | synthetic UNKNOWN_TIMEOUT, 단일 Worker |
 | C2 Mixed | 설계된 10건 PASS | RESOLVED 4 / RETRY_WAIT 6, 대량 Mixed 성능 측정 아님 |
-| 실제 B PROCESSING 13건 격리 복구 | 2026-11-07 최초1회 FAIL | Task RUNNING1/PENDING12, Inquiry1. 원본 B 직접 복구·재실행 없음 |
+| 실제 B PROCESSING 13건 격리 복구 | 11/07 최초 FAIL 유지 / 11/15 신규 R2 PASS | R2 RESOLVED11/RETRY_WAIT2, Inquiry13. 원본 B 직접 복구 없음 |
 
 PASS는 해당 실험의 정의된 검증 통과, FAIL은 실행·응답·정합성 기준 미충족, INVALID는 환경/증빙 유효성 부족,
 BLOCKED는 안전 조건 때문에 미실행 또는 판정 가능한 증빙 미완성을 뜻한다.
@@ -284,3 +284,23 @@ VAN 로그는 첫 요청 때 날짜 회전됐다. 초기 관측기의 비회전 
 원본 B 실제 복구, 격리 재검증, replay/backoff 소진/동시 worker는 미완료다.
 재검증에는 별도 승인과 새 증거·격리 계획, 하네스의 트랜잭션/풀 검증이 필요하며 현재 부분 커밋 DB나
 invocation claim을 초기화해서 재사용하지 않는다. 이후 사용자가 선별17개 파일의 세 로컬 커밋을 조건부 승인했다. Push는 미승인이다.
+
+## 2026-11-15 새 격리 R2 실제 데이터 복구 — PASS
+
+[새 R2 결과·검증·원본 해시](B13-R2-RESULT-20261115.json)를 별도로 추가한다.
+기존11월7일 FAIL을 변경하거나 같은 DB에서 재실행하지 않았다. 정지 원본 B에서 복사한 별도 R2 DB와
+수정된 승인 조회 경계/예외 보존 코드로 사용자 승인 후 기존 recoveryJob을 정확히1회 실행했다.
+
+Payment APPROVED11/PROCESSING2, Task RESOLVED11/RETRY_WAIT2, 종료된 History13,
+실제 Inquiry 수신13/응답13, 신규 VAN 승인0건이다. 두 건은 실제 NOT_FOUND 응답을 확인했다.
+11건의 승인번호·VAN ID·금액·attempt sequence와 Task/History/claim/lease를 독립 대조했다.
+미해결2건의 attempt와 무관한 attempt 전체는 불변이며, retry_count1/첫1분 backoff를 확인했다.
+VAN3개 원장 전체 digest 및 원본 B/C·실패 B13 총6개 volume 내용 해시와 container/state/mount가 동일했다.
+기존 증빙1241개와 첫 실패 증빙47개도 보존했다.
+
+이번 결과는 실데이터 **복사본**의 단일 회차 PASS다. 원본13건을 복구한 것이 아니며,
+RETRY_WAIT2는 승인 실패 확정·재승인 허가가 아니다. replay/재시도 소진/다중 worker는 실행하지 않았다.
+하네스의 반복 identity/전체 원장 대조 비용을 포함하므로 Job 시간을 C1 처리율과 직접 비교하지 않는다.
+실제 R2 VAN 경계의 Hikari active 수를 별도 계측하지 않았으며 active0은 합성 회귀에서 검증한 값이다.
+Pool1과 기존 timeout/Lease/Fencing 정책을 유지했다. 실패 시 자동 재실행하지 않는 단발 절차를 사용했다.
+11월15일 결과 수집 당시에는 수정·테스트·문서를 추가 commit/push하지 않았다. 11월16일 사용자가 관련 변경의 선별 commit/push를 승인했다.
