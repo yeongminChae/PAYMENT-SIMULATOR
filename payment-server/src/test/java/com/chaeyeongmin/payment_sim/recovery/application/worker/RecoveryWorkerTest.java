@@ -309,7 +309,7 @@ class RecoveryWorkerTest {
     }
 
     @Test
-    void unknownFailure저장이실패하면_DB예외가우선한다() {
+    void unknownFailure저장이실패해도_Handler예외와_후속예외를보존한다() {
         RecoveryTask task = task(RecoveryTargetType.APPROVAL, 0);
         RuntimeException handlerException = new RuntimeException("handler failed");
         RuntimeException databaseException = new RuntimeException("history finish failed");
@@ -319,7 +319,8 @@ class RecoveryWorkerTest {
         org.mockito.Mockito.doThrow(databaseException)
                 .when(transactionService).unknownFailure(HISTORY_ID, "RuntimeException", COMPLETED_AT);
 
-        assertThatThrownBy(worker::executeOne).isSameAs(databaseException);
+        assertThatThrownBy(worker::executeOne).isSameAs(handlerException)
+                .satisfies(e -> assertThat(e.getSuppressed()).containsExactly(databaseException));
     }
 
     @Test
