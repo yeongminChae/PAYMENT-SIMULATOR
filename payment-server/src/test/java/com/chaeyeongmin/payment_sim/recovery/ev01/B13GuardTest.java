@@ -3,6 +3,18 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Path;
 import static org.assertj.core.api.Assertions.*;
 class B13GuardTest {
+    @Test void recheckAcceptsOnlyItsExplicitEndpoints() {
+        var c=B13RecoveryLauncher.JSON.createObjectNode().put("profile","recheck-20261111");
+        c.withObject("/payment").put("url","jdbc:postgresql://127.0.0.1:16432/payment_sim");
+        c.withObject("/van").put("url","jdbc:postgresql://127.0.0.1:16433/van_sim");
+        c.withObject("/tcp").put("port",29090);
+        B13RecoveryLauncher.verifyEndpoints(c);
+        c.withObject("/payment").put("url","jdbc:postgresql://127.0.0.1:15432/payment_sim");
+        assertThatThrownBy(()->B13RecoveryLauncher.verifyEndpoints(c)).hasMessageContaining("endpoint mismatch");
+        c.put("profile","arbitrary");
+        assertThatThrownBy(()->B13RecoveryLauncher.verifyEndpoints(c)).hasMessageContaining("unknown execution profile");
+    }
+
     @Test void repeatedInquiryRejectedBeforeAnotherNetworkCall() {
         var seen=new java.util.HashSet<String>();
         B13RecoveryLauncher.reserveInquiry(seen,"target");

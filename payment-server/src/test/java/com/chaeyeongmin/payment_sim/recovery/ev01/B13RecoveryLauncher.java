@@ -89,13 +89,19 @@ public final class B13RecoveryLauncher {
         var rows=van.queryForList("SELECT datname,host(client_addr) AS client_addr,usename FROM pg_stat_activity WHERE application_name=?",cfg.path("tcp").path("applicationName").asText());
         require(!rows.isEmpty() && rows.stream().allMatch(r->cfg.path("van").path("identity").path("database").asText().equals(r.get("datname")) && cfg.path("tcp").path("address").asText().equals(r.get("client_addr")) && cfg.path("tcp").path("dbUser").asText().equals(r.get("usename"))),"VAN backend proof missing/mismatched");
     }
+    static void verifyEndpoints(JsonNode cfg) {
+        String profile=cfg.path("profile").asText("original");
+        require(Set.of("original","recheck-20261111").contains(profile),"unknown execution profile");
+        boolean recheck=profile.equals("recheck-20261111");
+        require(cfg.path("payment").path("url").asText().equals("jdbc:postgresql://127.0.0.1:"+(recheck?16432:15432)+"/payment_sim"),"B13 Payment endpoint mismatch");
+        require(cfg.path("van").path("url").asText().equals("jdbc:postgresql://127.0.0.1:"+(recheck?16433:15433)+"/van_sim"),"B13 VAN endpoint mismatch");
+        require(cfg.path("tcp").path("port").asInt()==(recheck?29090:19090),"B13 TCP endpoint mismatch");
+    }
     public static void main(String[] args) throws Exception {
         require("YES".equals(System.getenv("B13_ALLOW_WRITE")),"B13 opt-in required");
         Path cfgPath=Path.of(System.getenv("B13_CONFIG")); JsonNode cfg=JSON.readTree(cfgPath.toFile());
         Path out=cfgPath.toAbsolutePath().getParent();
-        require(cfg.path("payment").path("url").asText().equals("jdbc:postgresql://127.0.0.1:15432/payment_sim"),"B13 Payment endpoint mismatch");
-        require(cfg.path("van").path("url").asText().equals("jdbc:postgresql://127.0.0.1:15433/van_sim"),"B13 VAN endpoint mismatch");
-        require(cfg.path("tcp").path("port").asInt()==19090,"B13 TCP endpoint mismatch");
+        verifyEndpoints(cfg);
         require(Files.exists(out.resolve("docker-before.json")),"Docker attestation required");
         require(!Files.exists(out.resolve("pre.json")),"output reuse forbidden");
         // Atomic, persistent one-shot reservation: never remove/reuse a failed invocation directory.
