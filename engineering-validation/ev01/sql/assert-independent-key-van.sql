@@ -1,5 +1,6 @@
 \set ON_ERROR_STOP on
 -- ev01_requests는 요청 직전 intent 목록을 담은 세션 temp table이다.
+-- 요청 목록에서 LEFT JOIN해 VAN 원장이 없는 거래도 출력하고, 중복·누락·미승인은 false로 남긴다.
 COPY (
  WITH requested AS (
    SELECT pos_trx, attempt_seq, count(*) AS request_count FROM ev01_requests GROUP BY pos_trx, attempt_seq

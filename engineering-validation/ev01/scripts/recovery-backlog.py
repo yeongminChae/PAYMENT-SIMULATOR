@@ -24,6 +24,7 @@ spec.loader.exec_module(b)
 
 
 def db_url(value, kind):
+    """C 전용 DB의 호스트 접속 URL만 허용하고 파싱 결과를 반환한다."""
     parsed = urlsplit(value)
     name, port = ('payment_sim_ev01_c',5432) if kind=='payment' else ('van_sim_ev01_c',5433)
     if (parsed.scheme != 'postgresql' or parsed.hostname != 'localhost' or parsed.port != port or
@@ -33,6 +34,11 @@ def db_url(value, kind):
 
 
 def query(kind, sql):
+    """C 전용 DB 이름과 서버 포트를 같은 세션에서 확인한 뒤 SQL을 실행한다.
+
+    URL/세션 검사는 기본 DB나 다른 이름의 DB로 쓰는 실수를 막는다. 같은 이름을 가진
+    별도 cluster까지 구별하지는 못하므로 컨테이너와 endpoint의 대조가 별도로 필요하다.
+    """
     value = os.environ['C_' + kind.upper() + '_DB_URL']
     db_url(value,kind)
     # 접속 대상을 바꾸는 libpq 환경변수와 psqlrc는 사용하지 않는다.
@@ -40,6 +46,7 @@ def query(kind, sql):
     env['PGCONNECT_TIMEOUT']='5'
     expected='payment_sim_ev01_c' if kind=='payment' else 'van_sim_ev01_c'
     # 같은 접속 세션에서 서버가 보고한 실제 DB를 검사한 뒤에만 SQL을 실행한다.
+    # 호스트 VAN 포트 5433도 컨테이너 내부 5432로 전달되므로 서버 포트 검사는 양쪽 모두 5432다.
     guard="DO $$ BEGIN IF current_database() <> '%s' OR inet_server_port() <> 5432 THEN RAISE EXCEPTION 'C DB identity mismatch'; END IF; END $$;\n" % expected
     result = subprocess.run(
         ['psql',value,'-X','-q','-A','-t','-v','ON_ERROR_STOP=1'],input=guard+sql,text=True,capture_output=True,env=env,timeout=60)
@@ -48,10 +55,17 @@ def query(kind, sql):
 
 
 def rows(kind, select):
+    """SELECT 결과를 JSON 행 목록으로 읽는다. 결과가 없으면 빈 목록을 반환한다."""
     return json.loads(query(kind,"SELECT coalesce(json_agg(x),'[]'::json) FROM ("+select+") x;").strip())
 
 
 def verify_van_database():
+    """VAN Java PID의 DB 연결을 대조하고 사용한 검증 방식과 관측값을 반환한다.
+
+    로컬 socket의 source port가 backend와 모두 맞으면 직접 대조 결과를 사용한다.
+    포워딩으로 port가 바뀌면 PID 설정의 고유 표식과 backend 수·DB 이름을 함께 검사한다.
+    이 결과는 검사 시점의 관측이며 이후 재연결이나 모든 외부 writer를 통제하지 않는다.
+    """
     # macOS PID socket과 DB backend를 직접 대조한다. NAT/SSH forwarding이
     # source port를 바꾼 경우에는 C VAN 프로세스 전용 ApplicationName과
     # socket/backend 개수, 전 backend의 실제 DB를 함께 대조한다.
@@ -67,10 +81,9 @@ def verify_van_database():
     if {r['client_port'] for r in matched}==ports and all(r['datname']=='van_sim_ev01_c' for r in matched):
         return dict(method='lsof-client-port',van_pid=int(pid),local_ports=sorted(ports),backends=matched)
 
-    # A local SSH/Colima forwarding hop creates new TCP source ports, so direct
-    # port equality is not available. Require an explicit per-process marker in
-    # the VAN JDBC URL and exact socket/backend cardinality; never accept a DB
-    # name or a marker alone.
+    # SSH/Colima 포워딩은 source port를 바꾸므로 직접 port 대조가 불가능할 수 있다.
+    # PID 설정의 ApplicationName, 해당 표식의 backend 개수와 DB 이름을 함께 검사한다.
+    # 표식의 유일성은 실행자가 유지해야 하며, DB 이름이나 표식 하나만으로 통과시키지 않는다.
     application_name=os.environ.get('EV01_C_VAN_APPLICATION_NAME','')
     if not re.fullmatch(r'EV01C-[A-Za-z0-9-]{8,64}',application_name):
         raise ValueError('VAN PID/backend ports do not match and no valid per-process ApplicationName proof was supplied')
@@ -86,6 +99,11 @@ def verify_van_database():
 
 
 def manifest(date, base, count, mixed):
+    """C 전용 거래 식별자와 각 거래의 기대 원장·Task 상태를 메모리에서 만든다.
+
+    C1은 승인 확정 사례만 만들고, C2는 7개 사례를 순환해 10건을 만든다.
+    NOT_FOUND/UNKNOWN은 RETRY_WAIT가 기대 결과이며 RESOLVED만을 성공으로 세지 않는다.
+    """
     dt.datetime.strptime(date,'%Y%m%d')
     if base not in range(0,10000,200) or count not in (10,100,500,1000): raise ValueError('fixture bounds')
     if mixed and count!=10: raise ValueError('C2 supports smoke count=10 only')
@@ -119,6 +137,11 @@ def insert(table, values, old=False):
 
 
 def fixture_sql(items):
+    """synthetic 미확정 거래를 준비할 Payment/VAN SQL을 각각 만든다.
+
+    Recovery 후보가 되도록 생성 시각을 과거로 둔다. 반환 SQL은 DB별 transaction이며
+    두 DB의 원자적 commit을 보장하지 않는다. Task 생성과 최종 확정은 실제 Job이 수행한다.
+    """
     payment='BEGIN;\n'; van='BEGIN;\n'
     for f in items:
         approved_original=f['type']!='APPROVAL'
@@ -155,6 +178,11 @@ def fixture_sql(items):
 
 
 def snapshot(out,label,items):
+    """fixture 관련 원장·Task·History와 전역 backlog/Batch 상태를 파일에 보존한다.
+
+    pre 이후에는 기대 목록을 세션 임시 테이블에 넣어 SQL assertion도 수집한다.
+    검증용 INSERT는 임시 테이블에만 적용하며 업무 원장을 확정하지 않는다.
+    """
     keys={f['target'] for f in items}|{f['original'] for f in items}
     where=','.join(literal(k) for k in sorted(keys))
     data={}
@@ -184,7 +212,11 @@ def snapshot(out,label,items):
 
 
 def parse_db_timestamp(value):
-    """Normalize PostgreSQL JSON timestamps for the bundled Python 3.10 runtime."""
+    """PostgreSQL JSON 시각의 소수 초·시간대 표기를 Python 3.10 파서에 맞춘다.
+
+    소수 초는 6자리로 맞추고 Z/시차 표기를 정규화한다. 시간대 없는 값에 임의의
+    시간대를 부여하지 않으며 형식이 다르면 검증 오류로 전파한다.
+    """
     match=re.fullmatch(
         r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|[+-]\d{2}(?::?\d{2})?)?',
         value)
@@ -198,6 +230,11 @@ def parse_db_timestamp(value):
 
 
 def validate(items, data, before=False):
+    """snapshot을 manifest와 대조해 거래별 정합성 오류 목록을 반환한다.
+
+    before는 fixture 초기 상태, 이후는 기대 최종 상태와 Task 소유권 반납·History를 검사한다.
+    DB를 갱신하지 않으며 Job 완료 여부는 validate_job에서 별도로 검사한다.
+    """
     issues=[]
     if not before and any(row.get('assertion_ok')!='t' for row in data.get('sql_assertions',[])):
         issues.append('SQL task/history assertion failed')
@@ -249,6 +286,7 @@ def validate(items, data, before=False):
 
 
 def validate_job(evidence, items, first=True):
+    """Job/Step 완료와 시간을 검사하고 첫 실행은 실제 Discovery 후보까지 대조한다."""
     issues=[]
     if evidence.get('status')!='COMPLETED' or not evidence.get('end'): issues.append('Job incomplete')
     expected={'discoverAndRegisterRecoveryTasksStep','processRecoveryTasksStep'}
@@ -285,6 +323,11 @@ def run_command(command, env, output, timeout):
 
 
 def job(out, number, timeout, prepare=False):
+    """기존 Recovery launcher를 한 번 실행하고 JVM/Task 표본과 Job 증거를 수집한다.
+
+    prepare는 빈 전용 DB의 schema 초기화만 요청한다. CPU/Task는 주기적 표본이므로
+    짧은 RUNNING 전이나 모든 Task의 claim·lease fencing을 입증하지는 않는다.
+    """
     verify_van_database()
     url=db_url(os.environ['C_PAYMENT_DB_URL'],'payment')
     from urllib.parse import unquote
@@ -325,6 +368,7 @@ def job(out, number, timeout, prepare=False):
 
 
 def assert_isolated():
+    """전역 Recovery 스캔에 섞일 미확정 거래·미해결 Task·실행 중 Batch가 있으면 거부한다."""
     # recoveryJob는 global scan이므로 fixture 이외의 미확정 거래/활성 Task를 절대로 처리하지 않는다.
     checks=["SELECT pos_trx FROM payment_attempt WHERE final_status IS NULL OR final_status='UNKNOWN_TIMEOUT'",
         "SELECT current_trx_no FROM payment_cancel WHERE cancel_status IN ('PENDING','UNKNOWN_TIMEOUT')",
@@ -336,6 +380,11 @@ def assert_isolated():
 
 
 def summarize(out,items,errors,first=None,second=None):
+    """첫 Job의 Step 시간과 결과를 요약하고 검증 오류를 최종 판정에 반영한다.
+
+    Worker 처리량은 첫 Job 직후 snapshot의 RESOLVED 수 / 첫 Process Step 시간이다.
+    빌드·JVM 기동·두 번째 Job 시간은 분모에 넣지 않으며 p95/p99는 계산하지 않는다.
+    """
     result=dict(status='FAIL' if errors else 'PASS',errors=errors,count=len(items),
                 synthetic_network_failure=True,workers=1,p95_p99='not computed without verified per-task duration cohort')
     if first:
@@ -365,6 +414,11 @@ def summarize(out,items,errors,first=None,second=None):
 
 
 def trial(args):
+    """한 회차의 영구 예약 → fixture → 실제 Job → 재실행 검증 → 증거 보존을 수행한다.
+
+    실패 시 다음 실행으로 자동 재시도하지 않고 가능한 부분 snapshot과 로그를 남긴다.
+    반환값 True는 실패이며 main이 후속 회차를 중단하고 active marker를 보존한다.
+    """
     date=dt.datetime.now(dt.timezone.utc).strftime('%Y%m%d')
     ledger=os.environ.get('EV01_C_RESERVATION_DIR',str(Path.home()/'.payment-simulator/ev01-c-reservations'))
     base=b.reserve(ledger,date,200)
@@ -415,7 +469,8 @@ def trial(args):
         if first:
             for name in ('van_approval','van_cancel','van_reversal'):
                 if sorted(pre[name],key=str)!=sorted(first[name],key=str): errors.append('Recovery mutated VAN ledger: '+name)
-        # 명시적인 두 번째 invocation은 별도 JobParameters로 1회만 실행한다. 승인 재전송은 없다.
+        # 별도 JobParameters로 두 번째 Job을 실행해 RESOLVED 거래의 중복 반영을 검사한다.
+        # RETRY_WAIT는 retry 정책상 다시 처리될 수 있어 RESOLVED의 History 1건 조건과 구분한다.
         if completed and first and not errors:
             replay_job=attempt('job-2 replay',lambda:job(out,2,args.timeout))
             if replay_job: errors.extend(validate_job(replay_job,items,False))
@@ -481,6 +536,7 @@ def trial(args):
 
 
 def main():
+    """명시적 쓰기 동의와 로컬 실행 경계를 확인하고 제한된 횟수의 C 회차를 수행한다."""
     parser=argparse.ArgumentParser()
     parser.add_argument('--count',type=int,choices=[10,100,500,1000],default=100)
     parser.add_argument('--repeat',type=int,default=3)
@@ -501,6 +557,7 @@ def main():
     subprocess.run(['docker','inspect',os.environ.get('EV01_C_PAYMENT_CONTAINER','payment-postgres'),os.environ.get('EV01_C_VAN_CONTAINER','van-postgres')],stdout=subprocess.DEVNULL,check=True)
     # 8080을 점유하는 Payment 서버를 중지해야 한다. C 중에는 B 서버를 기동할 수 없다.
     guard=socket.socket(); guard.bind(('localhost',8080)); guard.listen(1)
+    # 8080 bind와 원자적 mkdir는 로컬 협조 실행의 경계다. 다른 포트/머신의 writer는 막지 못한다.
     active=Path.home()/'.payment-simulator/ev01-c-active'
     active.parent.mkdir(parents=True,exist_ok=True); active.mkdir()
     retain_marker=False

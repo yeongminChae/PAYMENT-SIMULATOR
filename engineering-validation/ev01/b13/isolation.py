@@ -10,6 +10,7 @@ PROFILES = {
 }
 
 def profile(name='original'):
+    """최초 B13과 신규 R2 회차의 격리 포트·network 구성을 선택한다."""
     assert name in PROFILES, 'unknown execution profile'
     return PROFILES[name]
 
@@ -27,11 +28,13 @@ def docker(*args):
 
 
 def overlap(left, right):
+    """mount 경로가 같거나 한쪽의 하위 경로이면 데이터 공유 가능성이 있다고 판단한다."""
     return any(a == b or a.startswith(b.rstrip('/')+'/') or b.startswith(a.rstrip('/')+'/')
                for a in left for b in right)
 
 
 def validate(copies, protected, roles, profile_name="original"):
+    """복사본과 보호 대상의 container·mount·network·공개 포트가 분리됐는지 검사한다."""
     spec=profile(profile_name)
     assert len(copies) == 2 and sorted(roles) == (['B','B','C','C'] if profile_name=='original' else ['B','B','C','C','FAILED','FAILED']), 'B/C inventory required'
     ids = [x['Id'] for x in copies+protected]
@@ -70,6 +73,7 @@ def query(cfg, sql):
 
 
 def host_proof(tcp, backend_rows, profile_name="original"):
+    """호스트 VAN의 PID 시작 시각·JDBC 설정·listener 소유자·socket/backend를 함께 대조한다."""
     spec=profile(profile_name)
     assert (tcp['pid']==42831 if profile_name=='original' else isinstance(tcp['pid'],int) and tcp['pid']>0)
     assert tcp['port']==spec['tcp'] and tcp['httpPort']==spec['http']
@@ -98,12 +102,18 @@ def host_proof(tcp, backend_rows, profile_name="original"):
 
 
 def boundary(evidence):
+    """실행 전후 비교에서 고정해야 하는 daemon·컨테이너·VAN PID 경계만 추린다."""
     # Running C state/statistics and VAN pool membership may legitimately vary.
     return dict(daemon=evidence['daemon'], copies=evidence['copies'], protected=evidence['protected'],
                 host={k:evidence['host'][k] for k in ('pid','start','listenerPorts')})
 
 
 def attest(cfg):
+    """현재 Docker/VAN 경계를 확인하고 cfg의 DB 설정에 관측 identity를 채운다.
+
+    SQL은 복사본에만 보내고 보호 대상은 inspect로 확인한다. 복사한 cluster는
+    system identifier가 같을 수 있으므로 mount와 network 경계도 함께 검증한다.
+    """
     name=cfg.get('profile','original'); spec=profile(name)
     specs = cfg['protectedContainers']
     assert len(specs)==(4 if name=='original' else 6) and all(s['container'] and not s['container'].startswith('REPLACE') for s in specs), 'fill real B/C inventory first'
@@ -134,6 +144,7 @@ def attest(cfg):
 
 
 def check(path):
+    """보관된 attestation을 현재 관측과 대조해 DB identity나 실행 경계 변경을 거부한다."""
     path=pathlib.Path(path); cfg=json.loads(path.read_text()); expected=json.loads(json.dumps(cfg))
     live=attest(cfg)
     assert cfg==expected, 'live identity changed'
@@ -142,6 +153,11 @@ def check(path):
 
 
 def seal(evidence):
+    """정지한 B/실패 회차의 원본 mount를 읽기 전용으로 연결해 내용 해시를 기록한다.
+
+    임시 컨테이너를 실행하므로 단순 파일 조회 명령은 아니다. 실행 중인 C는
+    해시 대상에서 제외하고 이 함수가 보호 대상 DB를 시작하거나 수정하지는 않는다.
+    """
     # Only stopped B content is hashed. Live C receives inspect calls only.
     hashes={}
     for original in evidence['protected']:

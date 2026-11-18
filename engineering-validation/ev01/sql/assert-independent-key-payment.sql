@@ -1,5 +1,6 @@
 \set ON_ERROR_STOP on
 -- 요청 목록에서 LEFT JOIN하므로 누락도 출력한다. PAN/fingerprint는 조회하지 않는다.
+-- 이 결과는 Payment 내부 정합성이다. VAN과 금액·승인번호·거래번호의 일치는 Python 수집기가 대조한다.
 COPY (
  WITH requested AS (
    SELECT pos_trx, attempt_seq, count(*) AS request_count FROM ev01_requests GROUP BY pos_trx, attempt_seq

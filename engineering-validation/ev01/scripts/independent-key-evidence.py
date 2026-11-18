@@ -13,6 +13,11 @@ import sys
 
 
 def reserve(root, date, vus):
+    """UTC 날짜별로 200-posNo 슬롯을 영구 예약하고 시작 번호를 반환한다.
+
+    mkdir가 성공한 실행만 슬롯을 소유한다. DB 충돌이나 실행 실패가 나도 예약을 보존하며,
+    중복 방지는 같은 파일시스템의 같은 ledger를 공유하는 실행 사이에서만 유효하다.
+    """
     datetime.datetime.strptime(date, '%Y%m%d')
     if vus not in (10, 25, 50, 100, 200):
         raise ValueError('invalid VU count')
@@ -29,6 +34,7 @@ def reserve(root, date, vus):
 
 
 def checkpoint(path):
+    """부하 실행 전 로그의 파일 식별자, 길이와 내용 해시를 기록한다."""
     with open(path, 'rb') as stream:
         stat = os.fstat(stream.fileno())
         prefix = stream.read(stat.st_size)
@@ -39,6 +45,7 @@ def checkpoint(path):
 
 
 def delta(path, baseline, output):
+    """로그 교체·축소·기존 내용 변경을 검사하고 기준점 이후의 완전한 행만 저장한다."""
     with open(path, 'rb') as stream:
         stat = os.fstat(stream.fileno())
         if (stat.st_dev, stat.st_ino) != (baseline['device'], baseline['inode']) or stat.st_size < baseline['size']:
@@ -54,6 +61,12 @@ def delta(path, baseline, output):
 
 
 def query(db, sql):
+    """지정 URL에서 SQL을 실행하고 표 장식 없는 결과를 반환한다.
+
+    SQL 오류는 예외로 전파한다. 이 함수는 접속 cluster의 identity를 검증하지 않으므로
+    최종 실험 유효성에는 호스트 endpoint와 지정 컨테이너의 별도 대조가 필요하다.
+    """
+    # -A/-t는 count(*)를 숫자 한 줄로 읽기 위한 조건이다. 표 형식이면 빈 슬롯도 충돌로 오판한다.
     result = subprocess.run(['psql', db, '-X', '-q', '-A', '-t', '-v', 'ON_ERROR_STOP=1'],
                             input=sql, text=True, capture_output=True)
     if result.returncode:
@@ -62,6 +75,10 @@ def query(db, sql):
 
 
 def check_fresh(date, base):
+    """예약한 200-posNo 전체에 기존 거래가 있으면 부하 전송 전에 거부한다.
+
+    이 조회는 슬롯을 DB에서 잠그지 않으므로 점검 후 외부 writer의 쓰기까지 막지는 않는다.
+    """
     datetime.datetime.strptime(date, '%Y%m%d')
     if base not in range(0, 10000, 200): raise ValueError('invalid reservation')
     where = "pos_trx >= '2376-%s-%04d-0000' AND pos_trx <= '2376-%s-%04d-9999'" % (date, base, date, base + 199)
@@ -73,6 +90,11 @@ def check_fresh(date, base):
 
 
 def sql_evidence(out, ev_dir, keys, config=None):
+    """intent 목록을 기준으로 양쪽 DB 증거를 수집하고 데이터와 수집 오류를 반환한다.
+
+    한쪽 DB의 수집이 실패해도 다른 쪽을 시도한다. config가 있으면 예약 슬롯에 남은
+    미요청 식별자도 검사하며, 영구 테이블에는 데이터를 삽입하지 않는다.
+    """
     datasets, errors = {}, []
     for kind, env in [('payment', 'PAYMENT_DB_URL'), ('van', 'VAN_DB_URL')]:
         try:
@@ -102,6 +124,7 @@ def sql_evidence(out, ev_dir, keys, config=None):
 
 
 def transaction_issues(p, v, response, tcp_count):
+    """한 거래의 HTTP 응답, Payment/VAN 원장과 TCP 수신 횟수를 대조한다."""
     issues = []
     if p.get('assertion_ok') != 't': issues.append('payment missing/duplicate/non-approved/mismatch')
     if v.get('assertion_ok') != 't': issues.append('van missing/duplicate/non-approved')
@@ -114,9 +137,15 @@ def transaction_issues(p, v, response, tcp_count):
 
 
 def collect(directory, ev_dir):
+    """실행 증거를 거래별로 합쳐 summary를 저장하고 성공은 0, 검증 실패는 1을 반환한다.
+
+    PASS는 수집한 증거의 정합성과 실행 단계 통과를 뜻한다. DB endpoint가 지정된
+    cluster인지에 대한 별도 판정이나 기존 INVALID 판정을 이 함수가 대체하지 않는다.
+    """
     out = Path(directory)
     config = json.loads((out / 'environment.json').read_text())
     errors, requests, responses = [], [], {}
+    # 1. HTTP 전송 직전 intent를 기준 목록으로 삼는다. intent만으로 실제 전송을 확정하지 않는다.
     try:
         for line in (out / 'request-events.jsonl').read_text().splitlines():
             event = json.loads(line)
@@ -137,6 +166,7 @@ def collect(directory, ev_dir):
     if set(responses) - set(keys): errors.append('response without request intent')
     with (out / 'requests.csv').open('w') as stream:
         writer = csv.writer(stream); writer.writerow(['pos_trx', 'attempt_seq']); writer.writerows((k, 1) for k in keys)
+    # 2. DB 최종 상태와 실행 전 checkpoint 이후 TCP 로그를 같은 거래 키로 연결한다.
     datasets, sql_errors = sql_evidence(out, ev_dir, keys, config)
     errors.extend(sql_errors)
     counts = collections.Counter()
@@ -150,6 +180,7 @@ def collect(directory, ev_dir):
         if set(counts) - {(k, 1) for k in keys}: errors.append('unexpected TCP identifiers in reserved range')
     except Exception as exc:
         errors.append('VAN log collection: ' + str(exc))
+    # 3. 응답이 없거나 DB/로그 수집이 실패한 거래도 누락하지 않고 issues에 남긴다.
     details = []
     for key in sorted(set(keys)):
         p = datasets.get('payment', {}).get(key, {}); v = datasets.get('van', {}).get(key, {})
@@ -169,6 +200,8 @@ def collect(directory, ev_dir):
     except Exception:
         errors.append('k6 summary absent or invalid')
     if 'FAIL' in (out / 'stage-status.txt').read_text(): errors.append('execution/sampler stage failed')
+    # 4. 측정 구간 내 HTTP 완료율과 settle 후 DB 승인 cohort 비율을 구분한다.
+    # DB 최종 승인에는 drain/settle 중 확정도 포함되므로 commit 시각별 TPS가 아니다.
     seconds = config['seconds']
     window = [r for r in responses.values() if r.get('completedMs', seconds * 1000 + 1) <= seconds * 1000]
     approved = sum(p.get('final_status') == 'APPROVED' and p.get('assertion_ok') == 't' for p in datasets.get('payment', {}).values())

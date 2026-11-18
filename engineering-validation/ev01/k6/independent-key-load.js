@@ -34,12 +34,15 @@ export const options = {
   summaryTrendStats: ['avg', 'min', 'med', 'p(95)', 'p(99)', 'max'],
   scenarios: {
     independent_key_load: {
+      // 각 VU는 응답 후 다음 요청을 보낸다. 응답이 느려지면 요청률도 낮아지는 폐쇄형 부하다.
       executor: 'constant-vus',
       vus,
       duration,
+      // duration 이후에는 시작된 요청만 완료를 기다린다. 이 응답도 k6 지연 percentile에 포함된다.
       gracefulStop: '15s',
     },
   },
+  // 정상 업무 응답으로 분류되더라도 baseline 승인이 아니면 해당 Counter threshold에서 실패한다.
   thresholds: {
     http_req_failed: ['rate==0'],
     checks: ['rate==1'],
@@ -69,6 +72,7 @@ export default function () {
 
   let body = null;
   try { body = response.json(); } catch (_) { invalidResponse.add(1); }
+  // HTTP timeout만으로 VAN 미승인을 단정하지 않는다. 최종 Payment/VAN 상태는 수집기가 대조한다.
   const finalStatus = body?.data?.finalStatus;
   const resultCode = body?.result_code;
   console.log(JSON.stringify({ event: 'response', posTrx, httpStatus: response.status,
@@ -93,6 +97,7 @@ export default function () {
   });
 }
 
+// 기본 metric은 drain까지 포함한다. 측정 구간 내 완료율은 completedMs를 읽는 Python 수집기가 계산한다.
 export function handleSummary(data) {
   return {
     stdout: textSummary(data),
