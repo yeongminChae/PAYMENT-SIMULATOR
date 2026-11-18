@@ -11,7 +11,7 @@ import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentAttempt;
 import com.chaeyeongmin.payment_sim.recovery.domain.RecoveryTask;
 import com.chaeyeongmin.payment_sim.recovery.domain.RecoveryTargetType;
 import com.chaeyeongmin.payment_sim.payment.domain.approval.PaymentFinalStatus;
-import com.chaeyeongmin.payment_sim.infra.repository.PaymentAttemptRepository;
+import com.chaeyeongmin.payment_sim.recovery.application.service.RecoveryApprovalReader;
 import com.chaeyeongmin.payment_sim.infra.repository.dto.AttemptResultUpdateParam;
 import com.chaeyeongmin.payment_sim.van.client.assembler.VanInquiryAssembler;
 import com.chaeyeongmin.payment_sim.van.client.dto.VanInquiryRequest;
@@ -37,7 +37,7 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class ApprovalRecoveryHandler implements RecoveryHandler {
 
-    private final PaymentAttemptRepository attemptRepository;
+    private final RecoveryApprovalReader attemptReader;
     private final VanGateway vanGateway;
     private final VanInquiryAssembler vanInquiryAssembler;
     private final RecoveryFinalizationService recoveryFinalizationService;
@@ -69,7 +69,7 @@ public class ApprovalRecoveryHandler implements RecoveryHandler {
          * 현재 상태를 기준으로 shortcut 또는 Inquiry 여부를 결정한다.
          */
         Optional<PaymentAttempt> attemptOpt =
-                attemptRepository.findByPosTrxAndAttemptSeq(task.targetTrxNo(), task.targetAttemptSeq());
+                attemptReader.find(task.targetTrxNo(), task.targetAttemptSeq());
 
         if (attemptOpt.isEmpty()) {
             // VAN에 물어볼 local target 자체가 없으므로 외부 호출 없이 Worker에 대상 부재를 알린다.

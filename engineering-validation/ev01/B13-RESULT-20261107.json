@@ -1,0 +1,325 @@
+{
+  "schema_version": 1,
+  "date_kst": "2026-11-07",
+  "branch": "ev-01-performance-operational-verification",
+  "head_before": "e2443c3c0e7400a4cbb2967a690d8003a236a8c9",
+  "status": "FAIL",
+  "scope": "Actual B13 isolated copies only; one recoveryJob; original B/C not recovered",
+  "job_execution_count": 1,
+  "job_status": "FAILED",
+  "started_at_kst": "2026-11-07T18:55:19.614253",
+  "ended_at_kst": "2026-11-07T18:56:25.357392",
+  "timings": {
+    "job_ms": 65743.139,
+    "discovery_ms": 199.86,
+    "process_ms": 65269.53,
+    "launcher_wall_seconds": 84.70618491700588
+  },
+  "expected_vs_actual": {
+    "approved_attempts": {
+      "expected": 11,
+      "actual": 0
+    },
+    "processing_attempts": {
+      "expected": 2,
+      "actual": 13
+    },
+    "resolved_tasks": {
+      "expected": 11,
+      "actual": 0
+    },
+    "retry_wait_tasks": {
+      "expected": 2,
+      "actual": 0
+    },
+    "running_tasks": {
+      "expected": 0,
+      "actual": 1
+    },
+    "pending_tasks": {
+      "expected": 0,
+      "actual": 12
+    },
+    "finished_history": {
+      "expected": 13,
+      "actual": 0
+    },
+    "history_total": {
+      "expected": 13,
+      "actual": 1
+    },
+    "inquiries": {
+      "expected": 13,
+      "actual": 1
+    },
+    "new_van_approvals": {
+      "expected": 0,
+      "actual": 0
+    },
+    "van_ledger_changes": {
+      "expected": 0,
+      "actual": 0
+    }
+  },
+  "safety_checks": {
+    "original_B_C_content_hashes_unchanged": true,
+    "original_B_C_state_mounts_unchanged": true,
+    "all_payment_attempts_unchanged": true,
+    "van_full_ledger_unchanged": true,
+    "van_all_tables_digest_unchanged": true,
+    "no_new_approval_requests": true,
+    "original_log_prefix_preserved_after_rotation": true,
+    "source_B_finish_guard": true,
+    "original_1241_files_unchanged": true
+  },
+  "targets": [
+    {
+      "pos_trx": "2376-20261029-2416-0007",
+      "attempt_seq": 1,
+      "amount": 10000,
+      "expected_van": "APPROVED",
+      "payment": "PROCESSING",
+      "task": "PENDING",
+      "inquiries": 0,
+      "inquiry_result": "NOT_EXECUTED",
+      "history_open": false
+    },
+    {
+      "pos_trx": "2376-20261029-2428-0007",
+      "attempt_seq": 1,
+      "amount": 10000,
+      "expected_van": "APPROVED",
+      "payment": "PROCESSING",
+      "task": "PENDING",
+      "inquiries": 0,
+      "inquiry_result": "NOT_EXECUTED",
+      "history_open": false
+    },
+    {
+      "pos_trx": "2376-20261029-2447-0007",
+      "attempt_seq": 1,
+      "amount": 10000,
+      "expected_van": "NOT_FOUND",
+      "payment": "PROCESSING",
+      "task": "PENDING",
+      "inquiries": 0,
+      "inquiry_result": "NOT_EXECUTED",
+      "history_open": false
+    },
+    {
+      "pos_trx": "2376-20261029-2459-0007",
+      "attempt_seq": 1,
+      "amount": 10000,
+      "expected_van": "APPROVED",
+      "payment": "PROCESSING",
+      "task": "PENDING",
+      "inquiries": 0,
+      "inquiry_result": "NOT_EXECUTED",
+      "history_open": false
+    },
+    {
+      "pos_trx": "2376-20261029-2463-0006",
+      "attempt_seq": 1,
+      "amount": 10000,
+      "expected_van": "APPROVED",
+      "payment": "PROCESSING",
+      "task": "PENDING",
+      "inquiries": 0,
+      "inquiry_result": "NOT_EXECUTED",
+      "history_open": false
+    },
+    {
+      "pos_trx": "2376-20261029-2533-0007",
+      "attempt_seq": 1,
+      "amount": 10000,
+      "expected_van": "APPROVED",
+      "payment": "PROCESSING",
+      "task": "RUNNING",
+      "inquiries": 1,
+      "inquiry_result": "SUCCESS",
+      "history_open": true
+    },
+    {
+      "pos_trx": "2376-20261029-2535-0007",
+      "attempt_seq": 1,
+      "amount": 10000,
+      "expected_van": "APPROVED",
+      "payment": "PROCESSING",
+      "task": "PENDING",
+      "inquiries": 0,
+      "inquiry_result": "NOT_EXECUTED",
+      "history_open": false
+    },
+    {
+      "pos_trx": "2376-20261029-2537-0007",
+      "attempt_seq": 1,
+      "amount": 10000,
+      "expected_van": "APPROVED",
+      "payment": "PROCESSING",
+      "task": "PENDING",
+      "inquiries": 0,
+      "inquiry_result": "NOT_EXECUTED",
+      "history_open": false
+    },
+    {
+      "pos_trx": "2376-20261029-2544-0007",
+      "attempt_seq": 1,
+      "amount": 10000,
+      "expected_van": "NOT_FOUND",
+      "payment": "PROCESSING",
+      "task": "PENDING",
+      "inquiries": 0,
+      "inquiry_result": "NOT_EXECUTED",
+      "history_open": false
+    },
+    {
+      "pos_trx": "2376-20261029-2565-0007",
+      "attempt_seq": 1,
+      "amount": 10000,
+      "expected_van": "APPROVED",
+      "payment": "PROCESSING",
+      "task": "PENDING",
+      "inquiries": 0,
+      "inquiry_result": "NOT_EXECUTED",
+      "history_open": false
+    },
+    {
+      "pos_trx": "2376-20261029-2571-0007",
+      "attempt_seq": 1,
+      "amount": 10000,
+      "expected_van": "APPROVED",
+      "payment": "PROCESSING",
+      "task": "PENDING",
+      "inquiries": 0,
+      "inquiry_result": "NOT_EXECUTED",
+      "history_open": false
+    },
+    {
+      "pos_trx": "2376-20261029-2574-0007",
+      "attempt_seq": 1,
+      "amount": 10000,
+      "expected_van": "APPROVED",
+      "payment": "PROCESSING",
+      "task": "PENDING",
+      "inquiries": 0,
+      "inquiry_result": "NOT_EXECUTED",
+      "history_open": false
+    },
+    {
+      "pos_trx": "2376-20261029-2575-0007",
+      "attempt_seq": 1,
+      "amount": 10000,
+      "expected_van": "APPROVED",
+      "payment": "PROCESSING",
+      "task": "PENDING",
+      "inquiries": 0,
+      "inquiry_result": "NOT_EXECUTED",
+      "history_open": false
+    }
+  ],
+  "failure": {
+    "observed": "CannotCreateTransactionException in unknownFailure; Hikari pool total=1 active=1 idle=0, 30008ms wait",
+    "first_inquiry_target": "2376-20261029-2533-0007",
+    "first_inquiry_status": "SUCCESS/APPROVED",
+    "first_handler_exception": "Not retained as the final exception; do not claim its exact stack was observed",
+    "automatic_retry": false
+  },
+  "readonly_diagnostic": {
+    "status": "REPRODUCED",
+    "statements": "MyBatis SELECT 1 + nested JDBC SELECT 1 only; no Recovery/Inquiry",
+    "cases": [
+      {
+        "pool_size": 1,
+        "outer_actual_transaction": false,
+        "outer_synchronization": true,
+        "active_after_outer_select": 1,
+        "connection_holder_open": true,
+        "connection_holder_synchronized": true,
+        "inner_transaction": "CONNECTION_TIMEOUT",
+        "exception": "CannotCreateTransactionException"
+      },
+      {
+        "pool_size": 2,
+        "outer_actual_transaction": false,
+        "outer_synchronization": true,
+        "active_after_outer_select": 1,
+        "connection_holder_open": true,
+        "connection_holder_synchronized": true,
+        "inner_transaction": "PASS"
+      }
+    ]
+  },
+  "limits": [
+    "Actual Job was not retried. Pool2 SELECT-only probe is not a successful Recovery validation.",
+    "NOT_FOUND was not observed for either remaining target: neither was queried. Their VAN rows are absent.",
+    "Original first Handler exception stack was not preserved; final observed failure is in unknownFailure transaction acquisition.",
+    "Initial generic JdbcTemplate probe did not reproduce the symptom; refined MyBatis probe did.",
+    "Initial TCP observer assumed no rollover; corrected using the original inode and SHA256 plus the full new log. Both outputs retained.",
+    "Physical protection hashes cover file paths and bytes; they do not attest all filesystem metadata.",
+    "Recovery remains incomplete; original B13, replay, retry exhaustion, and multi-worker behavior remain unverified.",
+    "B13 pool1 diagnostic does not establish the cause of earlier B load throughput at pool10."
+  ],
+  "raw_storage": "Local private B13 closeout-20261107/run-once; raw paths below are relative to that retained directory, not Git links.",
+  "raw_relative_path_sha256": {
+    "candidates.json": "b5950a9b93fa79b74a5940f8b8131ccb29bda5f453a06ed4dc0cac43a92fe091",
+    "operator-invocation.claim": "9642e6ca63c1921d7e4eef0ec9d75e33c00959b0e2dfc590d8923f8dfb18451a",
+    "operator-command.json": "fd20060b96b8209616ec7f033281146d30daf673f1825a5ae5700138e9d7b277",
+    "docker-before.json": "a940cc8cafb205f0c11d01f1a2c6c372e04c90dcf12762ce9faf40c870b9b620",
+    "protected-integrity.json": "326a70c2d524ddf03495fc57288c687d5177482859de1587d2dec7af5e49d437",
+    "post-1.json": "c3400b70ba47ccfb6754571f134bb6f9104478b27da7167f56aab48f06c1b0fd",
+    "jdbc-identities.json": "aa817c13c314873e41f6c947f611599422a64664475c5713fc3ac71ce2527dd4",
+    "readonly-mybatis-probe-stderr.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "protected-content-hashes-after.json": "32ce7e897b33cba6f3b782c353a04e93fce063bfd363a5e85e01b946abdf4bf7",
+    "invocation.claim": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "operator-result.json": "bd0a0e977ec70154004736f0cd1d097571e156e45a93dc20acea7e15c76c2500",
+    "audit-docker-live-after.json": "157ab015110136fc4fbb68f88fc16695323b6ae89670574474cf513d977ff007",
+    "preflight-host-jdbc-guard-readonly.json": "382cdabee7a9a9879d3b960d7086646abb7bb1cdd033c9942201eb6a77691e39",
+    "source-B-hashes-before.json": "7adaed6382198e6a0cf992fe4595922b24c6a35858fc3f588785a73f24b5182e",
+    "attested.json": "8ef7cfdd816c06853ec0cc953dfbb4d5b4cb413c8c87fec391bf3eeaf358cb2a",
+    "docker-after.json": "157ab015110136fc4fbb68f88fc16695323b6ae89670574474cf513d977ff007",
+    "readonly-sync-probe-stderr.txt": "a4a1b4147b928fe0d18e8e1b88a18a196c90282350d43ad9ae1d4bca06a2e580",
+    "audit-db-after.json": "6144931e8ea2aef88818bfb2312d878e769ca880b56d7a9a0f093199e4d103cd",
+    "protected-content-hashes-before.json": "32ce7e897b33cba6f3b782c353a04e93fce063bfd363a5e85e01b946abdf4bf7",
+    "van-tcp-delta-rotation-aware.log": "6356c25f9b43eb1c1196c45b4503499412546ec872aa327c592d874f378a8467",
+    "inquiries.json": "bebeed9174ce69bf383752b64e08b645efd5a64260bd92a4a9320a7407a2a7af",
+    "preflight-host-readonly-pre-snapshot.json": "3021080dedbbf643da864ede65d28d474c059499ab7e7a03330e325ea399109a",
+    "protected-stopped-after.json": "0a7c84c09c4a24e2b83b5bfb61373a72d3f636bdf81b7db2abeeb668bddc50e9",
+    "readiness.json": "7255c8346e1125a89fe63d761ca7650292c267e42996b4747e72a11ff3849e62",
+    "job-1.json": "885b0929c07770eb2cb8f6a5d30bc65aae09487e44d52801c2ffbff14c094a08",
+    "van-log-start.json": "87e1ed86906ce5f6efe5767bcc41858669790e90945977007d137138808c774c",
+    "readonly-mybatis-probe-stdout.txt": "0ae3f83470b4357a788ac0e6e432856b2bacd68e0b208deed7d99996c2f32a48",
+    "readonly-mybatis-synchronization-probe.json": "0474e8a49e589f74f9d3cdc6cc10d524fb08c2e5bf8acd0c67ff5f8e8b9e7f0a",
+    "van-tcp-delta.log": "d600491f3354c4280165eacd0e57bcce08cbd13dd62203346b7910ee49d92769",
+    "source-input-hashes.json": "9f0a2acb5670056b437d165945c787fecb945b3e67b5df671cc2bd4295737d39",
+    "readonly-sync-probe-stdout.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "finish-guard-result.json": "6379c17d798191f995d43b0950ea7787779fe29c9af7354b25de37a514ff207d",
+    "source-B-hashes-after.json": "7adaed6382198e6a0cf992fe4595922b24c6a35858fc3f588785a73f24b5182e",
+    "independent-audit.json": "5d4ab0634ad99a94cf3152e46065c8bb2d948a60e6231d1771de5718e6a5a7a2",
+    "launcher-console.log": "ab83c67b974cfb1e3acae307e1d2309356bd526a91866210934f59b6afbbe92b",
+    "pre.json": "d509e5517fd8cda189178d904430a6e2484ccd920717c6bf9a473a06833e462b",
+    "final-audit.json": "987dbf580aebfce77be1ba4ef12040afdd0cd7f035cdd7cc6e832baf38d4c212",
+    "tcp-rotation-aware-audit.json": "71f0f4aa132a245a1ef13bfcb2a586ff425898795e1c3712c2c3db7da974861e",
+    "final-readonly-state-check.json": "d655aca46d5cd8bbdc1b8d4a304dd987ed362d1a9e057e63f8a1052395c30473",
+    "protected-stopped-before.json": "0a7c84c09c4a24e2b83b5bfb61373a72d3f636bdf81b7db2abeeb668bddc50e9",
+    "diagnostic-sources/B13MyBatisSynchronizationProbe.java": "4d03dc156b5c3d31fd083dfab94e68120c5a3196e8f71f20b92efc8e1d27744c",
+    "diagnostic-sources/finalize-b13-audit.py": "8a618465baa5e12d6d828a5b7419f32190ddd102d33499aac0f17fb2e85a1129",
+    "diagnostic-sources/check-launch-task.gradle": "a3e13e32567ff6e47428fcc078946168702018a19d7a0e23ef750bac72915dcd",
+    "diagnostic-sources/run-approved-once.py": "9a7fab6491e8ca9c913f72c0685b79a67332455d7a81460c773024ed78631b81",
+    "diagnostic-sources/audit-b13-after.py": "1a0ba5051ace09921585fd7c62bbc6a58d4b2b84ff513a35c65b43d61f7ce46b",
+    "diagnostic-sources/B13SynchronizationProbe.java": "4661215de04aa8a745c170702dd6f80fa4fa6d3de1abf038a0a69cd5a085500c",
+    "payment-logs/payment-sim.log": "290600685fe707a661794b29e2b3054ee1838037e8dad789fa6ee10f6f7b2d9e"
+  },
+  "git_policy": {
+    "commit": "NOT_EXECUTED",
+    "push": "NOT_EXECUTED",
+    "original_results_index": "EVIDENCE-INDEX-20261029.json unchanged",
+    "recorded_at": "Result capture before the separately approved local commits; this field is historical."
+  },
+  "after_diagnostic_state_checks": {
+    "payment_public_tables_unchanged_since_failure_audit": true,
+    "van_public_tables_unchanged_since_failure_audit": true,
+    "job_count_still_one": true,
+    "history_still_one_open": true,
+    "protected_state_mounts_unchanged": true
+  }
+}

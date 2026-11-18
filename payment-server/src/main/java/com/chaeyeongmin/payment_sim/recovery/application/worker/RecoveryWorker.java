@@ -326,11 +326,16 @@ public class RecoveryWorker {
 
             case UNKNOWN:
                 // 원인을 업무 상태로 해석할 수 없으므로 Task는 RUNNING과 기존 소유권을 유지한다.
-                transactionService.unknownFailure(
-                        history.id(),
-                        exception.getClass().getSimpleName(),
-                        LocalDateTime.now(clock)
-                );
+                try {
+                    transactionService.unknownFailure(
+                            history.id(),
+                            exception.getClass().getSimpleName(),
+                            LocalDateTime.now(clock)
+                    );
+                } catch (RuntimeException recordingFailure) {
+                    // Preserve the Handler cause even when recording its failure cannot open a transaction.
+                    if (recordingFailure != exception) exception.addSuppressed(recordingFailure);
+                }
 
                 throw exception;
 
