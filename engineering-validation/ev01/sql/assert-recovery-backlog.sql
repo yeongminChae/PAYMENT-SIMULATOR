@@ -1,5 +1,6 @@
 \set ON_ERROR_STOP on
 -- manifest에서 만든 temp table을 기준으로 대상별 Task/History를 검증한다.
+-- RETRY_WAIT도 manifest가 기대하는 결과면 통과한다. 재실행 시 RESOLVED History 중복은 Python에서 별도 검사한다.
 COPY (
   WITH evidence AS (
     SELECT f.*,

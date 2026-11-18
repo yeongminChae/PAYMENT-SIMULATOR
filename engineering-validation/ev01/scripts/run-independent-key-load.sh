@@ -15,6 +15,7 @@ Usage: run-independent-key-load.sh --vus 10|25|50|100|200 [options]
 EOF
 }
 
+# 실행 순서: 입력/연결 점검 → 영구 슬롯 예약 → checkpoint → 부하/표본 수집 → 거래별 대조.
 root_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 ev_dir="$root_dir/engineering-validation/ev01"
 vus=''; repeat=3; smoke=false; duration='60s'; amount=${AMOUNT:-10000}
@@ -55,6 +56,8 @@ docker context show | grep -q '^colima' || { echo 'Select Colima Docker context 
 docker stats --no-stream payment-postgres van-postgres >/dev/null
 for command in k6 psql git python3; do command -v "$command" >/dev/null || { echo "required command not found: $command" >&2; exit 69; }; done
 [[ -r "$van_log_file" ]] || { echo "VAN log is not readable: $van_log_file" >&2; exit 66; }
+# SELECT 1과 Docker context 확인은 연결 가능성 점검이다.
+# 앱/psql의 localhost endpoint가 지정 컨테이너인지에 대한 identity는 별도로 대조해야 한다.
 psql "$payment_db_url" -X -q -v ON_ERROR_STOP=1 -c 'SELECT 1' >/dev/null
 psql "$van_db_url" -X -q -v ON_ERROR_STOP=1 -c 'SELECT 1' >/dev/null
 
@@ -106,6 +109,7 @@ for ((trial=1; trial<=repeat; trial++)); do
     [[ -f "$result_dir/$name.csv" && $(wc -l < "$result_dir/$name.csv") -gt 1 && ! -s "$result_dir/$name.stderr" ]] ||
       echo "$name=FAIL" >> "$result_dir/stage-status.txt"
   done
+  # drain 뒤 추가로 기다려 최종 원장을 읽는다. 이 대기 중의 확정을 측정 구간 TPS로 세지 않는다.
   sleep "$settle_seconds"
   collect_code=0
   python3 "$evidence" collect "$result_dir" "$ev_dir" > "$result_dir/evidence-output.txt" 2>&1 || collect_code=$?

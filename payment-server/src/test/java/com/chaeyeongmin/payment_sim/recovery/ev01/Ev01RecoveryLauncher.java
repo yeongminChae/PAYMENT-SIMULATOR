@@ -17,8 +17,18 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.sql.DriverManager;
 
-/** opt-in한 전용 localhost DB에서 기존 recoveryJob을 한 번 실행하는 test 전용 main. */
+/**
+ * C 전용 로컬 DB에서 실제 recoveryJob을 명시적으로 한 번 실행하고 Job/Step 증거를 보존한다.
+ *
+ * <p>Python 하네스가 fixture와 실행 간 격리를 준비하고, 이 launcher는 JDBC 대상 확인 후
+ * 기존 Discovery/Worker를 실행한다. prepare 모드는 빈 전용 DB의 schema 초기화만 수행한다.
+ * 측정 시간은 Batch의 실제 시작·종료 기준이며 Gradle 빌드와 JVM 기동 시간은 포함하지 않는다.
+ */
 public class Ev01RecoveryLauncher {
+    /**
+     * 쓰기 opt-in과 JDBC 대상을 확인하고 schema 준비 또는 단일 Job 실행 결과를 기록한다.
+     * 자동 Batch 실행과 스케줄러는 비활성화해 측정용 Job 외의 실행이 섞이지 않게 한다.
+     */
     public static void main(String[] args) throws Exception {
         if (!"YES".equals(System.getenv("EV01_C_ALLOW_WRITE"))) throw new IllegalStateException("C opt-in required");
         if (!"jdbc:postgresql://localhost:5432/payment_sim_ev01_c".equals(System.getenv("SPRING_DATASOURCE_URL")))
@@ -50,6 +60,7 @@ public class Ev01RecoveryLauncher {
                 throw new IllegalStateException("Spring datasource differs from fixture database");
             result.put("pid", ProcessHandle.current().pid());
             if (prepare) { result.put("status","SCHEMA_PREPARED"); write(output,result); return; }
+            // Job 직전 Repository의 실제 후보를 기록해 manifest와 대조한다. 후보를 fixture로 대체하지 않는다.
             var candidates = context.getBean(RecoveryCandidateRepository.class);
             LocalDateTime now = LocalDateTime.now();
             var env = context.getEnvironment();
@@ -71,6 +82,7 @@ public class Ev01RecoveryLauncher {
                     }
                 });
             }
+            // 두 번째 호출도 새 JobInstance로 실행해 이미 확정된 거래의 중복 처리를 검증한다.
             JobParameters params = new JobParametersBuilder().addString("ev01.run", System.getenv("EV01_C_RUN_ID"))
                     .addString("ev01.invocation", UUID.randomUUID().toString()).toJobParameters();
             JobExecution execution = context.getBean(JobLauncher.class).run(context.getBean("recoveryJob",Job.class),params);
