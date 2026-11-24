@@ -16,6 +16,13 @@ data/
 
 # Logs (folder + legacy patterns)
 logs/
+engineering-validation/ev01/results/A/*/
+!engineering-validation/ev01/results/A/.gitkeep
+engineering-validation/ev01/results/B/*/
+!engineering-validation/ev01/results/B/.gitkeep
+engineering-validation/ev01/results/C/*/
+!engineering-validation/ev01/results/C/.gitkeep
+engineering-validation/ev01/scripts/__pycache__/
 # Log file
 *.log
 
@@ -49,3 +56,8 @@ replay_pid*
 
 .gradle/
 .DS_Store
+
+# EV-01 retained raw evidence (summaries and harness remain tracked)
+/engineering-validation/ev01/results/final-20261029/
+/engineering-validation/ev01/results/followup-20261029/
+/engineering-validation/ev01/results/incident-analysis-20261030/

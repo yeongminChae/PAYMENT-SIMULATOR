@@ -61,7 +61,7 @@ class ApprovalRecoveryHandlerTest {
         vanInquiryAssembler = mock(VanInquiryAssembler.class);
         recoveryFinalizationService = mock(RecoveryFinalizationService.class);
         handler = new ApprovalRecoveryHandler(
-                attemptRepository,
+                new com.chaeyeongmin.payment_sim.recovery.application.service.RecoveryApprovalReader(attemptRepository),
                 vanGateway,
                 vanInquiryAssembler,
                 recoveryFinalizationService
