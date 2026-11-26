@@ -30,7 +30,7 @@ posTrx = 점포(4)-영업일(8)-POS(4)-거래번호(4)-결제순번(2)
 | VAN Simulator `PosTrxProtocolValidator` | 승인 · 취소 · 망취소 · 조회 전문의 모든 posTrx |
 
 - 검증 실패 코드는 기존 `INVALID_POS_TRX`를 쓴다.
-- Payment가 직접 만드는 취소 posTrx(운영 취소)의 형식은 04에서 정한다. VAN 검증기는 그 형식도 받아야 한다.
+- Payment가 직접 만드는 운영 취소 posTrx도 같은 형식이다 (점포별 운영 전용 POS 번호, 04 · ADR-0047). 형식 검증을 따로 둘 필요가 없다.
 - 정규식은 한 곳(공용 상수)에 두고, Payment Server와 VAN Simulator는 DTO를 공유하지 않으므로(DESIGN.md 1장) 각자 같은 값을 가진다. 계약 테스트로 둘이 같은지 확인한다.
 
 ## 재결제 규칙
