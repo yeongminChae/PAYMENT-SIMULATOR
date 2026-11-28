@@ -13,7 +13,7 @@ posTrx = 점포(4)-영업일(8)-POS(4)-거래번호(4)-결제순번(2)
 정규식   ^\d{4}-\d{8}-\d{4}-\d{4}-\d{2}$
 ```
 
-- 앞 네 부분이 POS_APP의 거래 키, 마지막이 결제순번이다 (ADR-0002, 용어 · 자릿수는 ADR-0045).
+- 앞 네 부분이 Retail-POS의 거래 키, 마지막이 결제순번이다 (ADR-0002, 용어 · 자릿수는 ADR-0045).
 - 번호 용어: 거래번호 = 4자리, 거래 키 = `점포-영업일-POS-거래번호`, 영수증번호 = `점포-발행일-POS-거래번호`, 결제순번 = 한 거래 안의 카드 결제 건, attemptSeq = 같은 posTrx 안의 승인 시도 순번(Payment가 매김).
 - 영업일은 `uuuuMMdd` STRICT로 실제 날짜인지 검사한다.
 - 결제순번은 `01`~`99`. `00`은 거부한다.
@@ -47,7 +47,7 @@ posTrx = 점포(4)-영업일(8)-POS(4)-거래번호(4)-결제순번(2)
 
 ## 발급 API 제거
 
-플랫폼은 `/api/v1/pos-trx/issue` · `/eot`를 쓰지 않는다 (ADR-0002). 체번의 주인을 POS_APP 하나로 두기 위해 제거한다.
+플랫폼은 `/api/v1/pos-trx/issue` · `/eot`를 쓰지 않는다 (ADR-0002). 체번의 주인을 Retail-POS 하나로 두기 위해 제거한다.
 
 - `PosTrxController`, `PosTrxService(Impl)`, `PosTrxIssueRequest` · `PosTrxIssueResponse` · `PosTrxEotResponse`
 - `PosTrxSequenceRepository`와 매퍼, `POS_TRX_SEQUENCE` 테이블 (`schema-postgres.sql`, `db/schema.sql`)
