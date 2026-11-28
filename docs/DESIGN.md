@@ -190,14 +190,21 @@ VAN Approval          1
 
 ### 3.2 Cancel
 
-Cancel identity는 `cancelPosTrx`, 대상 원승인은 `originalPosTrx + originalAttemptSeq`입니다.
+취소 API(POS → Payment Server, HTTP)는 `posTrx`(이번 취소 거래번호), `originalPosTrx`, `originalAttemptSeq`, `cardNo`(취소 요청 카드번호)를 입력받습니다. `cardNo`는 필수이며 카드번호 형식(길이·숫자·Luhn)을 검증합니다.
+
+Payment Server는 원승인 `APPROVED` 상태를 확인한 뒤 취소 요청 카드번호로 HMAC fingerprint를 생성해 원승인 attempt의 `cardFingerprint`와 비교합니다. 원승인 fingerprint가 없는 legacy 거래는 저장된 BIN8/last4로 비교합니다. 카드가 일치하지 않으면 `CANCEL_NOT_ALLOWED / CARD_MISMATCH`로 종료하며, 신규 `PAYMENT_CANCEL` row 생성 및 VAN 취소 호출을 하지 않습니다. PAN 원문은 DB·로그·응답에 남기지 않고 fingerprint 원문도 로그에 남기지 않습니다.
+
+Payment Server → VAN Simulator(TCP) Cancel 전문에는 취소 거래번호, 원승인 거래번호·attemptSeq·VAN 거래번호·승인번호, 취소 금액 등을 전달합니다. **POS에서 받은 `cardNo`/PAN/expiry는 VAN TCP 전문에 포함되지 않으며, 내부 VAN 업무 DTO에 있는 `cardLast4`도 TCP로 전송하지 않습니다.** 카드 일치 여부는 Payment Server에서 먼저 검증합니다.
+
+Cancel identity는 `cancelPosTrx`(API의 `posTrx`), 대상 원승인은 `originalPosTrx + originalAttemptSeq`입니다.
 
 ```text
-same cancelPosTrx + same payload
-→ 기존 결과 replay
+same cancelPosTrx (same/different payload)
+→ CONFLICT / POS_TRX_ALREADY_USED
 
-same cancelPosTrx + different payload
-→ conflict
+different cancelPosTrx + same original approval
+→ 기존 취소 row의 상태를 기준으로 재응답
+→ VAN Cancel 재호출 없음
 ```
 
 동일 원승인 전체취소 20건 동시 요청에서:
